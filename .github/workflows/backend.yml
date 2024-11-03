@@ -1,0 +1,54 @@
+name: Backend Build and Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-and-test-backend:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U ${{ secrets.POSTGRES_USER }}"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up JDK
+        uses: actions/setup-java@v2
+        with:
+          distribution: 'temurin'
+          java-version: '23' # Updated to JDK 23
+
+      - name: Set up PostgreSQL Driver
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
+      - name: Build and Test Backend
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/${{ secrets.POSTGRES_DB }}
+          SPRING_DATASOURCE_USERNAME: ${{ secrets.POSTGRES_USER }}
+          SPRING_DATASOURCE_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+        run: |
+          ./gradlew clean build # Assuming Gradle; replace with ./mvnw clean test if Maven is used
+
+      - name: Run Tests
+        run: ./gradlew test # Replace with ./mvnw test if using Maven
