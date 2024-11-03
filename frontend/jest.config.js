@@ -3,11 +3,14 @@ module.exports = {
   testEnvironment: 'jest-environment-jsdom',
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
   moduleNameMapper: {
-    '^@/(.*)$': '<rootDir>/src/$1', // Map @/ to the src directory
-    '\\.(css|less|scss|sass)$': 'identity-obj-proxy', // Mock CSS imports
+    '^@/(.*)$': '<rootDir>/src/$1',
+    '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
   },
   transform: {
-    '^.+\\.(ts|tsx)$': ['ts-jest', { isolatedModules: true }], // Move ts-jest config here
+    '^.+\\.(ts|tsx)$': [
+      'ts-jest',
+      { tsconfig: '<rootDir>/tsconfig.jest.json', isolatedModules: true },
+    ],
   },
   transformIgnorePatterns: ['<rootDir>/node_modules/'],
 }
