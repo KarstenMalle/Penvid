@@ -16,13 +16,13 @@ jobs:
       postgres:
         image: postgres:latest
         env:
-          POSTGRES_DB: test_db
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U postgres"
+          --health-cmd="pg_isready -U ${{ secrets.POSTGRES_USER }}"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
@@ -47,11 +47,12 @@ jobs:
 
       - name: Build and Test Backend
         env:
-          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/test_db
-          SPRING_DATASOURCE_USERNAME: ${{ secrets.POSTGRES_USER }}
-          SPRING_DATASOURCE_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-        run: |
-          ./gradlew clean build
+          SPRING_DATASOURCE_URL: ${{ secrets.DATABASE_URL }}
+          SPRING_DATASOURCE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+          SPRING_DATASOURCE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+          SECURITY_USER_NAME: ${{ secrets.SECURITY_USER_NAME }}
+          SECURITY_USER_PASSWORD: ${{ secrets.SECURITY_USER_PASSWORD }}
+        run: ./gradlew clean build
 
       - name: Run Tests
         run: ./gradlew test
