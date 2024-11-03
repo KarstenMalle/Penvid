@@ -48,3 +48,4 @@ out/
 /tmp/
 /.idea/
 /node_modules/
+.env
