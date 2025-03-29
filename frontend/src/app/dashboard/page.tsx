@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import { supabase } from '@/lib/supabase'
 import { DashboardSkeleton } from '@/components/dashboard-skeleton'
 import { AnimatedContainer } from '@/components/ui/animated-container'
+import toast from 'react-hot-toast'
 
 interface Account {
   id: string
@@ -44,99 +45,152 @@ interface Goal {
 export default function DashboardPage() {
   const { isAuthenticated, loading, user } = useAuth()
   const router = useRouter()
+  const [redirecting, setRedirecting] = useState(false)
 
   const [accounts, setAccounts] = useState<Account[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [goals, setGoals] = useState<Goal[]>([])
   const [dataLoading, setDataLoading] = useState(true)
 
+  // Check authentication only once when component mounts
   useEffect(() => {
-    // Redirect if not authenticated once loading is complete
-    if (!loading && !isAuthenticated) {
-      router.push('/login')
+    const checkAuth = async () => {
+      console.log('Dashboard checking auth state:', {
+        isAuthenticated,
+        loading,
+      })
+
+      // If loading is complete and user is not authenticated, redirect to login
+      if (!loading && !isAuthenticated && !redirecting) {
+        console.log(
+          'Dashboard: Not authenticated and not loading, redirecting to login'
+        )
+        setRedirecting(true)
+
+        // Use direct window navigation instead of Next.js router
+        window.location.href = '/login'
+      }
+    }
+
+    checkAuth()
+  }, [isAuthenticated, loading, redirecting])
+
+  // This effect fetches user data if the user is authenticated
+  useEffect(() => {
+    // Skip if we're loading auth state or not authenticated
+    if (loading || !isAuthenticated || !user || redirecting) {
       return
     }
 
+    console.log('Dashboard authenticated, proceeding to fetch data')
+
     // Fetch user data from Supabase
     const fetchUserData = async () => {
-      if (isAuthenticated && user) {
-        setDataLoading(true)
+      console.log('Fetching user data for:', user.id)
+      setDataLoading(true)
 
+      try {
+        // Fetch accounts with error handling
         try {
-          // Fetch accounts
-          const { data: accountsData, error: accountsError } = await supabase
+          const { data, error } = await supabase
             .from('accounts')
             .select('*')
             .eq('user_id', user.id)
             .order('is_primary', { ascending: false })
 
-          if (accountsError) {
-            console.error('Error fetching accounts:', accountsError)
+          if (error) {
+            console.error('Error fetching accounts:', error)
+            if (!error.message.includes('Failed to fetch')) {
+              toast.error('Error loading account data')
+            }
           } else {
-            setAccounts(accountsData || [])
+            console.log('Accounts data:', data?.length || 0, 'accounts found')
+            setAccounts(data || [])
 
             // If no accounts yet, create sample accounts for demo
-            if (!accountsData || accountsData.length === 0) {
-              await createSampleAccounts(user.id)
+            if (!data || data.length === 0) {
+              try {
+                console.log('No accounts found, creating sample accounts')
+                await createSampleAccounts(user.id)
+              } catch (err) {
+                console.error('Failed to create sample accounts:', err)
+              }
             }
           }
+        } catch (err) {
+          console.error('Exception in account fetch:', err)
+        }
 
-          // Fetch recent transactions
-          const { data: transactionsData, error: transactionsError } =
-            await supabase
-              .from('transactions')
-              .select('*')
-              .eq('user_id', user.id)
-              .order('transaction_date', { ascending: false })
-              .limit(5)
+        // Fetch transactions with error handling
+        try {
+          const { data, error } = await supabase
+            .from('transactions')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('transaction_date', { ascending: false })
+            .limit(5)
 
-          if (transactionsError) {
-            console.error('Error fetching transactions:', transactionsError)
+          if (error) {
+            console.error('Error fetching transactions:', error)
+            if (!error.message.includes('Failed to fetch')) {
+              toast.error('Error loading transaction data')
+            }
           } else {
-            setTransactions(transactionsData || [])
+            console.log(
+              'Transaction data:',
+              data?.length || 0,
+              'transactions found'
+            )
+            setTransactions(data || [])
           }
+        } catch (err) {
+          console.error('Exception in transaction fetch:', err)
+        }
 
-          // Fetch goals
-          const { data: goalsData, error: goalsError } = await supabase
+        // Fetch goals with error handling
+        try {
+          const { data, error } = await supabase
             .from('goals')
             .select('*')
             .eq('user_id', user.id)
             .order('created_at', { ascending: false })
 
-          if (goalsError) {
-            console.error('Error fetching goals:', goalsError)
+          if (error) {
+            console.error('Error fetching goals:', error)
+            if (!error.message.includes('Failed to fetch')) {
+              toast.error('Error loading goals data')
+            }
           } else {
-            setGoals(goalsData || [])
+            console.log('Goals data:', data?.length || 0, 'goals found')
+            setGoals(data || [])
 
-            // If no goals yet, create sample goals for demo
-            if (!goalsData || goalsData.length === 0) {
-              await createSampleGoals(user.id)
+            // If no goals yet, create sample goals
+            if (!data || data.length === 0) {
+              try {
+                console.log('No goals found, creating sample goals')
+                await createSampleGoals(user.id)
+              } catch (err) {
+                console.error('Failed to create sample goals:', err)
+              }
             }
           }
-
-          // Refetch after creating samples
-          if (
-            !accountsData ||
-            accountsData.length === 0 ||
-            !goalsData ||
-            goalsData.length === 0
-          ) {
-            fetchUserData()
-          }
-        } catch (error) {
-          console.error('Error fetching user data:', error)
-        } finally {
-          setDataLoading(false)
+        } catch (err) {
+          console.error('Exception in goals fetch:', err)
         }
+      } catch (error) {
+        console.error('Error fetching dashboard data:', error)
+        toast.error('Error loading dashboard data')
+      } finally {
+        setDataLoading(false)
       }
     }
 
-    if (isAuthenticated && user) {
-      fetchUserData()
-    }
-  }, [isAuthenticated, router, loading, user])
+    fetchUserData()
+  }, [isAuthenticated, loading, user, redirecting])
 
   const createSampleAccounts = async (userId: string) => {
+    console.log('Creating sample accounts for:', userId)
+
     try {
       // Insert sample checking account
       await supabase.from('accounts').insert([
@@ -172,47 +226,65 @@ export default function DashboardPage() {
       ])
 
       // Insert sample transactions
-      const checkingAccount = await supabase
-        .from('accounts')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('type', 'checking')
-        .single()
+      try {
+        const { data: checkingAccount } = await supabase
+          .from('accounts')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('type', 'checking')
+          .single()
 
-      if (checkingAccount.data) {
-        await supabase.from('transactions').insert([
-          {
-            account_id: checkingAccount.data.id,
-            user_id: userId,
-            amount: -82.45,
-            description: 'Grocery Store',
-            category: 'Food',
-            transaction_date: new Date().toISOString(),
-          },
-          {
-            account_id: checkingAccount.data.id,
-            user_id: userId,
-            amount: 1250.0,
-            description: 'Direct Deposit',
-            category: 'Income',
-            transaction_date: new Date(Date.now() - 86400000).toISOString(), // Yesterday
-          },
-          {
-            account_id: checkingAccount.data.id,
-            user_id: userId,
-            amount: -94.72,
-            description: 'Electric Bill',
-            category: 'Utilities',
-            transaction_date: new Date(Date.now() - 172800000).toISOString(), // 2 days ago
-          },
-        ])
+        if (checkingAccount) {
+          await supabase.from('transactions').insert([
+            {
+              account_id: checkingAccount.id,
+              user_id: userId,
+              amount: -82.45,
+              description: 'Grocery Store',
+              category: 'Food',
+              transaction_date: new Date().toISOString(),
+            },
+            {
+              account_id: checkingAccount.id,
+              user_id: userId,
+              amount: 1250.0,
+              description: 'Direct Deposit',
+              category: 'Income',
+              transaction_date: new Date(Date.now() - 86400000).toISOString(), // Yesterday
+            },
+            {
+              account_id: checkingAccount.id,
+              user_id: userId,
+              amount: -94.72,
+              description: 'Electric Bill',
+              category: 'Utilities',
+              transaction_date: new Date(Date.now() - 172800000).toISOString(), // 2 days ago
+            },
+          ])
+        }
+      } catch (err) {
+        console.error('Error creating sample transactions:', err)
       }
+
+      console.log('Sample accounts and transactions created successfully')
+
+      // Refetch accounts after creation
+      const { data } = await supabase
+        .from('accounts')
+        .select('*')
+        .eq('user_id', userId)
+        .order('is_primary', { ascending: false })
+
+      setAccounts(data || [])
     } catch (error) {
-      console.error('Error creating sample accounts:', error)
+      console.error('Error in createSampleAccounts:', error)
+      throw error
     }
   }
 
   const createSampleGoals = async (userId: string) => {
+    console.log('Creating sample goals for:', userId)
+
     try {
       await supabase.from('goals').insert([
         {
@@ -232,13 +304,25 @@ export default function DashboardPage() {
           is_completed: false,
         },
       ])
+
+      console.log('Sample goals created successfully')
+
+      // Refetch goals after creation
+      const { data } = await supabase
+        .from('goals')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+
+      setGoals(data || [])
     } catch (error) {
-      console.error('Error creating sample goals:', error)
+      console.error('Error in createSampleGoals:', error)
+      throw error
     }
   }
 
-  // Show a loading state when checking authentication
-  if (loading || dataLoading) {
+  // Show loading state when loading or redirecting
+  if (loading || redirecting || (isAuthenticated && dataLoading)) {
     return (
       <div className="container mx-auto p-8">
         <DashboardSkeleton />
@@ -246,8 +330,18 @@ export default function DashboardPage() {
     )
   }
 
-  // Prevent rendering until authentication is verified
-  if (!isAuthenticated) return null
+  // Show "unauthorized" message if we're not authenticated and not redirecting
+  if (!isAuthenticated && !redirecting) {
+    return (
+      <div className="container mx-auto p-8 text-center">
+        <h1 className="text-3xl font-bold mb-4">Access Denied</h1>
+        <p className="mb-6">You must be logged in to view this page.</p>
+        <Button onClick={() => (window.location.href = '/login')}>
+          Go to Login
+        </Button>
+      </div>
+    )
+  }
 
   return (
     <main className="container mx-auto p-8">

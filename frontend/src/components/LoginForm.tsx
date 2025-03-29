@@ -31,9 +31,10 @@ interface UserAuthFormProps extends React.HTMLAttributes<HTMLDivElement> {}
 
 export function LoginForm({ className, ...props }: UserAuthFormProps) {
   const [error, setError] = React.useState('')
+  const [redirecting, setRedirecting] = React.useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { login } = useAuth()
+  const { login, isAuthenticated, loading } = useAuth()
 
   // Check for registered parameter to show success message
   const registered = searchParams.get('registered')
@@ -51,24 +52,58 @@ export function LoginForm({ className, ...props }: UserAuthFormProps) {
     },
   })
 
+  // Helper function to redirect to dashboard
+  const redirectToDashboard = () => {
+    if (redirecting) return
+    setRedirecting(true)
+    console.log('Redirecting to dashboard')
+
+    // Force page reload to ensure clean state
+    window.location.href = '/dashboard'
+  }
+
+  // Check for session and redirect if already authenticated
+  React.useEffect(() => {
+    // Wait for auth to finish loading before deciding
+    if (loading) return
+
+    if (isAuthenticated) {
+      console.log('Already authenticated, redirecting to dashboard')
+      redirectToDashboard()
+    }
+  }, [isAuthenticated, loading])
+
+  // Handle form submission
   const onSubmit = async (data: LoginFormValues) => {
+    if (redirecting) return
     setError('')
 
     try {
+      console.log('Submitting login form')
       const { error } = await login(data.email, data.password)
 
       if (error) {
+        console.log('Login error:', error)
         setError(error.message || 'Login failed')
       } else {
-        router.push('/dashboard')
+        // Login successful, redirect after a short delay
+        console.log('Login successful, redirecting shortly')
+        toast.success('Login successful!')
+
+        // Wait a moment for state to update
+        setTimeout(() => {
+          redirectToDashboard()
+        }, 500)
       }
     } catch (err: any) {
-      setError('An error occurred during login')
-      console.error(err)
+      console.error('Login exception:', err)
+      setError('An unexpected error occurred')
     }
   }
 
-  async function handleGoogleLogin() {
+  // OAuth login handlers
+  const handleGoogleLogin = async () => {
+    if (redirecting) return
     setError('')
 
     try {
@@ -84,11 +119,11 @@ export function LoginForm({ className, ...props }: UserAuthFormProps) {
       }
     } catch (err: any) {
       setError('An error occurred during login')
-      console.error(err)
     }
   }
 
-  async function handleGithubLogin() {
+  const handleGithubLogin = async () => {
+    if (redirecting) return
     setError('')
 
     try {
@@ -104,7 +139,6 @@ export function LoginForm({ className, ...props }: UserAuthFormProps) {
       }
     } catch (err: any) {
       setError('An error occurred during login')
-      console.error(err)
     }
   }
 
@@ -116,6 +150,26 @@ export function LoginForm({ className, ...props }: UserAuthFormProps) {
       )
     }
   }, [registered])
+
+  // Show loading state during redirect
+  if (redirecting) {
+    return (
+      <div className="flex flex-col items-center justify-center space-y-4">
+        <Icons.spinner className="h-10 w-10 animate-spin text-blue-600" />
+        <p className="text-center text-gray-600">Redirecting to dashboard...</p>
+      </div>
+    )
+  }
+
+  // Avoid showing login form while still checking authentication
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center space-y-4">
+        <Icons.spinner className="h-10 w-10 animate-spin text-blue-600" />
+        <p className="text-center text-gray-600">Checking authentication...</p>
+      </div>
+    )
+  }
 
   return (
     <div className={cn('grid gap-6', className)} {...props}>
