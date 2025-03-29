@@ -104,3 +104,18 @@ body {
     @apply bg-background text-foreground;
   }
 }
+
+/* Autofill styling for the entire input wrapper */
+.autofill-wrapper input:-webkit-autofill,
+.autofill-wrapper input:-webkit-autofill:hover,
+.autofill-wrapper input:-webkit-autofill:focus,
+.autofill-wrapper input:-webkit-autofill:active {
+  transition: background-color 5000s ease-in-out 0s;
+  background-color: #e7f1ff !important; /* Full background color on autofill */
+}
+
+.autofill-wrapper {
+  background-color: #e7f1ff; /* Ensures wrapper is colored on autofill */
+}
+
+

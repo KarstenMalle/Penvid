@@ -5,6 +5,7 @@ import { AuthProvider } from '@/context/AuthContext'
 import { ThemeProvider } from '@/components/ThemeProvider'
 import './globals.css'
 import { useEffect, useState } from 'react'
+import { usePathname } from 'next/navigation'
 
 export default function RootLayout({
   children,
@@ -12,11 +13,16 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   const [isClient, setIsClient] = useState(false)
+  const pathname = usePathname()
 
   // Enable client-side rendering to avoid hydration mismatches
   useEffect(() => {
     setIsClient(true)
   }, [])
+
+  // Define routes where Navbar should be excluded
+  const noNavbarRoutes = ['/register', '/login', '/forgot-password']
+  const showNavbar = !noNavbarRoutes.includes(pathname!)
 
   return (
     <AuthProvider>
@@ -24,17 +30,13 @@ export default function RootLayout({
         <body className="font-['Overpass']" suppressHydrationWarning>
           {isClient ? (
             <ThemeProvider>
-              <Navbar />
-              <main className="max-w-screen-xl mx-auto px-0 py-6">
-                {children}
-              </main>
+              {showNavbar && <Navbar />}
+              <main className=" mx-auto px-0">{children}</main>
             </ThemeProvider>
           ) : (
             <div>
-              <Navbar />
-              <main className="max-w-screen-xl mx-auto px-0 py-6">
-                {children}
-              </main>
+              {showNavbar && <Navbar />}
+              <main className=" mx-auto px-0">{children}</main>
             </div>
           )}
         </body>
