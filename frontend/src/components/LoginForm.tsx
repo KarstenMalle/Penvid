@@ -1,120 +1,235 @@
 'use client'
 
 import * as React from 'react'
-
+import { useRouter, useSearchParams } from 'next/navigation'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useForm } from 'react-hook-form'
+import * as z from 'zod'
 import { cn } from '@/lib/utils'
 import { Icons } from '@/components/ui/icons'
 import { Button } from '@/components/ui/button'
-import { InputIcon } from '@/components/ui/input-icon'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { MdEmail as EmailIcon } from 'react-icons/md'
-import { IoLockClosed as PasswordIcon } from 'react-icons/io5'
+import Link from 'next/link'
+import { useAuth } from '@/context/AuthContext'
+import { supabase } from '@/lib/supabase'
+import { motion } from 'framer-motion'
+import toast from 'react-hot-toast'
+
+// Define schema for form validation
+const loginSchema = z.object({
+  email: z
+    .string()
+    .min(1, { message: 'Email is required' })
+    .email({ message: 'Please enter a valid email address' }),
+  password: z.string().min(1, { message: 'Password is required' }),
+})
+
+type LoginFormValues = z.infer<typeof loginSchema>
 
 interface UserAuthFormProps extends React.HTMLAttributes<HTMLDivElement> {}
 
 export function LoginForm({ className, ...props }: UserAuthFormProps) {
-  const [isLoading, setIsLoading] = React.useState<boolean>(false)
+  const [error, setError] = React.useState('')
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const { login } = useAuth()
 
-  async function onSubmit(event: React.SyntheticEvent) {
-    event.preventDefault()
-    setIsLoading(true)
+  // Check for registered parameter to show success message
+  const registered = searchParams.get('registered')
 
-    setTimeout(() => {
-      setIsLoading(false)
-    }, 3000)
+  // Initialize form with react-hook-form + zod validation
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<LoginFormValues>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: {
+      email: '',
+      password: '',
+    },
+  })
+
+  const onSubmit = async (data: LoginFormValues) => {
+    setError('')
+
+    try {
+      const { error } = await login(data.email, data.password)
+
+      if (error) {
+        setError(error.message || 'Login failed')
+      } else {
+        router.push('/dashboard')
+      }
+    } catch (err: any) {
+      setError('An error occurred during login')
+      console.error(err)
+    }
   }
+
+  async function handleGoogleLogin() {
+    setError('')
+
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/dashboard`,
+        },
+      })
+
+      if (error) {
+        setError(error.message || 'Failed to log in with Google')
+      }
+    } catch (err: any) {
+      setError('An error occurred during login')
+      console.error(err)
+    }
+  }
+
+  async function handleGithubLogin() {
+    setError('')
+
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'github',
+        options: {
+          redirectTo: `${window.location.origin}/dashboard`,
+        },
+      })
+
+      if (error) {
+        setError(error.message || 'Failed to log in with GitHub')
+      }
+    } catch (err: any) {
+      setError('An error occurred during login')
+      console.error(err)
+    }
+  }
+
+  // Show success message when registered successfully
+  React.useEffect(() => {
+    if (registered === 'true') {
+      toast.success(
+        'Registration successful! Please check your email for verification.'
+      )
+    }
+  }, [registered])
 
   return (
     <div className={cn('grid gap-6', className)} {...props}>
-      <form onSubmit={onSubmit}>
-        <div className="grid gap-2">
-          <div className="grid gap-1 font-medium text-lg">
-            <Label className="sr-only" htmlFor="email">
-              Email
-            </Label>
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+      >
+        {error && (
+          <div
+            className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative mb-4"
+            role="alert"
+          >
+            <span className="block sm:inline">{error}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
             <Input
               id="email"
-              placeholder="Email address"
+              placeholder="your.email@example.com"
               type="email"
               autoCapitalize="none"
               autoComplete="email"
               autoCorrect="off"
-              disabled={isLoading}
-              required
+              disabled={isSubmitting}
+              {...register('email')}
+              className={errors.email ? 'border-red-300' : ''}
             />
-            {/*<InputIcon*/}
-            {/*  id="email"*/}
-            {/*  placeholder="Email address"*/}
-            {/*  type="email"*/}
-            {/*  autoCapitalize="none"*/}
-            {/*  autoComplete="email"*/}
-            {/*  autoCorrect="off"*/}
-            {/*  disabled={isLoading}*/}
-            {/*  iconProps={{ behavior: 'prepend' }}*/}
-            {/*  icon={EmailIcon}*/}
-            {/*/>*/}
-            <Label className="sr-only" htmlFor="password">
-              Password
-            </Label>
+            {errors.email && (
+              <p className="text-sm text-red-500">{errors.email.message}</p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="password">Password</Label>
+              <Link
+                href="/forgot-password"
+                className="text-sm text-blue-600 hover:underline"
+              >
+                Forgot password?
+              </Link>
+            </div>
             <Input
               id="password"
-              placeholder="Password"
+              placeholder="••••••••"
               type="password"
               autoCapitalize="none"
-              autoComplete="password"
+              autoComplete="current-password"
               autoCorrect="off"
-              disabled={isLoading}
-              required
+              disabled={isSubmitting}
+              {...register('password')}
+              className={errors.password ? 'border-red-300' : ''}
             />
-            {/*<InputIcon*/}
-            {/*  id="password"*/}
-            {/*  placeholder="Password"*/}
-            {/*  type="password"*/}
-            {/*  autoCapitalize="none"*/}
-            {/*  autoComplete="password"*/}
-            {/*  autoCorrect="off"*/}
-            {/*  disabled={isLoading}*/}
-            {/*  iconProps={{ behavior: 'prepend' }}*/}
-            {/*  icon={PasswordIcon}*/}
-            {/*/>*/}
-          </div>
-          <Button disabled={isLoading}>
-            {isLoading && (
-              <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
+            {errors.password && (
+              <p className="text-sm text-red-500">{errors.password.message}</p>
             )}
-            Log In
+          </div>
+
+          <Button type="submit" className="w-full" disabled={isSubmitting}>
+            {isSubmitting ? (
+              <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              'Log In'
+            )}
+          </Button>
+        </form>
+
+        <div className="relative mt-4">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-white px-2 text-gray-500">
+              Or continue with
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <Button
+            variant="outline"
+            type="button"
+            disabled={isSubmitting}
+            onClick={handleGithubLogin}
+            className="bg-white hover:bg-gray-50"
+          >
+            {isSubmitting ? (
+              <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Icons.gitHub className="mr-2 h-4 w-4" />
+            )}{' '}
+            GitHub
+          </Button>
+
+          <Button
+            variant="outline"
+            type="button"
+            disabled={isSubmitting}
+            onClick={handleGoogleLogin}
+            className="bg-white hover:bg-gray-50"
+          >
+            {isSubmitting ? (
+              <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Icons.googleColor className="mr-2 h-4 w-4" />
+            )}{' '}
+            Google
           </Button>
         </div>
-      </form>
-      <div className="relative">
-        <div className="absolute inset-0 flex items-center">
-          <span className="w-full border-t" />
-        </div>
-        <div className="relative flex justify-center text-xs uppercase">
-          <span className="bg-background px-2 text-muted-foreground">
-            Or continue with
-          </span>
-        </div>
-      </div>
-      <div className="grid gap-2 mb-2">
-        <Button variant="outline" type="button" disabled={isLoading}>
-          {isLoading ? (
-            <Icons.spinner className="mr-2 mb-0.5 h-4 w-4 animate-spin" />
-          ) : (
-            <Icons.gitHub className="mr-2 mb-0.5 h-4 w-4" />
-          )}{' '}
-          GitHub
-        </Button>
-        <Button variant="outline" type="button" disabled={isLoading}>
-          {isLoading ? (
-            <Icons.spinner className="mr-2 mb-0.5 h-4 w-4 animate-spin" />
-          ) : (
-            <Icons.googleColor className="mr-2 mb-0.5 h-4 w-4" />
-          )}{' '}
-          Google
-        </Button>
-      </div>
+      </motion.div>
     </div>
   )
 }
