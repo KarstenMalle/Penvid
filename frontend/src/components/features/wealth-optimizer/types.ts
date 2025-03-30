@@ -28,12 +28,68 @@ export interface YearlyData {
 }
 
 /**
+ * Investment detail for tracking growth
+ */
+export interface InvestmentDetail {
+  year: number
+  amount: number
+  totalValue: number
+}
+
+/**
+ * Detailed information about loan payoff
+ */
+export interface PayoffDetail {
+  loanId: number
+  loanName: string
+  payoffTimeMonths: number
+  payoffTimeYears: number
+  totalInterestPaid: number
+  totalPaid: number
+  monthlyPayment: number
+  originalLoanAmount: number
+}
+
+/**
+ * Collection of loan payoff details by loan ID
+ */
+export interface LoanPayoffDetails {
+  [loanId: number]: PayoffDetail
+}
+
+/**
+ * Comparison of paying down a loan vs investing
+ */
+export interface LoanStrategyComparison {
+  loanId: number
+  loanName: string
+  interestRate: number
+  originalBalance: number
+  minimumPayment: number
+  baselinePayoff: PayoffDetail
+  acceleratedPayoff: PayoffDetail
+  extraMonthlyPayment: number
+  interestSaved: number
+  potentialInvestmentGrowth: number
+  payingDownIsBetter: boolean
+  netAdvantage: number
+  betterStrategy: string
+  totalCostWithMinPayments: number
+  totalCostWithAcceleratedPayments: number
+  totalCostWithInvestments: number
+}
+
+/**
  * Results of a specific financial strategy
  */
 export interface StrategyResult {
   yearlyData: YearlyData[]
   finalNetWorth: number
   totalInterestPaid: number
+  loanPayoffDetails: LoanPayoffDetails
+  investmentDetails: InvestmentDetail[]
+  strategyName: string
+  strategyDescription: string
 }
 
 /**
@@ -48,6 +104,7 @@ export interface StrategyResults {
  */
 export interface OptimalStrategy {
   name: string
+  description: string
   netWorthDifference: {
     [strategyName: string]: number
   }

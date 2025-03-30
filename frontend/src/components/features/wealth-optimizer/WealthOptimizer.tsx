@@ -25,25 +25,25 @@ import {
   OptimalStrategy,
   Recommendation,
   FINANCIAL_CONSTANTS,
+  LoanStrategyComparison,
 } from './types'
 import { generateRecommendations } from './recommendation-utils'
 import { Icons } from '@/components/ui/icons'
+import { useAuth } from '@/context/AuthContext'
+import { LoanService } from '@/services/LoanService'
+import toast from 'react-hot-toast'
 import _ from 'lodash'
 
 const WealthOptimizer: React.FC = () => {
+  // Auth context for user information
+  const { user, isAuthenticated } = useAuth()
+
   // User inputs
   const [monthlyAvailable, setMonthlyAvailable] = useState(1000)
-  const [loans, setLoans] = useState<Loan[]>([
-    {
-      id: 1,
-      name: 'Student Loan',
-      balance: 25000,
-      interestRate: 5.8,
-      termYears: 10,
-      minimumPayment: 275,
-    },
-  ])
+  const [loans, setLoans] = useState<Loan[]>([])
   const [isCalculating, setIsCalculating] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
 
   // Results
   const [results, setResults] = useState<StrategyResults | null>(null)
@@ -57,6 +57,98 @@ const WealthOptimizer: React.FC = () => {
     [key: string]: number
   }>({})
   const [recommendations, setRecommendations] = useState<Recommendation[]>([])
+  const [loanComparisons, setLoanComparisons] = useState<
+    LoanStrategyComparison[]
+  >([])
+
+  // Load saved loans from Supabase
+  useEffect(() => {
+    const loadUserLoans = async () => {
+      if (!isAuthenticated || !user) {
+        setIsLoading(false)
+        return
+      }
+
+      setIsLoading(true)
+      try {
+        // Fetch user's loans
+        const userLoans = await LoanService.getUserLoans(user.id)
+
+        if (userLoans.length > 0) {
+          setLoans(userLoans)
+        } else {
+          // Create a default loan if user has none
+          const defaultLoan = await LoanService.createDefaultLoan(user.id)
+          if (defaultLoan) {
+            setLoans([defaultLoan])
+          } else {
+            // Fallback to a local default if we couldn't create in the database
+            setLoans([
+              {
+                id: 1,
+                name: 'Student Loan',
+                balance: 25000,
+                interestRate: 5.8,
+                termYears: 10,
+                minimumPayment: 275,
+              },
+            ])
+          }
+        }
+      } catch (error) {
+        console.error('Error loading loans:', error)
+        toast.error('Failed to load your loan data')
+
+        // Fallback to default loans
+        setLoans([
+          {
+            id: 1,
+            name: 'Student Loan',
+            balance: 25000,
+            interestRate: 5.8,
+            termYears: 10,
+            minimumPayment: 275,
+          },
+        ])
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadUserLoans()
+  }, [user, isAuthenticated])
+
+  // Save loans when they change (debounced to prevent too many saves)
+  const saveLoans = async () => {
+    if (!isAuthenticated || !user || loans.length === 0) return
+
+    setIsSaving(true)
+    try {
+      const saved = await LoanService.saveUserLoans(user.id, loans)
+      if (!saved) {
+        console.error('Failed to save loans')
+      }
+    } catch (error) {
+      console.error('Error saving loans:', error)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  // Debounced save function to prevent too many saves
+  const debouncedSave = _.debounce(saveLoans, 1000)
+
+  // Call the debounced save function when loans change
+  useEffect(() => {
+    if (loans.length > 0 && !isLoading) {
+      debouncedSave()
+    }
+
+    // Clean up debounce on unmount
+    return () => {
+      debouncedSave.cancel()
+    }
+  }, [loans, isLoading])
 
   // Add a new empty loan
   const addLoan = () => {
@@ -86,13 +178,8 @@ const WealthOptimizer: React.FC = () => {
     field: keyof Loan,
     value: string | number
   ) => {
-    const numericValue =
-      field !== 'name' ? parseFloat(String(value)) || 0 : value
-
     setLoans(
-      loans.map((loan) =>
-        loan.id === id ? { ...loan, [field]: numericValue } : loan
-      )
+      loans.map((loan) => (loan.id === id ? { ...loan, [field]: value } : loan))
     )
   }
 
@@ -107,6 +194,19 @@ const WealthOptimizer: React.FC = () => {
     return Math.max(0, monthlyAvailable - totalMinimumPayment)
   }
 
+  // Handle monthly available input change
+  const handleMonthlyAvailableChange = (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const value = e.target.value
+    if (value === '') {
+      setMonthlyAvailable(0)
+    } else {
+      const numValue = parseFloat(value)
+      setMonthlyAvailable(isNaN(numValue) ? 0 : numValue)
+    }
+  }
+
   // Calculate all strategies and determine the optimal one
   const calculateResults = () => {
     setIsCalculating(true)
@@ -119,7 +219,7 @@ const WealthOptimizer: React.FC = () => {
           loans,
           monthlyAvailable
         )
-        const { strategies, optimal } = calculationResults
+        const { strategies, optimal, loanComparisons } = calculationResults
 
         // Prepare data for the chart
         const combinedYearlyData: { [year: number]: any } = {}
@@ -163,12 +263,23 @@ const WealthOptimizer: React.FC = () => {
         setTotalInterestPaid(totalInterest)
         setTotalInvestmentValue(totalInvestment)
         setRecommendations(personalRecommendations)
+        setLoanComparisons(loanComparisons)
       } catch (error) {
         console.error('Error calculating results:', error)
+        toast.error('Error calculating results. Please check your inputs.')
       } finally {
         setIsCalculating(false)
       }
     }, 100)
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[300px]">
+        <Icons.spinner className="h-8 w-8 animate-spin text-primary" />
+        <span className="ml-2">Loading your loan data...</span>
+      </div>
+    )
   }
 
   return (
@@ -198,10 +309,8 @@ const WealthOptimizer: React.FC = () => {
                 type="number"
                 min="0"
                 className="pl-7"
-                value={monthlyAvailable}
-                onChange={(e) =>
-                  setMonthlyAvailable(parseFloat(e.target.value) || 0)
-                }
+                value={monthlyAvailable || ''}
+                onChange={handleMonthlyAvailableChange}
               />
             </div>
             <p className="text-sm text-gray-500">
@@ -259,6 +368,7 @@ const WealthOptimizer: React.FC = () => {
               totalInterestPaid={totalInterestPaid}
               totalInvestmentValue={totalInvestmentValue}
               recommendations={recommendations}
+              loanComparisons={loanComparisons}
             />
           </CardContent>
         </Card>

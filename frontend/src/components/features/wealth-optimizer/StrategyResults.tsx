@@ -18,8 +18,15 @@ import {
   BarChart,
   Bar,
 } from 'recharts'
-import { formatCurrency, formatPercent } from './calculations'
-import { StrategyResults, OptimalStrategy, Recommendation } from './types'
+import { formatCurrency, formatPercent, formatTimeSpan } from './calculations'
+import {
+  StrategyResults,
+  OptimalStrategy,
+  Recommendation,
+  LoanStrategyComparison,
+  FINANCIAL_CONSTANTS,
+} from './types'
+import LoanComparison from './LoanComparison'
 
 interface StrategyResultsProps {
   results: StrategyResults
@@ -28,6 +35,7 @@ interface StrategyResultsProps {
   totalInterestPaid: { [key: string]: number }
   totalInvestmentValue: { [key: string]: number }
   recommendations: Recommendation[]
+  loanComparisons: LoanStrategyComparison[]
 }
 
 // Colors for charts
@@ -45,24 +53,11 @@ const StrategyResultsComponent: React.FC<StrategyResultsProps> = ({
   totalInterestPaid,
   totalInvestmentValue,
   recommendations,
+  loanComparisons,
 }) => {
-  const [activeTab, setActiveTab] = useState<'chart' | 'comparison'>('chart')
-
-  // Generate explanation for each strategy
-  const getStrategyExplanation = (strategyName: string): string => {
-    switch (strategyName) {
-      case 'Minimum Payments + Invest':
-        return 'Pay only the minimum required payments on all loans and invest the rest in the S&P 500.'
-      case 'Debt Avalanche':
-        return 'Pay minimum on all loans, but put any extra money toward the highest interest loan first. Once paid off, move to the next highest interest loan. Invest only after all loans are paid off.'
-      case 'Hybrid Approach':
-        return `Pay off only loans with interest rates higher than the S&P 500's inflation-adjusted return (6.78%), and invest the rest.`
-      case '5-Year Aggressive Paydown':
-        return 'Aggressively pay down all loans for the first 5 years (focusing on high-interest loans first), then switch to investing all extra money after that.'
-      default:
-        return ''
-    }
-  }
+  const [activeTab, setActiveTab] = useState<'chart' | 'comparison' | 'loans'>(
+    'loans'
+  )
 
   // Prepare comparison data for the bar chart
   const prepareComparisonData = () => {
@@ -118,7 +113,7 @@ const StrategyResultsComponent: React.FC<StrategyResultsProps> = ({
             <div>
               <h4 className="text-xl font-bold">{optimalStrategy.name}</h4>
               <p className="text-gray-600 dark:text-gray-400 mt-1">
-                {getStrategyExplanation(optimalStrategy.name)}
+                {optimalStrategy.description}
               </p>
             </div>
 
@@ -150,9 +145,19 @@ const StrategyResultsComponent: React.FC<StrategyResultsProps> = ({
         </CardContent>
       </Card>
 
-      {/* Tabs for switching between chart views */}
+      {/* Tabs for switching between views */}
       <div className="border-b">
         <div className="flex space-x-8">
+          <button
+            className={`pb-2 font-medium ${
+              activeTab === 'loans'
+                ? 'border-b-2 border-blue-600 text-blue-600'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+            onClick={() => setActiveTab('loans')}
+          >
+            Loan-by-Loan Analysis
+          </button>
           <button
             className={`pb-2 font-medium ${
               activeTab === 'chart'
@@ -175,6 +180,14 @@ const StrategyResultsComponent: React.FC<StrategyResultsProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Loan-by-Loan Analysis */}
+      {activeTab === 'loans' && (
+        <LoanComparison
+          comparisons={loanComparisons}
+          spReturn={FINANCIAL_CONSTANTS.SP500_INFLATION_ADJUSTED_RETURN}
+        />
+      )}
 
       {/* Chart View */}
       {activeTab === 'chart' && (
@@ -333,8 +346,10 @@ const StrategyResultsComponent: React.FC<StrategyResultsProps> = ({
         <h3 className="font-medium">Important Notes:</h3>
         <ul className="list-disc list-inside space-y-1">
           <li>
-            These projections use a 6.78% inflation-adjusted annual return for
-            S&P 500 investments (historical average from 1928 to 2024).
+            These projections use a{' '}
+            {FINANCIAL_CONSTANTS.SP500_INFLATION_ADJUSTED_RETURN}%
+            inflation-adjusted annual return for S&P 500 investments (historical
+            average from 1928 to 2024).
           </li>
           <li>
             Actual market returns may vary significantly over time. Past

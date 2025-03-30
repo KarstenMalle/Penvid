@@ -5,6 +5,10 @@ import {
   StrategyResults,
   OptimalStrategy,
   FINANCIAL_CONSTANTS,
+  PayoffDetail,
+  LoanPayoffDetails,
+  InvestmentDetail,
+  LoanStrategyComparison,
 } from './types'
 
 const { SP500_INFLATION_ADJUSTED_RETURN, COMPARISON_YEARS } =
@@ -30,6 +34,104 @@ export const calculateMonthlyPayment = (
 }
 
 /**
+ * Calculates time needed to pay off a loan with a given monthly payment
+ */
+export const calculateLoanPayoffTime = (
+  principal: number,
+  annualRate: number,
+  monthlyPayment: number
+): { months: number; years: number } => {
+  // If loan amount is 0 or payment is 0
+  if (principal <= 0 || monthlyPayment <= 0) {
+    return { months: 0, years: 0 }
+  }
+
+  const monthlyRate = annualRate / 100 / 12
+
+  // If interest rate is 0, simple division
+  if (monthlyRate === 0) {
+    const months = Math.ceil(principal / monthlyPayment)
+    return {
+      months: months,
+      years: Math.floor(months / 12),
+    }
+  }
+
+  // For interest-bearing loans, use the formula:
+  // n = -log(1 - P*r/PMT) / log(1 + r)
+  // where n is number of payments, P is principal, r is monthly rate, PMT is payment
+  const n =
+    -Math.log(1 - (principal * monthlyRate) / monthlyPayment) /
+    Math.log(1 + monthlyRate)
+  const months = Math.ceil(n)
+
+  return {
+    months: months,
+    years: Math.floor(months / 12),
+  }
+}
+
+/**
+ * Calculates total interest paid on a loan
+ */
+export const calculateTotalInterestPaid = (
+  principal: number,
+  annualRate: number,
+  monthlyPayment: number
+): number => {
+  if (principal <= 0 || monthlyPayment <= 0) {
+    return 0
+  }
+
+  const monthlyRate = annualRate / 100 / 12
+
+  // If interest rate is 0, no interest is paid
+  if (monthlyRate === 0) {
+    return 0
+  }
+
+  // Calculate payoff time
+  const { months } = calculateLoanPayoffTime(
+    principal,
+    annualRate,
+    monthlyPayment
+  )
+
+  // Total amount paid
+  const totalPaid = monthlyPayment * months
+
+  // Total interest is the difference between total paid and principal
+  return Math.max(0, totalPaid - principal)
+}
+
+/**
+ * Calculates potential investment growth over a period
+ */
+export const calculateInvestmentGrowth = (
+  monthlyContribution: number,
+  yearsInvesting: number,
+  annualReturnRate: number = SP500_INFLATION_ADJUSTED_RETURN
+): number => {
+  if (monthlyContribution <= 0 || yearsInvesting <= 0) {
+    return 0
+  }
+
+  const months = yearsInvesting * 12
+  const monthlyRate = annualReturnRate / 100 / 12
+
+  // Formula for future value of periodic payments with compound interest
+  const futureValue =
+    monthlyContribution *
+    ((Math.pow(1 + monthlyRate, months) - 1) / monthlyRate)
+
+  // Calculate total contributions
+  const totalContributions = monthlyContribution * months
+
+  // Return just the interest/growth portion
+  return Math.max(0, futureValue - totalContributions)
+}
+
+/**
  * Calculates total minimum monthly payment for all loans
  */
 export const calculateTotalMinimumPayment = (loans: Loan[]): number => {
@@ -48,6 +150,91 @@ export const calculateRemainingMoney = (
 }
 
 /**
+ * Get detailed payoff information for a loan with minimum payments
+ */
+export const calculateLoanDetailedPayoff = (
+  loan: Loan,
+  extraPayment: number = 0
+): PayoffDetail => {
+  const totalPayment = loan.minimumPayment + extraPayment
+  const { months, years } = calculateLoanPayoffTime(
+    loan.balance,
+    loan.interestRate,
+    totalPayment
+  )
+
+  const totalInterest = calculateTotalInterestPaid(
+    loan.balance,
+    loan.interestRate,
+    totalPayment
+  )
+
+  const totalPaid = loan.balance + totalInterest
+
+  return {
+    loanId: loan.id,
+    loanName: loan.name,
+    payoffTimeMonths: months,
+    payoffTimeYears: years,
+    totalInterestPaid: totalInterest,
+    totalPaid: totalPaid,
+    monthlyPayment: totalPayment,
+    originalLoanAmount: loan.balance,
+  }
+}
+
+/**
+ * Calculate detailed loan comparison for different strategies
+ */
+export const calculateLoanStrategyComparison = (
+  loan: Loan,
+  extraMonthlyPayment: number
+): LoanStrategyComparison => {
+  // Calculate baseline (minimum payment only)
+  const baselinePayoff = calculateLoanDetailedPayoff(loan, 0)
+
+  // Calculate with extra payment
+  const acceleratedPayoff = calculateLoanDetailedPayoff(
+    loan,
+    extraMonthlyPayment
+  )
+
+  // Calculate potential investment growth if extra payment was invested instead
+  const potentialInvestmentGrowth = calculateInvestmentGrowth(
+    extraMonthlyPayment,
+    baselinePayoff.payoffTimeYears,
+    SP500_INFLATION_ADJUSTED_RETURN
+  )
+
+  // Calculate interest saved by paying early
+  const interestSaved =
+    baselinePayoff.totalInterestPaid - acceleratedPayoff.totalInterestPaid
+
+  // Determine if paying down is better than investing
+  const payingDownIsBetter = interestSaved > potentialInvestmentGrowth
+
+  return {
+    loanId: loan.id,
+    loanName: loan.name,
+    interestRate: loan.interestRate,
+    originalBalance: loan.balance,
+    minimumPayment: loan.minimumPayment,
+    baselinePayoff,
+    acceleratedPayoff,
+    extraMonthlyPayment,
+    interestSaved,
+    potentialInvestmentGrowth,
+    payingDownIsBetter,
+    netAdvantage: payingDownIsBetter
+      ? interestSaved - potentialInvestmentGrowth
+      : potentialInvestmentGrowth - interestSaved,
+    betterStrategy: payingDownIsBetter
+      ? 'Pay Down Loan'
+      : 'Minimum Payment + Invest',
+  }
+}
+
+/**
  * Strategy 1: Pay minimum on all loans, invest the rest
  */
 export const calculateMinimumPaymentStrategy = (
@@ -61,6 +248,13 @@ export const calculateMinimumPaymentStrategy = (
   let currentLoans = JSON.parse(JSON.stringify(loans)) as Loan[]
   let investmentValue = 0
   let totalInterest = 0
+  const loanPayoffDetails: LoanPayoffDetails = {}
+  const investmentDetails: InvestmentDetail[] = []
+
+  // Calculate loan payoff details for each loan
+  loans.forEach((loan) => {
+    loanPayoffDetails[loan.id] = calculateLoanDetailedPayoff(loan, 0)
+  })
 
   for (let year = 0; year <= COMPARISON_YEARS; year++) {
     const yearSummary: YearlyData = {
@@ -81,6 +275,9 @@ export const calculateMinimumPaymentStrategy = (
       yearlyData.push(yearSummary)
       continue
     }
+
+    // Track investment for the year
+    let yearlyInvestment = 0
 
     // Process a full year
     for (let month = 1; month <= 12; month++) {
@@ -100,7 +297,15 @@ export const calculateMinimumPaymentStrategy = (
       // Invest the remaining money
       investmentValue *= 1 + SP500_INFLATION_ADJUSTED_RETURN / 100 / 12
       investmentValue += remainingMoney
+      yearlyInvestment += remainingMoney
     }
+
+    // Track yearly investment details
+    investmentDetails.push({
+      year,
+      amount: yearlyInvestment,
+      totalValue: investmentValue,
+    })
 
     // Record end of year values
     yearSummary.investmentValue = investmentValue
@@ -116,6 +321,11 @@ export const calculateMinimumPaymentStrategy = (
     yearlyData,
     finalNetWorth: yearlyData[COMPARISON_YEARS].netWorth,
     totalInterestPaid: totalInterest,
+    loanPayoffDetails,
+    investmentDetails,
+    strategyName: 'Minimum Payments + Invest',
+    strategyDescription:
+      'Pay only the minimum required payments on all loans and invest the rest in the S&P 500.',
   }
 }
 
@@ -133,6 +343,14 @@ export const calculateAvalancheStrategy = (
   let currentLoans = JSON.parse(JSON.stringify(loans)) as Loan[]
   let investmentValue = 0
   let totalInterest = 0
+  const loanPayoffDetails: LoanPayoffDetails = {}
+  const investmentDetails: InvestmentDetail[] = []
+  const extraPayments: Record<number, number> = {}
+
+  // Default extra payment is 0 - will be calculated during simulation
+  loans.forEach((loan) => {
+    extraPayments[loan.id] = 0
+  })
 
   for (let year = 0; year <= COMPARISON_YEARS; year++) {
     const yearSummary: YearlyData = {
@@ -153,6 +371,9 @@ export const calculateAvalancheStrategy = (
       yearlyData.push(yearSummary)
       continue
     }
+
+    // Track investment for the year
+    let yearlyInvestment = 0
 
     // Process a full year
     for (let month = 1; month <= 12; month++) {
@@ -186,6 +407,11 @@ export const calculateAvalancheStrategy = (
           )
           currentLoans[i].balance -= payment
           extraPaymentAvailable -= payment
+
+          // Track extra payments for this loan (for the first year)
+          if (year === 1 && month === 1) {
+            extraPayments[currentLoans[i].id] = payment
+          }
         }
       }
 
@@ -195,11 +421,19 @@ export const calculateAvalancheStrategy = (
         extraPaymentAvailable > 0
       ) {
         investmentValue += extraPaymentAvailable
+        yearlyInvestment += extraPaymentAvailable
       }
 
       // Grow existing investments
       investmentValue *= 1 + SP500_INFLATION_ADJUSTED_RETURN / 100 / 12
     }
+
+    // Track yearly investment details
+    investmentDetails.push({
+      year,
+      amount: yearlyInvestment,
+      totalValue: investmentValue,
+    })
 
     // Record end of year values
     yearSummary.investmentValue = investmentValue
@@ -211,10 +445,23 @@ export const calculateAvalancheStrategy = (
     yearlyData.push(yearSummary)
   }
 
+  // Calculate loan payoff details for each loan
+  loans.forEach((loan) => {
+    loanPayoffDetails[loan.id] = calculateLoanDetailedPayoff(
+      loan,
+      extraPayments[loan.id]
+    )
+  })
+
   return {
     yearlyData,
     finalNetWorth: yearlyData[COMPARISON_YEARS].netWorth,
     totalInterestPaid: totalInterest,
+    loanPayoffDetails,
+    investmentDetails,
+    strategyName: 'Debt Avalanche',
+    strategyDescription:
+      'Pay minimum on all loans, but put any extra money toward the highest interest loan first. Once paid off, move to the next highest interest loan. Invest only after all loans are paid off.',
   }
 }
 
@@ -232,6 +479,14 @@ export const calculateHybridStrategy = (
   let currentLoans = JSON.parse(JSON.stringify(loans)) as Loan[]
   let investmentValue = 0
   let totalInterest = 0
+  const loanPayoffDetails: LoanPayoffDetails = {}
+  const investmentDetails: InvestmentDetail[] = []
+  const extraPayments: Record<number, number> = {}
+
+  // Default extra payment is 0 - will be calculated during simulation
+  loans.forEach((loan) => {
+    extraPayments[loan.id] = 0
+  })
 
   // Identify whether a loan is high interest (above S&P return)
   const isHighInterest = (interestRate: number) =>
@@ -256,6 +511,9 @@ export const calculateHybridStrategy = (
       yearlyData.push(yearSummary)
       continue
     }
+
+    // Track investment for the year
+    let yearlyInvestment = 0
 
     // Process a full year
     for (let month = 1; month <= 12; month++) {
@@ -300,6 +558,11 @@ export const calculateHybridStrategy = (
             )
             currentLoans[i].balance -= payment
             extraPaymentAvailable -= payment
+
+            // Track extra payments for this loan (for the first year)
+            if (year === 1 && month === 1) {
+              extraPayments[currentLoans[i].id] = payment
+            }
           }
         }
       }
@@ -307,11 +570,19 @@ export const calculateHybridStrategy = (
       // Invest any money left after paying high interest loans
       if (extraPaymentAvailable > 0) {
         investmentValue += extraPaymentAvailable
+        yearlyInvestment += extraPaymentAvailable
       }
 
       // Grow existing investments
       investmentValue *= 1 + SP500_INFLATION_ADJUSTED_RETURN / 100 / 12
     }
+
+    // Track yearly investment details
+    investmentDetails.push({
+      year,
+      amount: yearlyInvestment,
+      totalValue: investmentValue,
+    })
 
     // Record end of year values
     yearSummary.investmentValue = investmentValue
@@ -323,10 +594,23 @@ export const calculateHybridStrategy = (
     yearlyData.push(yearSummary)
   }
 
+  // Calculate loan payoff details for each loan
+  loans.forEach((loan) => {
+    const extraPayment = isHighInterest(loan.interestRate)
+      ? extraPayments[loan.id]
+      : 0
+
+    loanPayoffDetails[loan.id] = calculateLoanDetailedPayoff(loan, extraPayment)
+  })
+
   return {
     yearlyData,
     finalNetWorth: yearlyData[COMPARISON_YEARS].netWorth,
     totalInterestPaid: totalInterest,
+    loanPayoffDetails,
+    investmentDetails,
+    strategyName: 'Hybrid Approach',
+    strategyDescription: `Pay off only loans with interest rates higher than the S&P 500's inflation-adjusted return (${SP500_INFLATION_ADJUSTED_RETURN}%), and invest the rest.`,
   }
 }
 
@@ -344,6 +628,14 @@ export const calculateCustomStrategy = (
   let currentLoans = JSON.parse(JSON.stringify(loans)) as Loan[]
   let investmentValue = 0
   let totalInterest = 0
+  const loanPayoffDetails: LoanPayoffDetails = {}
+  const investmentDetails: InvestmentDetail[] = []
+  const extraPayments: Record<number, number> = {}
+
+  // Default extra payment is 0 - will be calculated during simulation
+  loans.forEach((loan) => {
+    extraPayments[loan.id] = 0
+  })
 
   for (let year = 0; year <= COMPARISON_YEARS; year++) {
     const yearSummary: YearlyData = {
@@ -364,6 +656,9 @@ export const calculateCustomStrategy = (
       yearlyData.push(yearSummary)
       continue
     }
+
+    // Track investment for the year
+    let yearlyInvestment = 0
 
     // Process a full year
     for (let month = 1; month <= 12; month++) {
@@ -401,6 +696,11 @@ export const calculateCustomStrategy = (
             )
             currentLoans[i].balance -= payment
             extraPaymentAvailable -= payment
+
+            // Track extra payments for this loan (for the first year)
+            if (year === 1 && month === 1) {
+              extraPayments[currentLoans[i].id] = payment
+            }
           }
         }
       }
@@ -408,11 +708,19 @@ export const calculateCustomStrategy = (
       // After 5 years, invest everything extra
       if (year > 5 && extraPaymentAvailable > 0) {
         investmentValue += extraPaymentAvailable
+        yearlyInvestment += extraPaymentAvailable
       }
 
       // Grow existing investments
       investmentValue *= 1 + SP500_INFLATION_ADJUSTED_RETURN / 100 / 12
     }
+
+    // Track yearly investment details
+    investmentDetails.push({
+      year,
+      amount: yearlyInvestment,
+      totalValue: investmentValue,
+    })
 
     // Record end of year values
     yearSummary.investmentValue = investmentValue
@@ -424,11 +732,53 @@ export const calculateCustomStrategy = (
     yearlyData.push(yearSummary)
   }
 
+  // Calculate loan payoff details for each loan
+  loans.forEach((loan) => {
+    loanPayoffDetails[loan.id] = calculateLoanDetailedPayoff(
+      loan,
+      extraPayments[loan.id]
+    )
+  })
+
   return {
     yearlyData,
     finalNetWorth: yearlyData[COMPARISON_YEARS].netWorth,
     totalInterestPaid: totalInterest,
+    loanPayoffDetails,
+    investmentDetails,
+    strategyName: '5-Year Aggressive Paydown',
+    strategyDescription:
+      'Aggressively pay down all loans for the first 5 years (focusing on high-interest loans first), then switch to investing all extra money after that.',
   }
+}
+
+/**
+ * For each loan, calculate whether paying down or investing is better
+ */
+export const calculateLoanWiseComparisons = (
+  loans: Loan[],
+  monthlyAvailable: number
+): LoanStrategyComparison[] => {
+  const remainingMoney = calculateRemainingMoney(monthlyAvailable, loans)
+
+  // If there's no extra money available, return empty comparisons
+  if (remainingMoney <= 0) {
+    return []
+  }
+
+  // Calculate how much extra money to allocate to each loan
+  const comparisons: LoanStrategyComparison[] = []
+
+  // Sort loans by interest rate (highest first)
+  const sortedLoans = [...loans].sort((a, b) => b.interestRate - a.interestRate)
+
+  // For each loan, calculate comparison if all extra money went to it
+  sortedLoans.forEach((loan) => {
+    const comparison = calculateLoanStrategyComparison(loan, remainingMoney)
+    comparisons.push(comparison)
+  })
+
+  return comparisons
 }
 
 /**
@@ -440,6 +790,7 @@ export const calculateAllStrategies = (
 ): {
   strategies: StrategyResults
   optimal: OptimalStrategy
+  loanComparisons: LoanStrategyComparison[]
 } => {
   // Calculate different strategies
   const strategies: StrategyResults = {
@@ -454,6 +805,9 @@ export const calculateAllStrategies = (
       monthlyAvailable
     ),
   }
+
+  // Calculate loan-wise comparisons for clearer explanation
+  const loanComparisons = calculateLoanWiseComparisons(loans, monthlyAvailable)
 
   // Determine optimal strategy
   const bestStrategy = Object.keys(strategies).reduce((best, current) => {
@@ -478,8 +832,10 @@ export const calculateAllStrategies = (
     strategies,
     optimal: {
       name: bestStrategy,
+      description: strategies[bestStrategy].strategyDescription,
       netWorthDifference,
     },
+    loanComparisons,
   }
 }
 
@@ -503,4 +859,20 @@ export const formatPercent = (percent: number): string => {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(percent / 100)
+}
+
+/**
+ * Format years and months for display
+ */
+export const formatTimeSpan = (months: number): string => {
+  const years = Math.floor(months / 12)
+  const remainingMonths = months % 12
+
+  if (years === 0) {
+    return `${remainingMonths} month${remainingMonths !== 1 ? 's' : ''}`
+  } else if (remainingMonths === 0) {
+    return `${years} year${years !== 1 ? 's' : ''}`
+  } else {
+    return `${years} year${years !== 1 ? 's' : ''} and ${remainingMonths} month${remainingMonths !== 1 ? 's' : ''}`
+  }
 }
