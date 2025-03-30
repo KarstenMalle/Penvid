@@ -278,7 +278,7 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
                   updateField('loanType', value as LoanType)
                 }
               >
-                <SelectTrigger className="col-span-3">
+                <SelectTrigger id="type" className="col-span-3">
                   <SelectValue placeholder="Select loan type" />
                 </SelectTrigger>
                 <SelectContent>
@@ -423,3 +423,5 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
     </Dialog>
   )
 }
+
+export default LoanEditDialog

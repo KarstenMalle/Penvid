@@ -16,9 +16,8 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Loan, LoanType } from '@/components/features/wealth-optimizer/types'
-import { calculateMonthlyPayment } from '@/components/features/wealth-optimizer/calculations'
 import Link from 'next/link'
-import { EditIcon, Trash2Icon, ExternalLinkIcon } from 'lucide-react'
+import { Edit, Trash2, ExternalLink } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -117,7 +116,7 @@ const LoanList: React.FC<LoanListProps> = ({
 
   // Open edit dialog
   const handleEdit = (loan: Loan) => {
-    setEditingLoan(loan)
+    setEditingLoan({ ...loan }) // Make a copy of the loan to avoid reference issues
   }
 
   // Confirm deletion
@@ -150,8 +149,8 @@ const LoanList: React.FC<LoanListProps> = ({
         <CardHeader className="pb-1">
           <CardTitle>Your Loans</CardTitle>
           <CardDescription>
-            {loans.length} loans with a total balance of{' '}
-            {formatCurrency(totalBalance)}
+            {loans.length} {loans.length === 1 ? 'loan' : 'loans'} with a total
+            balance of {formatCurrency(totalBalance)}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -225,7 +224,7 @@ const LoanList: React.FC<LoanListProps> = ({
                           onClick={() => handleEdit(loan)}
                           disabled={isLoading}
                         >
-                          <EditIcon className="h-4 w-4" />
+                          <Edit className="h-4 w-4" />
                         </Button>
                         <Button
                           variant="ghost"
@@ -234,11 +233,11 @@ const LoanList: React.FC<LoanListProps> = ({
                           className="text-red-500 hover:text-red-700"
                           disabled={isLoading}
                         >
-                          <Trash2Icon className="h-4 w-4" />
+                          <Trash2 className="h-4 w-4" />
                         </Button>
                         <Link href={`/loans/${loan.id}`}>
                           <Button variant="ghost" size="sm">
-                            <ExternalLinkIcon className="h-4 w-4" />
+                            <ExternalLink className="h-4 w-4" />
                           </Button>
                         </Link>
                       </div>

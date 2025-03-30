@@ -9,9 +9,10 @@ import {
 import { Loan } from '@/components/features/wealth-optimizer/types'
 import {
   ChevronDownIcon,
-  ImportIcon,
-  ExportIcon,
-  AlertCircleIcon,
+  // Properly import Lucide icons
+  Download,
+  Upload,
+  AlertCircle,
 } from 'lucide-react'
 import {
   Dialog,
@@ -60,10 +61,12 @@ const LoanImportExport: React.FC<LoanImportExportProps> = ({
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
 
-      toast.success('Loans exported successfully')
+      toast.success(
+        `${loans.length === 1 ? 'Loan' : 'Loans'} exported successfully`
+      )
     } catch (error) {
       console.error('Export error:', error)
-      toast.error('Failed to export loans')
+      toast.error(`Failed to export ${loans.length === 1 ? 'loan' : 'loans'}`)
     }
   }
 
@@ -112,7 +115,7 @@ const LoanImportExport: React.FC<LoanImportExportProps> = ({
 
         if (validatedLoans.length < importedLoans.length) {
           setImportError(
-            `Warning: Only ${validatedLoans.length} out of ${importedLoans.length} loans were valid`
+            `Warning: Only ${validatedLoans.length} out of ${importedLoans.length} ${importedLoans.length === 1 ? 'loan was' : 'loans were'} valid`
           )
         } else {
           setImportError('')
@@ -161,13 +164,14 @@ const LoanImportExport: React.FC<LoanImportExportProps> = ({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={handleImportClick} disabled={disabled}>
-            <ImportIcon className="mr-2 h-4 w-4" /> Import Loans
+            <Upload className="mr-2 h-4 w-4" /> Import Loans
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={handleExport}
             disabled={disabled || loans.length === 0}
           >
-            <ExportIcon className="mr-2 h-4 w-4" /> Export Loans
+            <Download className="mr-2 h-4 w-4" /> Export{' '}
+            {loans.length === 1 ? 'Loan' : 'Loans'}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -187,13 +191,15 @@ const LoanImportExport: React.FC<LoanImportExportProps> = ({
           <DialogHeader>
             <DialogTitle>Import Loans</DialogTitle>
             <DialogDescription>
-              Review the loans before importing them into your account.
+              Review the {previewLoans.length === 1 ? 'loan' : 'loans'} before
+              importing {previewLoans.length === 1 ? 'it' : 'them'} into your
+              account.
             </DialogDescription>
           </DialogHeader>
 
           {importError && (
             <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 rounded p-4 flex items-start mb-4">
-              <AlertCircleIcon className="h-5 w-5 mr-2 mt-0.5 flex-shrink-0" />
+              <AlertCircle className="h-5 w-5 mr-2 mt-0.5 flex-shrink-0" />
               <div>{importError}</div>
             </div>
           )}
@@ -243,7 +249,8 @@ const LoanImportExport: React.FC<LoanImportExportProps> = ({
               onClick={confirmImport}
               disabled={previewLoans.length === 0}
             >
-              Import {previewLoans.length} Loans
+              Import {previewLoans.length}{' '}
+              {previewLoans.length === 1 ? 'Loan' : 'Loans'}
             </Button>
           </DialogFooter>
         </DialogContent>

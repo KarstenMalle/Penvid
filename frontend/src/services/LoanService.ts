@@ -1,5 +1,9 @@
 import { createClient } from '@/lib/supabase-browser'
-import { Loan } from '@/components/features/wealth-optimizer/types'
+import {
+  Loan,
+  LoanType,
+  LoanPriority,
+} from '@/components/features/wealth-optimizer/types'
 
 // Define the shape of the loan data in Supabase
 interface SupabaseLoan {
@@ -25,8 +29,8 @@ const mapFromSupabase = (loan: SupabaseLoan): Loan => ({
   interestRate: loan.interest_rate,
   termYears: loan.term_years,
   minimumPayment: loan.minimum_payment,
-  loanType: (loan.loan_type as any) || 'personal',
-  priority: (loan.priority as any) || 'medium',
+  loanType: (loan.loan_type as LoanType) || LoanType.PERSONAL,
+  priority: (loan.priority as LoanPriority) || 'medium',
 })
 
 // Convert from application format to Supabase format
@@ -38,8 +42,8 @@ const mapToSupabase = (loan: Loan, userId: string): SupabaseLoan => ({
   interest_rate: loan.interestRate,
   term_years: loan.termYears,
   minimum_payment: loan.minimumPayment,
-  loan_type: loan.loanType,
-  priority: loan.priority,
+  loan_type: loan.loanType || LoanType.PERSONAL,
+  priority: loan.priority || 'medium',
   updated_at: new Date().toISOString(),
 })
 
@@ -123,37 +127,37 @@ export const LoanService = {
           ?.filter((loan) => !loanIdsToKeep.has(loan.loan_id))
           .map((loan) => loan.id) || []
 
-      // Execute operations in batches
-      const operations = []
+      // Execute operations in sequential order to avoid race conditions
+      try {
+        // Create new loans
+        if (loansToCreate.length > 0) {
+          const { error } = await supabase.from('loans').insert(loansToCreate)
+          if (error) throw error
+        }
 
-      // Create new loans
-      if (loansToCreate.length > 0) {
-        operations.push(supabase.from('loans').insert(loansToCreate))
-      }
+        // Update existing loans one by one to avoid conflicts
+        for (const loan of loansToUpdate) {
+          const { error } = await supabase
+            .from('loans')
+            .update(loan)
+            .eq('id', loan.id)
+          if (error) throw error
+        }
 
-      // Update existing loans
-      for (const loan of loansToUpdate) {
-        operations.push(supabase.from('loans').update(loan).eq('id', loan.id))
-      }
+        // Delete removed loans
+        if (loanIdsToDelete.length > 0) {
+          const { error } = await supabase
+            .from('loans')
+            .delete()
+            .in('id', loanIdsToDelete)
+          if (error) throw error
+        }
 
-      // Delete removed loans
-      if (loanIdsToDelete.length > 0) {
-        operations.push(
-          supabase.from('loans').delete().in('id', loanIdsToDelete)
-        )
-      }
-
-      // Execute all operations
-      const results = await Promise.all(operations)
-
-      // Check for errors
-      const errors = results.filter((result) => result.error)
-      if (errors.length > 0) {
-        console.error('Errors saving loans:', errors)
+        return true
+      } catch (error) {
+        console.error('Error during loan operations:', error)
         return false
       }
-
-      return true
     } catch (error) {
       console.error('Unexpected error saving loans:', error)
       return false
@@ -286,7 +290,7 @@ export const LoanService = {
         interestRate: 5.8,
         termYears: 10,
         minimumPayment: 275,
-        loanType: 'student',
+        loanType: LoanType.STUDENT,
         priority: 'medium',
       }
 
