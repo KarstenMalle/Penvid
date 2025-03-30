@@ -27,6 +27,7 @@ export default function Navbar() {
   // Define different navigation links based on auth state
   const authenticatedLinks = [
     { name: 'Dashboard', href: '/dashboard' },
+    { name: 'Loans', href: '/loans' },
     { name: 'Wealth Tools', href: '/wealth-tools' },
     { name: 'Settings', href: '/settings' },
     { name: 'Profile', href: '/profile' },

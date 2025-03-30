@@ -11,6 +11,8 @@ interface SupabaseLoan {
   interest_rate: number
   term_years: number
   minimum_payment: number
+  loan_type?: string
+  priority?: string
   created_at?: string
   updated_at?: string
 }
@@ -23,6 +25,8 @@ const mapFromSupabase = (loan: SupabaseLoan): Loan => ({
   interestRate: loan.interest_rate,
   termYears: loan.term_years,
   minimumPayment: loan.minimum_payment,
+  loanType: (loan.loan_type as any) || 'personal',
+  priority: (loan.priority as any) || 'medium',
 })
 
 // Convert from application format to Supabase format
@@ -34,6 +38,8 @@ const mapToSupabase = (loan: Loan, userId: string): SupabaseLoan => ({
   interest_rate: loan.interestRate,
   term_years: loan.termYears,
   minimum_payment: loan.minimumPayment,
+  loan_type: loan.loanType,
+  priority: loan.priority,
   updated_at: new Date().toISOString(),
 })
 
@@ -155,6 +161,120 @@ export const LoanService = {
   },
 
   /**
+   * Get a single loan by ID
+   */
+  async getLoanById(userId: string, loanId: number): Promise<Loan | null> {
+    try {
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from('loans')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('loan_id', loanId)
+        .single()
+
+      if (error) {
+        console.error('Error fetching loan:', error)
+        return null
+      }
+
+      return data ? mapFromSupabase(data) : null
+    } catch (error) {
+      console.error('Unexpected error fetching loan:', error)
+      return null
+    }
+  },
+
+  /**
+   * Update a single loan
+   */
+  async updateLoan(userId: string, loan: Loan): Promise<boolean> {
+    try {
+      const supabase = createClient()
+
+      // Get the Supabase ID for this loan
+      const { data: existingLoan, error: fetchError } = await supabase
+        .from('loans')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('loan_id', loan.id)
+        .single()
+
+      if (fetchError) {
+        console.error('Error fetching existing loan:', fetchError)
+        return false
+      }
+
+      if (!existingLoan) {
+        console.error('Loan not found:', loan.id)
+        return false
+      }
+
+      // Update the loan
+      const { error } = await supabase
+        .from('loans')
+        .update({
+          ...mapToSupabase(loan, userId),
+          id: existingLoan.id, // Use the Supabase record ID
+        })
+        .eq('id', existingLoan.id)
+
+      if (error) {
+        console.error('Error updating loan:', error)
+        return false
+      }
+
+      return true
+    } catch (error) {
+      console.error('Unexpected error updating loan:', error)
+      return false
+    }
+  },
+
+  /**
+   * Delete a single loan
+   */
+  async deleteLoan(userId: string, loanId: number): Promise<boolean> {
+    try {
+      const supabase = createClient()
+
+      // Find the Supabase ID for this loan
+      const { data: existingLoan, error: fetchError } = await supabase
+        .from('loans')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('loan_id', loanId)
+        .single()
+
+      if (fetchError) {
+        console.error('Error fetching existing loan:', fetchError)
+        return false
+      }
+
+      if (!existingLoan) {
+        console.error('Loan not found:', loanId)
+        return false
+      }
+
+      // Delete the loan
+      const { error } = await supabase
+        .from('loans')
+        .delete()
+        .eq('id', existingLoan.id)
+
+      if (error) {
+        console.error('Error deleting loan:', error)
+        return false
+      }
+
+      return true
+    } catch (error) {
+      console.error('Unexpected error deleting loan:', error)
+      return false
+    }
+  },
+
+  /**
    * Create a default loan for new users
    */
   async createDefaultLoan(userId: string): Promise<Loan | null> {
@@ -166,6 +286,8 @@ export const LoanService = {
         interestRate: 5.8,
         termYears: 10,
         minimumPayment: 275,
+        loanType: 'student',
+        priority: 'medium',
       }
 
       const supabase = createClient()

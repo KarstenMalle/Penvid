@@ -11,7 +11,6 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import LoanForm from './LoanForm'
 import StrategyResultsComponent from './StrategyResults'
 import {
   calculateAllStrategies,
@@ -37,19 +36,85 @@ import toast from 'react-hot-toast'
 import _ from 'lodash'
 import { HelpCircle } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import Link from 'next/link'
+
+// Component that displays a list of loans with checkboxes for selection
+const LoanSelectList = ({
+  loans,
+  selectedLoanIds,
+  onToggleLoan,
+}: {
+  loans: Loan[]
+  selectedLoanIds: number[]
+  onToggleLoan: (id: number) => void
+}) => {
+  if (loans.length === 0) {
+    return (
+      <div className="p-4 text-center border rounded-md bg-gray-50">
+        <p>You don't have any loans yet.</p>
+        <Link
+          href="/loans"
+          className="text-blue-600 hover:underline inline-block mt-2"
+        >
+          <Button variant="link" className="p-0">
+            Add loans to get started
+          </Button>
+        </Link>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      {loans.map((loan) => (
+        <div
+          key={loan.id}
+          className="flex items-center p-3 border rounded-md hover:bg-gray-50"
+        >
+          <input
+            type="checkbox"
+            id={`loan-${loan.id}`}
+            checked={selectedLoanIds.includes(loan.id)}
+            onChange={() => onToggleLoan(loan.id)}
+            className="h-4 w-4 mr-3 rounded"
+          />
+          <label
+            htmlFor={`loan-${loan.id}`}
+            className="flex flex-1 justify-between cursor-pointer"
+          >
+            <div>
+              <div className="font-medium">{loan.name}</div>
+              <div className="text-sm text-gray-500">
+                {loan.loanType
+                  ? loan.loanType.charAt(0).toUpperCase() +
+                    loan.loanType.slice(1)
+                  : 'N/A'}
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="font-medium">{formatCurrency(loan.balance)}</div>
+              <div className="text-sm text-gray-500">
+                {formatPercent(loan.interestRate)}
+              </div>
+            </div>
+          </label>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 const WealthOptimizer: React.FC = () => {
   // Auth context for user information
-  const { user, isAuthenticated } = useAuth()
+  const { user, isAuthenticated, loading } = useAuth()
 
   // User inputs
   const [monthlyAvailable, setMonthlyAvailable] = useState(1000)
   const [isOverallBudget, setIsOverallBudget] = useState(false)
-  const [loans, setLoans] = useState<Loan[]>([])
+  const [allLoans, setAllLoans] = useState<Loan[]>([])
+  const [selectedLoanIds, setSelectedLoanIds] = useState<number[]>([])
   const [isCalculating, setIsCalculating] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState('all-loans')
 
   // Results
   const [results, setResults] = useState<StrategyResults | null>(null)
@@ -67,7 +132,7 @@ const WealthOptimizer: React.FC = () => {
     LoanStrategyComparison[]
   >([])
 
-  // Load saved loans from Supabase
+  // Load all loans from Supabase
   useEffect(() => {
     const loadUserLoans = async () => {
       if (!isAuthenticated || !user) {
@@ -81,57 +146,14 @@ const WealthOptimizer: React.FC = () => {
         const userLoans = await LoanService.getUserLoans(user.id)
 
         if (userLoans.length > 0) {
-          // Add loan type and priority if they don't exist
-          const enhancedLoans = userLoans.map((loan) => ({
-            ...loan,
-            loanType: loan.loanType || LoanType.PERSONAL,
-            priority: loan.priority || LoanPriority.MEDIUM,
-          }))
-          setLoans(enhancedLoans)
-        } else {
-          // Create a default loan if user has none
-          const defaultLoan = await LoanService.createDefaultLoan(user.id)
-          if (defaultLoan) {
-            setLoans([
-              {
-                ...defaultLoan,
-                loanType: LoanType.STUDENT,
-                priority: LoanPriority.MEDIUM,
-              },
-            ])
-          } else {
-            // Fallback to a local default if we couldn't create in the database
-            setLoans([
-              {
-                id: 1,
-                name: 'Student Loan',
-                balance: 25000,
-                interestRate: 5.8,
-                termYears: 10,
-                minimumPayment: 275,
-                loanType: LoanType.STUDENT,
-                priority: LoanPriority.MEDIUM,
-              },
-            ])
-          }
+          setAllLoans(userLoans)
+          // Select all loans by default
+          setSelectedLoanIds(userLoans.map((loan) => loan.id))
         }
       } catch (error) {
         console.error('Error loading loans:', error)
         toast.error('Failed to load your loan data')
-
-        // Fallback to default loans
-        setLoans([
-          {
-            id: 1,
-            name: 'Student Loan',
-            balance: 25000,
-            interestRate: 5.8,
-            termYears: 10,
-            minimumPayment: 275,
-            loanType: LoanType.STUDENT,
-            priority: LoanPriority.MEDIUM,
-          },
-        ])
+        setAllLoans([])
       } finally {
         setIsLoading(false)
       }
@@ -140,86 +162,26 @@ const WealthOptimizer: React.FC = () => {
     loadUserLoans()
   }, [user, isAuthenticated])
 
-  // Save loans when they change (debounced to prevent too many saves)
-  const saveLoans = async () => {
-    if (!isAuthenticated || !user || loans.length === 0) return
-
-    setIsSaving(true)
-    try {
-      const saved = await LoanService.saveUserLoans(user.id, loans)
-      if (!saved) {
-        console.error('Failed to save loans')
-      }
-    } catch (error) {
-      console.error('Error saving loans:', error)
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  // Debounced save function to prevent too many saves
-  const debouncedSave = _.debounce(saveLoans, 1000)
-
-  // Call the debounced save function when loans change
-  useEffect(() => {
-    if (loans.length > 0 && !isLoading) {
-      debouncedSave()
-    }
-
-    // Clean up debounce on unmount
-    return () => {
-      debouncedSave.cancel()
-    }
-  }, [loans, isLoading])
-
-  // Add a new empty loan
-  const addLoan = () => {
-    const newId =
-      loans.length > 0 ? Math.max(...loans.map((loan) => loan.id)) + 1 : 1
-    setLoans([
-      ...loans,
-      {
-        id: newId,
-        name: `Loan ${newId}`,
-        balance: 0,
-        interestRate: 0,
-        termYears: 0,
-        minimumPayment: 0,
-        loanType: LoanType.PERSONAL,
-        priority: LoanPriority.MEDIUM,
-      },
-    ])
-  }
-
-  // Remove a loan by id
-  const removeLoan = (id: number) => {
-    setLoans(loans.filter((loan) => loan.id !== id))
-  }
-
-  // Update loan details
-  const updateLoan = (
-    id: number,
-    field: keyof Loan,
-    value: string | number
-  ) => {
-    setLoans(
-      loans.map((loan) => (loan.id === id ? { ...loan, [field]: value } : loan))
+  // Toggle a loan selection
+  const toggleLoanSelection = (loanId: number) => {
+    setSelectedLoanIds((prev) =>
+      prev.includes(loanId)
+        ? prev.filter((id) => id !== loanId)
+        : [...prev, loanId]
     )
   }
 
-  // Get loans for the current tab
-  const getFilteredLoans = () => {
-    if (activeTab === 'all-loans') {
-      return loans
-    }
-
-    const loanType = activeTab as LoanType
-    return loans.filter((loan) => loan.loanType === loanType)
+  // Get selected loans
+  const getSelectedLoans = () => {
+    return allLoans.filter((loan) => selectedLoanIds.includes(loan.id))
   }
 
-  // Calculate total minimum monthly payment for all loans
+  // Calculate total minimum monthly payment for all selected loans
   const calculateTotalMinimumPayment = () => {
-    return loans.reduce((total, loan) => total + loan.minimumPayment, 0)
+    return getSelectedLoans().reduce(
+      (total, loan) => total + loan.minimumPayment,
+      0
+    )
   }
 
   // Calculate remaining money after paying minimums
@@ -243,18 +205,15 @@ const WealthOptimizer: React.FC = () => {
     }
   }
 
-  // Update loan type using dropdown
-  const updateLoanType = (id: number, type: string) => {
-    updateLoan(id, 'loanType', type as LoanType)
-  }
-
-  // Update loan priority using dropdown
-  const updateLoanPriority = (id: number, priority: string) => {
-    updateLoan(id, 'priority', priority as LoanPriority)
-  }
-
   // Calculate all strategies and determine the optimal one
   const calculateResults = () => {
+    const selectedLoans = getSelectedLoans()
+
+    if (selectedLoans.length === 0) {
+      toast.error('Please select at least one loan')
+      return
+    }
+
     setIsCalculating(true)
 
     // Small delay to allow UI to update and show loading state
@@ -266,7 +225,7 @@ const WealthOptimizer: React.FC = () => {
           : monthlyAvailable + calculateTotalMinimumPayment()
 
         const calculationResults = calculateAllStrategies(
-          loans,
+          selectedLoans,
           actualAvailable
         )
         const { strategies, optimal, loanComparisons } = calculationResults
@@ -300,7 +259,7 @@ const WealthOptimizer: React.FC = () => {
 
         // Generate personalized recommendations
         const personalRecommendations = generateRecommendations(
-          loans,
+          selectedLoans,
           actualAvailable,
           strategies,
           optimal
@@ -321,22 +280,6 @@ const WealthOptimizer: React.FC = () => {
         setIsCalculating(false)
       }
     }, 100)
-  }
-
-  // Function to handle loan type change using standard select
-  const handleLoanTypeChange = (
-    e: React.ChangeEvent<HTMLSelectElement>,
-    loanId: number
-  ) => {
-    updateLoanType(loanId, e.target.value)
-  }
-
-  // Function to handle loan priority change using standard select
-  const handleLoanPriorityChange = (
-    e: React.ChangeEvent<HTMLSelectElement>,
-    loanId: number
-  ) => {
-    updateLoanPriority(loanId, e.target.value)
   }
 
   if (isLoading) {
@@ -361,6 +304,53 @@ const WealthOptimizer: React.FC = () => {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          {/* Loan Selection */}
+          <div className="space-y-2">
+            <Label>Select Loans to Include in Analysis</Label>
+            <LoanSelectList
+              loans={allLoans}
+              selectedLoanIds={selectedLoanIds}
+              onToggleLoan={toggleLoanSelection}
+            />
+
+            {allLoans.length > 0 && (
+              <div className="flex justify-between items-center text-sm text-gray-500 mt-2">
+                <span>
+                  {selectedLoanIds.length} of {allLoans.length} loans selected
+                </span>
+                <div>
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="p-0 h-auto"
+                    onClick={() =>
+                      setSelectedLoanIds(allLoans.map((loan) => loan.id))
+                    }
+                  >
+                    Select All
+                  </Button>
+                  {' | '}
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="p-0 h-auto"
+                    onClick={() => setSelectedLoanIds([])}
+                  >
+                    Clear All
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <Link href="/loans">
+                <Button variant="outline" size="sm">
+                  Manage Loans
+                </Button>
+              </Link>
+            </div>
+          </div>
+
           {/* Monthly Available Money */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -403,7 +393,7 @@ const WealthOptimizer: React.FC = () => {
             </div>
             <p className="text-sm text-gray-500">
               {isOverallBudget
-                ? `This includes all loan payments (minimum: $${calculateTotalMinimumPayment().toFixed(2)}/month) plus any extra for additional payments or investing.`
+                ? `This includes all loan payments (minimum: ${calculateTotalMinimumPayment().toFixed(2)}/month) plus any extra for additional payments or investing.`
                 : `This is money available after paying for essentials (housing, food, utilities, etc.) that can be used for extra debt payments or investing.`}
             </p>
             {isOverallBudget && (
@@ -414,87 +404,15 @@ const WealthOptimizer: React.FC = () => {
             )}
           </div>
 
-          {/* Loan Type Tabs */}
-          <Tabs
-            defaultValue="all-loans"
-            onValueChange={setActiveTab}
-            value={activeTab}
-          >
-            <TabsList className="mb-4">
-              <TabsTrigger value="all-loans">All Loans</TabsTrigger>
-              <TabsTrigger value={LoanType.MORTGAGE}>Mortgage</TabsTrigger>
-              <TabsTrigger value={LoanType.STUDENT}>Student</TabsTrigger>
-              <TabsTrigger value={LoanType.AUTO}>Auto</TabsTrigger>
-              <TabsTrigger value={LoanType.CREDIT_CARD}>
-                Credit Card
-              </TabsTrigger>
-              <TabsTrigger value={LoanType.PERSONAL}>Personal</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value={activeTab}>
-              <div className="space-y-6">
-                {/* Loan Form */}
-                <LoanForm
-                  loans={getFilteredLoans()}
-                  onAddLoan={addLoan}
-                  onRemoveLoan={removeLoan}
-                  onUpdateLoan={updateLoan}
-                  monthlyAvailable={
-                    isOverallBudget
-                      ? monthlyAvailable
-                      : monthlyAvailable + calculateTotalMinimumPayment()
-                  }
-                />
-
-                {/* Loan Type and Priority selectors using native select */}
-                {getFilteredLoans().map((loan) => (
-                  <div
-                    key={`loan-meta-${loan.id}`}
-                    className="flex items-center gap-4 mt-2 ml-4 text-sm"
-                  >
-                    <div className="flex items-center">
-                      <span className="mr-2 text-gray-500">Loan Type:</span>
-                      <select
-                        className="px-3 py-1 rounded border border-gray-300 bg-white"
-                        value={loan.loanType}
-                        onChange={(e) => handleLoanTypeChange(e, loan.id)}
-                      >
-                        <option value={LoanType.MORTGAGE}>Mortgage</option>
-                        <option value={LoanType.STUDENT}>Student Loan</option>
-                        <option value={LoanType.AUTO}>Auto Loan</option>
-                        <option value={LoanType.CREDIT_CARD}>
-                          Credit Card
-                        </option>
-                        <option value={LoanType.PERSONAL}>Personal Loan</option>
-                        <option value={LoanType.OTHER}>Other</option>
-                      </select>
-                    </div>
-
-                    <div className="flex items-center">
-                      <span className="mr-2 text-gray-500">Priority:</span>
-                      <select
-                        className="px-3 py-1 rounded border border-gray-300 bg-white"
-                        value={loan.priority}
-                        onChange={(e) => handleLoanPriorityChange(e, loan.id)}
-                      >
-                        <option value={LoanPriority.HIGH}>High</option>
-                        <option value={LoanPriority.MEDIUM}>Medium</option>
-                        <option value={LoanPriority.LOW}>Low</option>
-                      </select>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </TabsContent>
-          </Tabs>
-
           {/* Analysis Button */}
           <div className="pt-4">
             <Button
               onClick={calculateResults}
               className="w-full"
               disabled={
-                isCalculating || loans.length === 0 || monthlyAvailable <= 0
+                isCalculating ||
+                selectedLoanIds.length === 0 ||
+                monthlyAvailable <= 0
               }
             >
               {isCalculating ? (
