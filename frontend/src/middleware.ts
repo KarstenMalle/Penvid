@@ -16,8 +16,20 @@ export async function middleware(request: NextRequest) {
   }
 
   // Define routes that require auth
-  const protectedRoutes = ['/dashboard', '/settings', '/profile']
-  const authRoutes = ['/login', '/register', '/forgot-password']
+  const protectedRoutes = [
+    '/dashboard',
+    '/settings',
+    '/profile',
+    '/accounts',
+    '/transactions',
+    '/goals',
+  ]
+  const authRoutes = [
+    '/login',
+    '/register',
+    '/forgot-password',
+    '/reset-password',
+  ]
 
   const isProtectedRoute = protectedRoutes.some((route) =>
     request.nextUrl.pathname.startsWith(route)
@@ -41,11 +53,14 @@ export async function middleware(request: NextRequest) {
           return request.cookies.get(name)?.value
         },
         set(name: string, value: string, options: CookieOptions) {
+          // Update the request cookies for this middleware chain
           request.cookies.set({
             name,
             value,
             ...options,
           })
+
+          // Update the response cookies
           response.cookies.set({
             name,
             value,
@@ -53,10 +68,13 @@ export async function middleware(request: NextRequest) {
           })
         },
         remove(name: string, options: CookieOptions) {
+          // Update the request cookies
           request.cookies.delete({
             name,
             ...options,
           })
+
+          // Update the response cookies
           response.cookies.delete({
             name,
             ...options,
@@ -79,11 +97,17 @@ export async function middleware(request: NextRequest) {
 
     // Handle protected routes
     if (isProtectedRoute && !isAuthenticated) {
+      console.log(
+        `Redirecting to login from protected route: ${request.nextUrl.pathname}`
+      )
       return NextResponse.redirect(new URL('/login', request.url))
     }
 
     // Handle auth routes - redirect to dashboard if already authenticated
     if (isAuthRoute && isAuthenticated) {
+      console.log(
+        `Redirecting to dashboard from auth route: ${request.nextUrl.pathname}`
+      )
       return NextResponse.redirect(new URL('/dashboard', request.url))
     }
 

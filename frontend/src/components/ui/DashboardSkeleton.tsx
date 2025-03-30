@@ -1,10 +1,13 @@
-// frontend/src/components/dashboard-skeleton.tsx
 import { Skeleton } from '@/components/ui/skeleton'
-import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
 
+/**
+ * DashboardSkeleton displays a loading state for the dashboard page
+ * with placeholder elements for accounts, transactions, and goals.
+ */
 export function DashboardSkeleton() {
   return (
-    <div className="space-y-10">
+    <div className="space-y-8">
       {/* Account Overview Skeleton */}
       <div>
         <Skeleton className="h-8 w-48 mb-4" />
@@ -28,44 +31,22 @@ export function DashboardSkeleton() {
       <div>
         <Skeleton className="h-8 w-48 mb-4" />
         <Card>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left p-4">
-                      <Skeleton className="h-4 w-24" />
-                    </th>
-                    <th className="text-left p-4">
-                      <Skeleton className="h-4 w-32" />
-                    </th>
-                    <th className="text-left p-4">
-                      <Skeleton className="h-4 w-20" />
-                    </th>
-                    <th className="text-right p-4">
-                      <Skeleton className="h-4 w-16 ml-auto" />
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[1, 2, 3, 4, 5].map((i) => (
-                    <tr key={i} className="border-b">
-                      <td className="p-4">
-                        <Skeleton className="h-4 w-24" />
-                      </td>
-                      <td className="p-4">
-                        <Skeleton className="h-4 w-32" />
-                      </td>
-                      <td className="p-4">
-                        <Skeleton className="h-4 w-20" />
-                      </td>
-                      <td className="p-4 text-right">
-                        <Skeleton className="h-4 w-16 ml-auto" />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <CardContent className="p-4">
+            <div className="grid gap-4">
+              <div className="grid grid-cols-4 gap-2">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-4 w-16 ml-auto" />
+              </div>
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="grid grid-cols-4 gap-2">
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-4 w-20" />
+                  <Skeleton className="h-4 w-16 ml-auto" />
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>

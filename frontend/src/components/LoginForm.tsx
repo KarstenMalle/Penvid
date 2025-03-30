@@ -1,56 +1,33 @@
 'use client'
 
 import * as React from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { useForm } from 'react-hook-form'
-import * as z from 'zod'
-import { cn } from '@/lib/utils'
-import { Icons } from '@/components/ui/icons'
+import { useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import Link from 'next/link'
+import { Icons } from '@/components/ui/icons'
+import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase-browser'
 import { motion } from 'framer-motion'
 import toast from 'react-hot-toast'
-
-// Define schema for form validation
-const loginSchema = z.object({
-  email: z
-    .string()
-    .min(1, { message: 'Email is required' })
-    .email({ message: 'Please enter a valid email address' }),
-  password: z.string().min(1, { message: 'Password is required' }),
-})
-
-type LoginFormValues = z.infer<typeof loginSchema>
 
 interface UserAuthFormProps extends React.HTMLAttributes<HTMLDivElement> {}
 
 export function LoginForm({ className, ...props }: UserAuthFormProps) {
+  const [email, setEmail] = React.useState('')
+  const [password, setPassword] = React.useState('')
   const [error, setError] = React.useState('')
   const [redirecting, setRedirecting] = React.useState(false)
-  const router = useRouter()
+  const [isSubmitting, setIsSubmitting] = React.useState(false)
+
   const searchParams = useSearchParams()
   const { login, isAuthenticated, loading } = useAuth()
+  const supabase = createClient()
 
   // Check for registered parameter to show success message
   const registered = searchParams.get('registered')
-
-  // Initialize form with react-hook-form + zod validation
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<LoginFormValues>({
-    resolver: zodResolver(loginSchema),
-    defaultValues: {
-      email: '',
-      password: '',
-    },
-  })
 
   // Helper function to redirect to dashboard
   const redirectToDashboard = () => {
@@ -64,19 +41,35 @@ export function LoginForm({ className, ...props }: UserAuthFormProps) {
 
   // Check for session and redirect if already authenticated
   React.useEffect(() => {
-    if (!loading && isAuthenticated && !redirecting) {
+    // Wait for auth to finish loading before deciding
+    if (loading) return
+
+    if (isAuthenticated) {
+      console.log('Already authenticated, redirecting to dashboard')
       redirectToDashboard()
     }
-  }, [loading, isAuthenticated])
+  }, [isAuthenticated, loading])
+
+  // Show success message when registered successfully
+  React.useEffect(() => {
+    if (registered === 'true') {
+      toast.success(
+        'Registration successful! Please check your email for verification.'
+      )
+    }
+  }, [registered])
 
   // Handle form submission
-  const onSubmit = async (data: LoginFormValues) => {
-    if (redirecting) return
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (redirecting || isSubmitting) return
+
     setError('')
+    setIsSubmitting(true)
 
     try {
       console.log('Submitting login form')
-      const { error } = await login(data.email, data.password)
+      const { error } = await login(email, password)
 
       if (error) {
         console.log('Login error:', error)
@@ -94,12 +87,15 @@ export function LoginForm({ className, ...props }: UserAuthFormProps) {
     } catch (err: any) {
       console.error('Login exception:', err)
       setError('An unexpected error occurred')
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
   // OAuth login handlers
   const handleGoogleLogin = async () => {
-    if (redirecting) return
+    if (redirecting || isSubmitting) return
+    setIsSubmitting(true)
     setError('')
 
     try {
@@ -115,11 +111,14 @@ export function LoginForm({ className, ...props }: UserAuthFormProps) {
       }
     } catch (err: any) {
       setError('An error occurred during login')
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
   const handleGithubLogin = async () => {
-    if (redirecting) return
+    if (redirecting || isSubmitting) return
+    setIsSubmitting(true)
     setError('')
 
     try {
@@ -135,17 +134,10 @@ export function LoginForm({ className, ...props }: UserAuthFormProps) {
       }
     } catch (err: any) {
       setError('An error occurred during login')
+    } finally {
+      setIsSubmitting(false)
     }
   }
-
-  // Show success message when registered successfully
-  React.useEffect(() => {
-    if (registered === 'true') {
-      toast.success(
-        'Registration successful! Please check your email for verification.'
-      )
-    }
-  }, [registered])
 
   // Show loading state during redirect
   if (redirecting) {
@@ -183,7 +175,7 @@ export function LoginForm({ className, ...props }: UserAuthFormProps) {
           </div>
         )}
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input
@@ -194,12 +186,10 @@ export function LoginForm({ className, ...props }: UserAuthFormProps) {
               autoComplete="email"
               autoCorrect="off"
               disabled={isSubmitting}
-              {...register('email')}
-              className={errors.email ? 'border-red-300' : ''}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
             />
-            {errors.email && (
-              <p className="text-sm text-red-500">{errors.email.message}</p>
-            )}
           </div>
 
           <div className="space-y-2">
@@ -220,12 +210,10 @@ export function LoginForm({ className, ...props }: UserAuthFormProps) {
               autoComplete="current-password"
               autoCorrect="off"
               disabled={isSubmitting}
-              {...register('password')}
-              className={errors.password ? 'border-red-300' : ''}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
             />
-            {errors.password && (
-              <p className="text-sm text-red-500">{errors.password.message}</p>
-            )}
           </div>
 
           <Button type="submit" className="w-full" disabled={isSubmitting}>
@@ -237,7 +225,7 @@ export function LoginForm({ className, ...props }: UserAuthFormProps) {
           </Button>
         </form>
 
-        <div className="relative mt-4">
+        <div className="relative mt-6">
           <div className="absolute inset-0 flex items-center">
             <span className="w-full border-t" />
           </div>
@@ -248,7 +236,7 @@ export function LoginForm({ className, ...props }: UserAuthFormProps) {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 gap-4 mt-6">
           <Button
             variant="outline"
             type="button"

@@ -7,7 +7,6 @@ import React, {
   useEffect,
   ReactNode,
 } from 'react'
-import { supabase } from '@/lib/supabase'
 import { createClient } from '@/lib/supabase-browser'
 import { User } from '@supabase/supabase-js'
 import toast from 'react-hot-toast'
@@ -95,38 +94,38 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setupAuth()
 
     // Set up listener for auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth state changed:', event)
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log('Auth state changed:', event)
 
-      if (session) {
-        // User is authenticated
-        setUser(session.user)
-        setIsAuthenticated(true)
+        if (session) {
+          // User is authenticated
+          setUser(session.user)
+          setIsAuthenticated(true)
 
-        // Set a basic profile using user metadata
-        const tempProfile = {
-          id: session.user.id,
-          name:
-            session.user.user_metadata?.name ||
-            session.user.email?.split('@')[0] ||
-            'User',
-          created_at: new Date().toISOString(),
+          // Set a basic profile using user metadata
+          const tempProfile = {
+            id: session.user.id,
+            name:
+              session.user.user_metadata?.name ||
+              session.user.email?.split('@')[0] ||
+              'User',
+            created_at: new Date().toISOString(),
+          }
+
+          setProfile(tempProfile)
+        } else {
+          // User is not authenticated
+          setUser(null)
+          setIsAuthenticated(false)
+          setProfile(null)
         }
-
-        setProfile(tempProfile)
-      } else {
-        // User is not authenticated
-        setUser(null)
-        setIsAuthenticated(false)
-        setProfile(null)
       }
-    })
+    )
 
     // Clean up subscription
     return () => {
-      subscription.unsubscribe()
+      authListener.subscription.unsubscribe()
     }
   }, [])
 
@@ -238,7 +237,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       console.log('Sending password reset for:', email)
 
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
+        redirectTo: `${window.location.origin}/auth/callback?action=password_reset`,
       })
 
       if (error) {

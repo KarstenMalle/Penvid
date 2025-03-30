@@ -1,5 +1,3 @@
-import { supabase } from '@/lib/supabase'
-
 // This utility file contains functions to handle two-factor authentication
 // with Supabase Auth and custom implementation
 
