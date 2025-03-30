@@ -4,6 +4,27 @@
  */
 
 /**
+ * Enum representing different types of loans
+ */
+export enum LoanType {
+  MORTGAGE = 'mortgage',
+  STUDENT = 'student',
+  AUTO = 'auto',
+  CREDIT_CARD = 'credit_card',
+  PERSONAL = 'personal',
+  OTHER = 'other',
+}
+
+/**
+ * Enum representing loan priority levels
+ */
+export enum LoanPriority {
+  HIGH = 'high',
+  MEDIUM = 'medium',
+  LOW = 'low',
+}
+
+/**
  * Represents a loan with all necessary details for calculations
  */
 export interface Loan {
@@ -15,6 +36,8 @@ export interface Loan {
   minimumPayment: number
   originalInterestRate?: number
   hasTaxAdjustment?: boolean
+  loanType?: LoanType
+  priority?: LoanPriority
 }
 
 /**
@@ -74,9 +97,6 @@ export interface LoanStrategyComparison {
   payingDownIsBetter: boolean
   netAdvantage: number
   betterStrategy: string
-  totalCostWithMinPayments: number
-  totalCostWithAcceleratedPayments: number
-  totalCostWithInvestments: number
 }
 
 /**

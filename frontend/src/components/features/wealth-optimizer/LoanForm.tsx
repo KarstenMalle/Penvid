@@ -33,6 +33,9 @@ const LoanForm: React.FC<LoanFormProps> = ({
   >({})
   const [totalMinimumPayment, setTotalMinimumPayment] = useState(0)
 
+  // Local state to handle input values during typing
+  const [inputValues, setInputValues] = useState<Record<string, string>>({})
+
   // Set default calculation mode for new loans
   useEffect(() => {
     const newModes = { ...calculationModes }
@@ -100,79 +103,116 @@ const LoanForm: React.FC<LoanFormProps> = ({
     return n / 12 // Convert months to years
   }
 
-  // Handle empty input fields properly
+  // Function to get the input value for displaying in the input field
+  const getDisplayValue = (loan: Loan, field: keyof Loan) => {
+    const inputKey = `${loan.id}-${field}`
+
+    // If there's a temporary input value during typing, use that
+    if (inputValues[inputKey] !== undefined) {
+      return inputValues[inputKey]
+    }
+
+    // Otherwise use the actual loan value
+    const value = loan[field]
+    if (typeof value === 'number') {
+      if (value === 0) return ''
+      // For interest rate and term, show 2 decimal places
+      if (field === 'interestRate' || field === 'termYears') {
+        return value.toFixed(2)
+      }
+      // For monetary values, show 2 decimal places
+      return value.toString()
+    }
+    return value
+  }
+
+  // Handle input changes for loan fields - capture and display what user is typing
   const handleInputChange = (id: number, field: keyof Loan, value: string) => {
+    const inputKey = `${id}-${field}`
+
+    // Store raw input value for display during typing
+    setInputValues({
+      ...inputValues,
+      [inputKey]: value,
+    })
+
     // If the field is name, pass the string value directly
     if (field === 'name') {
       onUpdateLoan(id, field, value)
       return
     }
 
-    // For numeric fields, handle empty string specially
-    if (value === '') {
-      onUpdateLoan(id, field, 0)
+    // For numeric fields, validate format
+    // Allow digits, one decimal point, and handle both comma and period as decimal separators
+    const cleanedValue = value.replace(',', '.')
+
+    // Don't validate empty strings - allow them for clearing fields
+    if (cleanedValue === '') {
       return
     }
 
-    // For numeric fields with value, convert to number
-    const numValue = parseFloat(value)
-
-    if (isNaN(numValue)) {
-      onUpdateLoan(id, field, 0)
-      return
+    // Basic validation for numeric format
+    if (!/^-?\d*\.?\d*$/.test(cleanedValue)) {
+      return // Invalid format, don't update
     }
 
-    // If we're changing balance, interest rate, or term, we may need to recalculate payment
+    // Valid number format, convert to number
+    const numValue = parseFloat(cleanedValue)
+    if (!isNaN(numValue)) {
+      onUpdateLoan(id, field, numValue)
+    }
+  }
+
+  // Handle when an input field loses focus - finalize the value and trigger calculations
+  const handleInputBlur = (id: number, field: keyof Loan) => {
+    const inputKey = `${id}-${field}`
     const loan = loans.find((l) => l.id === id)
     if (!loan) return
 
-    // Update the direct field first
-    onUpdateLoan(id, field, numValue)
+    // Clear temporary input display value
+    setInputValues({
+      ...inputValues,
+      [inputKey]: undefined,
+    })
 
-    // Handle calculations based on mode
-    if (calculationModes[id] === 'payment') {
-      // In payment mode, if changing balance or interest, update the term
-      if (field === 'balance' || field === 'interestRate') {
-        const newBalance = field === 'balance' ? numValue : loan.balance
-        const newInterestRate =
-          field === 'interestRate' ? numValue : loan.interestRate
+    // If empty value on blur, set to 0
+    if (inputValues[inputKey] === '') {
+      onUpdateLoan(id, field, 0)
+    }
 
-        if (newBalance > 0 && loan.minimumPayment > 0) {
+    // Recalculate dependent fields based on calculation mode
+    if (field !== 'name') {
+      if (calculationModes[id] === 'payment') {
+        // In payment mode, update the term if we have enough info
+        if (loan.balance > 0 && loan.minimumPayment > 0) {
           const calculatedTerm = calculateLoanTerm(
-            newBalance,
-            newInterestRate,
+            loan.balance,
+            loan.interestRate,
             loan.minimumPayment
           )
-          onUpdateLoan(
-            id,
-            'termYears',
-            Math.min(Math.max(calculatedTerm, 0.1), 30)
-          )
+          if (isFinite(calculatedTerm) && calculatedTerm > 0) {
+            onUpdateLoan(
+              id,
+              'termYears',
+              Math.min(Math.max(calculatedTerm, 0.1), 30)
+            )
+          }
         }
-      }
-    } else {
-      // In term mode, if changing balance, interest, or term, update the payment
-      if (
-        field === 'balance' ||
-        field === 'interestRate' ||
-        field === 'termYears'
-      ) {
-        const newBalance = field === 'balance' ? numValue : loan.balance
-        const newInterestRate =
-          field === 'interestRate' ? numValue : loan.interestRate
-        const newTermYears = field === 'termYears' ? numValue : loan.termYears
-
-        if (newBalance > 0 && newTermYears > 0) {
+      } else {
+        // In term mode, update the payment if we have enough info
+        if (loan.balance > 0 && loan.termYears > 0) {
           const calculatedPayment = calculateMonthlyPayment(
-            newBalance,
-            newInterestRate,
-            newTermYears
+            loan.balance,
+            loan.interestRate,
+            loan.termYears
           )
-          onUpdateLoan(
-            id,
-            'minimumPayment',
-            Math.ceil(calculatedPayment * 100) / 100
-          ) // Round up to nearest cent
+          if (calculatedPayment > 0) {
+            onUpdateLoan(
+              id,
+              'minimumPayment',
+              Math.ceil(calculatedPayment * 100) / 100
+            )
+          }
         }
       }
     }
@@ -188,26 +228,80 @@ const LoanForm: React.FC<LoanFormProps> = ({
 
     // Recalculate based on new mode
     if (newMode === 'payment') {
-      // Switch to payment mode - term becomes calculated
-      const calculatedTerm = calculateLoanTerm(
-        loan.balance,
-        loan.interestRate,
-        loan.minimumPayment
-      )
-      onUpdateLoan(id, 'termYears', Math.min(Math.max(calculatedTerm, 0.1), 30))
+      // Switch to payment mode - term becomes calculated based on minimum payment
+      if (loan.balance > 0 && loan.minimumPayment > 0) {
+        const calculatedTerm = calculateLoanTerm(
+          loan.balance,
+          loan.interestRate,
+          loan.minimumPayment
+        )
+
+        // Only update if we got a valid result
+        if (isFinite(calculatedTerm) && calculatedTerm > 0) {
+          onUpdateLoan(
+            id,
+            'termYears',
+            Math.min(Math.max(calculatedTerm, 0.1), 30)
+          )
+        }
+      }
     } else {
-      // Switch to term mode - payment becomes calculated
-      const calculatedPayment = calculateMonthlyPayment(
-        loan.balance,
-        loan.interestRate,
-        loan.termYears
-      )
-      onUpdateLoan(
-        id,
-        'minimumPayment',
-        Math.ceil(calculatedPayment * 100) / 100
-      )
+      // Switch to term mode - payment becomes calculated based on term
+      if (loan.balance > 0 && loan.termYears > 0) {
+        const calculatedPayment = calculateMonthlyPayment(
+          loan.balance,
+          loan.interestRate,
+          loan.termYears
+        )
+
+        // Only update if we got a valid result
+        if (calculatedPayment > 0) {
+          onUpdateLoan(
+            id,
+            'minimumPayment',
+            Math.ceil(calculatedPayment * 100) / 100
+          )
+        }
+      }
     }
+  }
+
+  // Calculate total interest paid over the life of a loan
+  const calculateTotalInterest = (
+    principal: number,
+    monthlyPayment: number,
+    interestRate: number
+  ) => {
+    if (principal <= 0 || monthlyPayment <= 0 || interestRate <= 0) return 0
+
+    const monthlyRate = interestRate / 100 / 12
+
+    // Check if payment covers interest
+    if (monthlyPayment <= principal * monthlyRate) {
+      return Infinity // Payment doesn't cover interest
+    }
+
+    let balance = principal
+    let totalInterest = 0
+    let months = 0
+    const MAX_MONTHS = 1200 // 100 years cap
+
+    while (balance > 0.01 && months < MAX_MONTHS) {
+      const interestAmount = balance * monthlyRate
+      totalInterest += interestAmount
+
+      const principalPayment = Math.min(
+        monthlyPayment,
+        balance + interestAmount
+      )
+      balance = balance - (principalPayment - interestAmount)
+      months++
+
+      // Extra safety check
+      if (balance < 0) balance = 0
+    }
+
+    return Math.round(totalInterest * 100) / 100
   }
 
   return (
@@ -237,32 +331,38 @@ const LoanForm: React.FC<LoanFormProps> = ({
                 variant="ghost"
                 className="absolute top-2 right-2 h-8 w-8 p-0"
                 onClick={() => onRemoveLoan(loan.id)}
+                aria-label="Remove loan"
               >
                 ✕
               </Button>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
-                <div className="lg:col-span-2">
-                  <Label htmlFor={`loan-name-${loan.id}`}>Loan Name</Label>
-                  <Input
-                    id={`loan-name-${loan.id}`}
-                    value={loan.name}
-                    onChange={(e) =>
-                      handleInputChange(loan.id, 'name', e.target.value)
-                    }
-                  />
-                </div>
+              {/* Loan Name - Placed prominently at the top, full width */}
+              <div className="mb-4">
+                <Label htmlFor={`loan-name-${loan.id}`}>Loan Name</Label>
+                <Input
+                  id={`loan-name-${loan.id}`}
+                  value={loan.name}
+                  onChange={(e) =>
+                    handleInputChange(loan.id, 'name', e.target.value)
+                  }
+                  onBlur={() => handleInputBlur(loan.id, 'name')}
+                />
+              </div>
 
+              {/* Other loan details in a grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor={`loan-balance-${loan.id}`}>Balance ($)</Label>
                   <Input
                     id={`loan-balance-${loan.id}`}
-                    type="number"
-                    min="0"
-                    value={loan.balance || ''}
+                    type="text"
+                    inputMode="decimal"
+                    value={getDisplayValue(loan, 'balance')}
                     onChange={(e) =>
                       handleInputChange(loan.id, 'balance', e.target.value)
                     }
+                    onBlur={() => handleInputBlur(loan.id, 'balance')}
+                    onFocus={(e) => e.target.select()}
                   />
                 </div>
 
@@ -272,13 +372,14 @@ const LoanForm: React.FC<LoanFormProps> = ({
                   </Label>
                   <Input
                     id={`loan-interest-${loan.id}`}
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={loan.interestRate || ''}
+                    type="text"
+                    inputMode="decimal"
+                    value={getDisplayValue(loan, 'interestRate')}
                     onChange={(e) =>
                       handleInputChange(loan.id, 'interestRate', e.target.value)
                     }
+                    onBlur={() => handleInputBlur(loan.id, 'interestRate')}
+                    onFocus={(e) => e.target.select()}
                   />
                 </div>
 
@@ -293,14 +394,14 @@ const LoanForm: React.FC<LoanFormProps> = ({
                   </div>
                   <Input
                     id={`loan-term-${loan.id}`}
-                    type="number"
-                    min="0.1"
-                    step="0.1"
-                    max="30"
-                    value={loan.termYears?.toFixed(1) || ''}
+                    type="text"
+                    inputMode="decimal"
+                    value={getDisplayValue(loan, 'termYears')}
                     onChange={(e) =>
                       handleInputChange(loan.id, 'termYears', e.target.value)
                     }
+                    onBlur={() => handleInputBlur(loan.id, 'termYears')}
+                    onFocus={(e) => e.target.select()}
                     disabled={calculationModes[loan.id] === 'payment'}
                     className={
                       calculationModes[loan.id] === 'payment'
@@ -326,10 +427,9 @@ const LoanForm: React.FC<LoanFormProps> = ({
                   </div>
                   <Input
                     id={`loan-payment-${loan.id}`}
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={loan.minimumPayment?.toFixed(2) || ''}
+                    type="text"
+                    inputMode="decimal"
+                    value={getDisplayValue(loan, 'minimumPayment')}
                     onChange={(e) =>
                       handleInputChange(
                         loan.id,
@@ -337,6 +437,8 @@ const LoanForm: React.FC<LoanFormProps> = ({
                         e.target.value
                       )
                     }
+                    onBlur={() => handleInputBlur(loan.id, 'minimumPayment')}
+                    onFocus={(e) => e.target.select()}
                     disabled={calculationModes[loan.id] === 'term'}
                     className={
                       calculationModes[loan.id] === 'term' ? 'bg-gray-50' : ''
@@ -348,7 +450,7 @@ const LoanForm: React.FC<LoanFormProps> = ({
               <Button
                 size="sm"
                 variant="outline"
-                className="mt-3"
+                className="mt-4"
                 onClick={() => toggleCalculationMode(loan.id)}
               >
                 <ArrowRightLeft className="h-4 w-4 mr-2" />
@@ -359,51 +461,54 @@ const LoanForm: React.FC<LoanFormProps> = ({
                 input
               </Button>
 
-              {showCalculatedPayment &&
-                calculationModes[loan.id] === 'term' && (
-                  <div className="mt-4 text-sm">
-                    <p>
-                      <span className="font-medium">
-                        Calculated Monthly Payment:{' '}
-                      </span>
-                      ${loan.minimumPayment.toFixed(2)}/month
-                    </p>
-                    <p className="text-gray-600 text-xs mt-1">
-                      This is the minimum payment required to pay off this loan
-                      in {loan.termYears} years at {loan.interestRate}%
-                      interest.
-                    </p>
-                  </div>
-                )}
+              {showCalculatedPayment && (
+                <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-md text-sm">
+                  {calculationModes[loan.id] === 'term' && (
+                    <>
+                      <p>
+                        <span className="font-medium">
+                          Calculated Monthly Payment:{' '}
+                        </span>
+                        ${loan.minimumPayment.toFixed(2)}/month
+                      </p>
+                      <p className="text-xs text-gray-600 mt-1">
+                        This is the minimum payment required to pay off this
+                        loan in {loan.termYears.toFixed(2)} years at{' '}
+                        {loan.interestRate.toFixed(2)}% interest.
+                      </p>
+                    </>
+                  )}
 
-              {showCalculatedPayment &&
-                calculationModes[loan.id] === 'payment' && (
-                  <div className="mt-4 text-sm">
-                    <p>
-                      <span className="font-medium">
-                        Calculated Payoff Term:{' '}
-                      </span>
-                      {loan.termYears.toFixed(1)} years
-                    </p>
-                    <p className="text-gray-600 text-xs mt-1">
-                      This is how long it will take to pay off this loan making
-                      ${loan.minimumPayment.toFixed(2)}/month payments at{' '}
-                      {loan.interestRate}% interest.
-                    </p>
+                  {calculationModes[loan.id] === 'payment' && (
+                    <>
+                      <p>
+                        <span className="font-medium">
+                          Calculated Payoff Term:{' '}
+                        </span>
+                        {loan.termYears.toFixed(2)} years
+                      </p>
+                      <p className="text-xs text-gray-600 mt-1">
+                        This is how long it will take to pay off this loan
+                        making ${loan.minimumPayment.toFixed(2)}/month payments
+                        at {loan.interestRate.toFixed(2)}% interest.
+                      </p>
+                    </>
+                  )}
 
-                    {loan.minimumPayment * 12 * loan.termYears - loan.balance >
-                      0 && (
-                      <p className="text-amber-600 text-xs mt-1">
+                  {loan.balance > 0 &&
+                    loan.interestRate > 0 &&
+                    loan.minimumPayment > 0 && (
+                      <p className="text-amber-600 text-xs mt-2">
                         Total interest paid will be approximately $
-                        {(
-                          loan.minimumPayment * 12 * loan.termYears -
-                          loan.balance
-                        ).toFixed(2)}
-                        .
+                        {calculateTotalInterest(
+                          loan.balance,
+                          loan.minimumPayment,
+                          loan.interestRate
+                        ).toLocaleString()}
                       </p>
                     )}
-                  </div>
-                )}
+                </div>
+              )}
             </Card>
           ))}
         </div>
