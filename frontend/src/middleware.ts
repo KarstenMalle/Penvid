@@ -1,151 +1,108 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
 
-// Core middleware function
 export async function middleware(request: NextRequest) {
-  // Get the current path
-  const path = request.nextUrl.pathname
-
-  // Skip processing static assets and API routes
-  if (
-    path.includes('/_next/') ||
-    path.includes('/api/') ||
-    path.includes('favicon') ||
-    path.endsWith('.svg') ||
-    path.endsWith('.png') ||
-    path.endsWith('.jpg')
-  ) {
-    return NextResponse.next()
-  }
-
-  // Define routes that require authentication
-  const protectedRoutes = [
-    '/dashboard',
-    '/settings',
-    '/profile',
-    '/accounts',
-    '/transactions',
-    '/goals',
-  ]
-
-  // Define authentication routes that should redirect to dashboard if logged in
-  const authRoutes = [
-    '/login',
-    '/register',
-    '/forgot-password',
-    '/reset-password',
-  ]
-
-  // Check if current path is protected or auth route
-  const isProtectedRoute = protectedRoutes.some((route) =>
-    path.startsWith(route)
-  )
-  const isAuthRoute = authRoutes.some((route) => path === route)
-
-  // If it's not a protected or auth route, skip further processing
-  if (!isProtectedRoute && !isAuthRoute) {
-    return NextResponse.next()
-  }
-
-  // Prepare response object for cookie manipulation
+  // Get response object
   let response = NextResponse.next()
 
-  try {
-    // Create server client with cookie handling
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          get(name) {
-            return request.cookies.get(name)?.value
-          },
-          set(name, value, options) {
-            // Set cookie in request for current middleware chain
-            request.cookies.set({
-              name,
-              value,
-              ...options,
-            })
+  // Skip asset routes
+  if (
+    request.nextUrl.pathname.startsWith('/_next') ||
+    request.nextUrl.pathname.includes('/api/') ||
+    request.nextUrl.pathname.match(/\.(ico|png|jpg|svg)$/)
+  ) {
+    return response
+  }
 
-            // Set cookie in response for next request
-            response.cookies.set({
-              name,
-              value,
-              ...options,
-            })
-          },
-          remove(name, options) {
-            // Remove cookie from request
-            request.cookies.set({
-              name,
-              value: '',
-              ...options,
-            })
+  // Define routes that require auth
+  const protectedRoutes = ['/dashboard', '/settings', '/profile']
+  const authRoutes = ['/login', '/register', '/forgot-password']
 
-            // Remove cookie from response
-            response.cookies.set({
-              name,
-              value: '',
-              ...options,
-            })
-          },
+  const isProtectedRoute = protectedRoutes.some((route) =>
+    request.nextUrl.pathname.startsWith(route)
+  )
+  const isAuthRoute = authRoutes.some(
+    (route) => request.nextUrl.pathname === route
+  )
+
+  // Skip routes that don't need auth checking
+  if (!isProtectedRoute && !isAuthRoute) {
+    return response
+  }
+
+  // Create server-side supabase client for auth check
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return request.cookies.get(name)?.value
         },
-      }
-    )
+        set(name: string, value: string, options: CookieOptions) {
+          request.cookies.set({
+            name,
+            value,
+            ...options,
+          })
+          response.cookies.set({
+            name,
+            value,
+            ...options,
+          })
+        },
+        remove(name: string, options: CookieOptions) {
+          request.cookies.delete({
+            name,
+            ...options,
+          })
+          response.cookies.delete({
+            name,
+            ...options,
+          })
+        },
+      },
+    }
+  )
 
-    // Check for active session
+  try {
+    // Get session from supabase
     const {
       data: { session },
     } = await supabase.auth.getSession()
-
-    // Determine if user is authenticated
     const isAuthenticated = !!session
 
     console.log(
-      `Middleware: Path=${path}, Auth=${isAuthenticated ? 'Yes' : 'No'}`
+      `Middleware Auth Check: Path=${request.nextUrl.pathname}, Auth=${isAuthenticated ? 'Yes' : 'No'}`
     )
 
-    // For protected routes, redirect to login if not authenticated
+    // Handle protected routes
     if (isProtectedRoute && !isAuthenticated) {
-      console.log(`Redirecting to login from protected route: ${path}`)
       return NextResponse.redirect(new URL('/login', request.url))
     }
 
-    // For auth routes, redirect to dashboard if authenticated
+    // Handle auth routes - redirect to dashboard if already authenticated
     if (isAuthRoute && isAuthenticated) {
-      console.log(`Redirecting to dashboard from auth route: ${path}`)
       return NextResponse.redirect(new URL('/dashboard', request.url))
     }
 
-    // Add auth state to headers for components to use
-    const requestHeaders = new Headers(request.headers)
-    requestHeaders.set(
-      'x-auth-state',
-      isAuthenticated ? 'authenticated' : 'unauthenticated'
-    )
-
-    // Return response with updated headers
-    return NextResponse.next({
-      request: {
-        headers: requestHeaders,
-      },
-    })
+    // Continue with the request
+    return response
   } catch (error) {
-    console.error('Middleware error:', error)
+    console.error('Middleware auth error:', error)
 
-    // On error with protected route, redirect to login as a precaution
+    // If error occurs on protected route, redirect to login
     if (isProtectedRoute) {
       return NextResponse.redirect(new URL('/login', request.url))
     }
 
-    // Otherwise just continue
-    return NextResponse.next()
+    // Otherwise continue
+    return response
   }
 }
 
-// Run middleware on all routes
+// Configure which paths middleware will run on
 export const config = {
-  matcher: ['/((?!_next/static|_next/image).*)'],
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|.*\\.).*)'],
 }

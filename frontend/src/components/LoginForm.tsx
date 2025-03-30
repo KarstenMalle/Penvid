@@ -59,19 +59,15 @@ export function LoginForm({ className, ...props }: UserAuthFormProps) {
     console.log('Redirecting to dashboard')
 
     // Force page reload to ensure clean state
-    window.location.href = '/dashboard'
+    window.location.replace('/dashboard')
   }
 
   // Check for session and redirect if already authenticated
   React.useEffect(() => {
-    // Wait for auth to finish loading before deciding
-    if (loading) return
-
-    if (isAuthenticated) {
-      console.log('Already authenticated, redirecting to dashboard')
+    if (!loading && isAuthenticated && !redirecting) {
       redirectToDashboard()
     }
-  }, [isAuthenticated, loading])
+  }, [loading, isAuthenticated])
 
   // Handle form submission
   const onSubmit = async (data: LoginFormValues) => {

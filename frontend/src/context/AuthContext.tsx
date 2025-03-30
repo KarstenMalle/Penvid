@@ -8,6 +8,7 @@ import React, {
   ReactNode,
 } from 'react'
 import { supabase } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase-browser'
 import { User } from '@supabase/supabase-js'
 import toast from 'react-hot-toast'
 
@@ -41,6 +42,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
+  const supabase = createClient()
 
   // Initial auth check & session setup
   useEffect(() => {

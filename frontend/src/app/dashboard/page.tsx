@@ -55,25 +55,17 @@ export default function DashboardPage() {
   // Check authentication only once when component mounts
   useEffect(() => {
     const checkAuth = async () => {
-      console.log('Dashboard checking auth state:', {
-        isAuthenticated,
-        loading,
-      })
+      // Wait for auth status to be determined
+      if (loading) return
 
-      // If loading is complete and user is not authenticated, redirect to login
-      if (!loading && !isAuthenticated && !redirecting) {
-        console.log(
-          'Dashboard: Not authenticated and not loading, redirecting to login'
-        )
+      if (!isAuthenticated && !redirecting) {
         setRedirecting(true)
-
-        // Use direct window navigation instead of Next.js router
-        window.location.href = '/login'
+        window.location.replace('/login')
       }
     }
 
     checkAuth()
-  }, [isAuthenticated, loading, redirecting])
+  }, [isAuthenticated, loading])
 
   // This effect fetches user data if the user is authenticated
   useEffect(() => {
