@@ -41,7 +41,9 @@
     "selectLanguage": "Select Language",
     "dangerZone": "Danger Zone",
     "deleteAccount": "Delete Account",
-    "deleteAccountWarning": "This will permanently delete your account and all associated data."
+    "deleteAccountWarning": "This will permanently delete your account and all associated data.",
+    "currency": "Currency",
+    "selectCurrency": "Select your preferred currency"
   },
   "profile": {
     "title": "Your Profile",

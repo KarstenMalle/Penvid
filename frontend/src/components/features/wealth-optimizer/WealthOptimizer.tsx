@@ -12,11 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import StrategyResultsComponent from './StrategyResults'
-import {
-  calculateAllStrategies,
-  formatCurrency,
-  formatPercent,
-} from './calculations'
+import { calculateAllStrategies, formatPercent } from './calculations'
 import {
   Loan,
   YearlyData,
@@ -36,7 +32,11 @@ import toast from 'react-hot-toast'
 import _ from 'lodash'
 import { HelpCircle } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useLocalization } from '@/context/LocalizationContext'
+import { Currency } from '@/i18n/config'
+import { convertCurrency } from '@/lib/currency-converter'
 import Link from 'next/link'
+import { currencies } from '@/i18n/config'
 
 // Component that displays a list of loans with checkboxes for selection
 const LoanSelectList = ({
@@ -92,7 +92,9 @@ const LoanSelectList = ({
               </div>
             </div>
             <div className="text-right">
-              <div className="font-medium">{formatCurrency(loan.balance)}</div>
+              <div className="font-medium">
+                <CurrencyFormatter value={loan.balance} />
+              </div>
               <div className="text-sm text-gray-500">
                 {formatPercent(loan.interestRate)}
               </div>
@@ -115,6 +117,8 @@ const WealthOptimizer: React.FC = () => {
   const [selectedLoanIds, setSelectedLoanIds] = useState<number[]>([])
   const [isCalculating, setIsCalculating] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+
+  const { formatCurrency, currency, currencies } = useLocalization()
 
   // Results
   const [results, setResults] = useState<StrategyResults | null>(null)
@@ -145,7 +149,7 @@ const WealthOptimizer: React.FC = () => {
         // Fetch user's loans
         const userLoans = await LoanService.getUserLoans(user.id)
 
-        if (userLoans.length > 0) {
+        if (userLoans.length > 0 && currency) {
           setAllLoans(userLoans)
           // Select all loans by default
           setSelectedLoanIds(userLoans.map((loan) => loan.id))
@@ -237,8 +241,9 @@ const WealthOptimizer: React.FC = () => {
             if (!combinedYearlyData[yearData.year]) {
               combinedYearlyData[yearData.year] = { year: yearData.year }
             }
-            combinedYearlyData[yearData.year][`${strategyName}`] =
-              yearData.netWorth
+            combinedYearlyData[yearData.year][
+              `{currencies[currency].symbol}{strategyName}`
+            ] = yearData.netWorth
           })
         })
 
@@ -380,7 +385,7 @@ const WealthOptimizer: React.FC = () => {
             </div>
             <div className="relative">
               <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500">
-                $
+                {currencies[currency].symbol}
               </span>
               <Input
                 id="monthlyAvailable"
@@ -393,12 +398,13 @@ const WealthOptimizer: React.FC = () => {
             </div>
             <p className="text-sm text-gray-500">
               {isOverallBudget
-                ? `This includes all loan payments (minimum: ${calculateTotalMinimumPayment().toFixed(2)}/month) plus any extra for additional payments or investing.`
+                ? `This includes all loan payments (minimum: {currencies[currency].symbol}{calculateTotalMinimumPayment().toFixed(2)}/month) plus any extra for additional payments or investing.`
                 : `This is money available after paying for essentials (housing, food, utilities, etc.) that can be used for extra debt payments or investing.`}
             </p>
             {isOverallBudget && (
               <div className="text-sm text-blue-600 mt-1">
-                Extra available after minimum payments: $
+                Extra available after minimum payments:{' '}
+                {currencies[currency].symbol}
                 {calculateRemainingMoney().toFixed(2)}/month
               </div>
             )}
@@ -430,13 +436,15 @@ const WealthOptimizer: React.FC = () => {
           <div className="mt-2 text-sm text-center text-gray-500">
             {isOverallBudget ? (
               <p>
-                Analysis will consider your total budget of $
+                Analysis will consider your total budget of{' '}
+                {currencies[currency].symbol}
                 {monthlyAvailable.toFixed(2)}/month, including minimum payments.
               </p>
             ) : (
               <p>
-                Analysis will consider your extra ${monthlyAvailable.toFixed(2)}
-                /month plus minimum payments of $
+                Analysis will consider your extra {currencies[currency].symbol}
+                {monthlyAvailable.toFixed(2)}
+                /month plus minimum payments of {currencies[currency].symbol}
                 {calculateTotalMinimumPayment().toFixed(2)}/month.
               </p>
             )}

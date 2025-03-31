@@ -5,7 +5,15 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { buttonVariants } from '@/components/ui/button'
-import { UserIcon, Settings, Bell, Shield, Palette, Globe } from 'lucide-react'
+import {
+  UserIcon,
+  Settings,
+  Bell,
+  Shield,
+  Palette,
+  Globe,
+  DollarSign,
+} from 'lucide-react'
 
 interface SettingsLayoutProps {
   children: React.ReactNode
@@ -32,6 +40,12 @@ export default function SettingsLayout({ children }: SettingsLayoutProps) {
       label: 'Language',
       icon: <Globe className="mr-2 h-4 w-4" />, // Add this Lucide icon import
       active: pathname === '/settings/language',
+    },
+    {
+      href: '/settings/currency',
+      label: 'Currency',
+      icon: <DollarSign className="mr-2 h-4 w-4" />, // Add this Lucide icon import
+      active: pathname === '/settings/currency',
     },
     {
       href: '/settings/notifications',

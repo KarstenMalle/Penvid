@@ -41,7 +41,9 @@
     "selectLanguage": "Vælg sprog",
     "dangerZone": "Farlig zone",
     "deleteAccount": "Slet konto",
-    "deleteAccountWarning": "Dette vil permanent slette din konto og alle tilknyttede data."
+    "deleteAccountWarning": "Dette vil permanent slette din konto og alle tilknyttede data.",
+    "currency": "Valuta",
+    "selectCurrency": "Vælg din foretrukne valuta"
   },
   "profile": {
     "title": "Din profil",

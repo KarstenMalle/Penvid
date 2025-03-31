@@ -2,7 +2,7 @@
 
 import { AuthProvider } from '@/context/AuthContext'
 import { ThemeProvider } from '@/components/ThemeProvider'
-import { LanguageProvider } from '@/context/LanguageContext'
+import { LocalizationProvider } from '@/context/LocalizationContext'
 import Navbar from '@/components/Navbar'
 import { usePathname, useParams, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useState } from 'react'
@@ -57,7 +57,7 @@ export default function RootLayout({
       <body className="font-['Overpass'] min-h-screen" suppressHydrationWarning>
         <Suspense fallback={<LoadingSpinner />}>
           <AuthProvider>
-            <LanguageProvider>
+            <LocalizationProvider>
               {isClient ? (
                 <ThemeProvider>
                   {showNavbar && <Navbar />}
@@ -87,7 +87,7 @@ export default function RootLayout({
                   <main className="min-h-screen">{children}</main>
                 </div>
               )}
-            </LanguageProvider>
+            </LocalizationProvider>
           </AuthProvider>
         </Suspense>
       </body>

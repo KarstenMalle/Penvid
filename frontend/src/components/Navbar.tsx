@@ -19,7 +19,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { useLanguage } from '@/context/LanguageContext'
+import { useLocalization } from '@/context/LocalizationContext'
 import { User, Settings, LogOut, Moon, Sun, UserCircle } from 'lucide-react'
 
 export default function Navbar() {
@@ -28,7 +28,7 @@ export default function Navbar() {
   const { isAuthenticated, logout, user, profile } = useAuth()
   const [mounted, setMounted] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const { t } = useLanguage()
+  const { t, locale, setLocale } = useLocalization()
 
   // Avoid hydration mismatch
   useEffect(() => {

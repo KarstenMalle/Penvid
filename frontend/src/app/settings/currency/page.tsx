@@ -1,5 +1,4 @@
-// frontend/src/app/settings/language/page.tsx
-// frontend/src/app/settings/language/page.tsx (update)
+// frontend/src/app/settings/currency/page.tsx
 'use client'
 
 import {
@@ -9,21 +8,22 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { useLocalization } from '@/context/LocalizationContext' // Update this import
-import { Locale } from '@/i18n/config'
+import { useLocalization } from '@/context/LocalizationContext'
+import { Currency } from '@/i18n/config'
 import { useState } from 'react'
 import { Icons } from '@/components/ui/icons'
 
-export default function LanguageSettingsPage() {
-  const { locale, setLocale, t, languages } = useLocalization()
+export default function CurrencySettingsPage() {
+  const { currency, setCurrency, t, currencies, formatCurrency } =
+    useLocalization()
   const [isChanging, setIsChanging] = useState(false)
 
-  const handleLanguageChange = async (newLocale: Locale) => {
-    if (newLocale === locale) return
+  const handleCurrencyChange = async (newCurrency: Currency) => {
+    if (newCurrency === currency) return
 
     setIsChanging(true)
     try {
-      await setLocale(newLocale)
+      await setCurrency(newCurrency)
     } finally {
       setIsChanging(false)
     }
@@ -33,26 +33,31 @@ export default function LanguageSettingsPage() {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>{t('settings.language')}</CardTitle>
-          <CardDescription>{t('settings.selectLanguage')}</CardDescription>
+          <CardTitle>{t('settings.currency')}</CardTitle>
+          <CardDescription>{t('settings.selectCurrency')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {Object.entries(languages).map(([code, language]) => (
+            {Object.entries(currencies).map(([code, currencyInfo]) => (
               <div
                 key={code}
                 className={`flex items-center justify-between p-4 rounded-lg border ${
-                  locale === code
+                  currency === code
                     ? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
                     : 'border-gray-200 dark:border-gray-700'
                 } cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-800`}
-                onClick={() => handleLanguageChange(code as Locale)}
+                onClick={() => handleCurrencyChange(code as Currency)}
               >
                 <div className="flex items-center">
-                  <span className="text-2xl mr-3">{language.flag}</span>
-                  <span className="font-medium">{language.name}</span>
+                  <span className="text-2xl mr-3">{currencyInfo.flag}</span>
+                  <div>
+                    <div className="font-medium">{currencyInfo.name}</div>
+                    <div className="text-sm text-gray-500">
+                      {formatCurrency(1000, { maximumFractionDigits: 2 })}
+                    </div>
+                  </div>
                 </div>
-                {locale === code && (
+                {currency === code && (
                   <span className="h-2 w-2 rounded-full bg-blue-600"></span>
                 )}
               </div>

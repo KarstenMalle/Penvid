@@ -6,6 +6,7 @@ import {
   OptimalStrategy,
   FINANCIAL_CONSTANTS,
 } from './types'
+import { useLocalization } from '@/context/LocalizationContext'
 
 const { SP500_INFLATION_ADJUSTED_RETURN, COMPARISON_YEARS } =
   FINANCIAL_CONSTANTS
