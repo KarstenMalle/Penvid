@@ -1,9 +1,13 @@
+// src/services/LoanService.ts
+
 import { createClient } from '@/lib/supabase-browser'
 import {
   Loan,
   LoanType,
   LoanPriority,
 } from '@/components/features/wealth-optimizer/types'
+import { Currency } from '@/i18n/config'
+import { convertCurrencySync } from '@/lib/currency-converter'
 
 // Define the shape of the loan data in Supabase
 interface SupabaseLoan {
@@ -47,6 +51,32 @@ const mapToSupabase = (loan: Loan, userId: string): SupabaseLoan => ({
   updated_at: new Date().toISOString(),
 })
 
+// Convert a loan from display currency to USD for storage
+const convertLoanToUSD = (loan: Loan, fromCurrency: Currency): Loan => {
+  if (fromCurrency === 'USD') return loan
+
+  return {
+    ...loan,
+    balance: convertCurrencySync(loan.balance, fromCurrency, 'USD'),
+    minimumPayment: convertCurrencySync(
+      loan.minimumPayment,
+      fromCurrency,
+      'USD'
+    ),
+  }
+}
+
+// Convert a loan from USD to display currency
+const convertLoanFromUSD = (loan: Loan, toCurrency: Currency): Loan => {
+  if (toCurrency === 'USD') return loan
+
+  return {
+    ...loan,
+    balance: convertCurrencySync(loan.balance, 'USD', toCurrency),
+    minimumPayment: convertCurrencySync(loan.minimumPayment, 'USD', toCurrency),
+  }
+}
+
 /**
  * Service for managing loans in Supabase
  */
@@ -54,7 +84,10 @@ export const LoanService = {
   /**
    * Get all loans for a user
    */
-  async getUserLoans(userId: string): Promise<Loan[]> {
+  async getUserLoans(
+    userId: string,
+    displayCurrency: Currency = 'USD'
+  ): Promise<Loan[]> {
     try {
       const supabase = createClient()
       const { data, error } = await supabase
@@ -68,7 +101,15 @@ export const LoanService = {
         return []
       }
 
-      return data ? data.map(mapFromSupabase) : []
+      // Map from Supabase format and convert to display currency if needed
+      const loans = data ? data.map(mapFromSupabase) : []
+
+      if (displayCurrency === 'USD') {
+        return loans
+      }
+
+      // Convert loans from USD (storage) to display currency
+      return loans.map((loan) => convertLoanFromUSD(loan, displayCurrency))
     } catch (error) {
       console.error('Unexpected error fetching loans:', error)
       return []
@@ -78,9 +119,19 @@ export const LoanService = {
   /**
    * Save all loans for a user (create, update, or delete as needed)
    */
-  async saveUserLoans(userId: string, loans: Loan[]): Promise<boolean> {
+  async saveUserLoans(
+    userId: string,
+    loans: Loan[],
+    fromCurrency: Currency = 'USD'
+  ): Promise<boolean> {
     try {
       const supabase = createClient()
+
+      // Convert loans to USD for storage if needed
+      const loansForStorage =
+        fromCurrency === 'USD'
+          ? loans
+          : loans.map((loan) => convertLoanToUSD(loan, fromCurrency))
 
       // Get existing loans to determine which to update/delete
       const { data: existingLoans, error: fetchError } = await supabase
@@ -105,7 +156,7 @@ export const LoanService = {
       const loanIdsToKeep = new Set<number>()
 
       // Determine which loans to create or update
-      loans.forEach((loan) => {
+      loansForStorage.forEach((loan) => {
         loanIdsToKeep.add(loan.id)
         const existingLoan = existingLoanMap.get(loan.id)
 
@@ -167,7 +218,11 @@ export const LoanService = {
   /**
    * Get a single loan by ID
    */
-  async getLoanById(userId: string, loanId: number): Promise<Loan | null> {
+  async getLoanById(
+    userId: string,
+    loanId: number,
+    displayCurrency: Currency = 'USD'
+  ): Promise<Loan | null> {
     try {
       const supabase = createClient()
       const { data, error } = await supabase
@@ -182,7 +237,13 @@ export const LoanService = {
         return null
       }
 
-      return data ? mapFromSupabase(data) : null
+      if (!data) return null
+
+      // Convert loan from USD (storage) to display currency if needed
+      const loan = mapFromSupabase(data)
+      return displayCurrency === 'USD'
+        ? loan
+        : convertLoanFromUSD(loan, displayCurrency)
     } catch (error) {
       console.error('Unexpected error fetching loan:', error)
       return null
@@ -192,9 +253,17 @@ export const LoanService = {
   /**
    * Update a single loan
    */
-  async updateLoan(userId: string, loan: Loan): Promise<boolean> {
+  async updateLoan(
+    userId: string,
+    loan: Loan,
+    fromCurrency: Currency = 'USD'
+  ): Promise<boolean> {
     try {
       const supabase = createClient()
+
+      // Convert to USD for storage if necessary
+      const loanForStorage =
+        fromCurrency === 'USD' ? loan : convertLoanToUSD(loan, fromCurrency)
 
       // Get the Supabase ID for this loan
       const { data: existingLoan, error: fetchError } = await supabase
@@ -218,7 +287,7 @@ export const LoanService = {
       const { error } = await supabase
         .from('loans')
         .update({
-          ...mapToSupabase(loan, userId),
+          ...mapToSupabase(loanForStorage, userId),
           id: existingLoan.id, // Use the Supabase record ID
         })
         .eq('id', existingLoan.id)

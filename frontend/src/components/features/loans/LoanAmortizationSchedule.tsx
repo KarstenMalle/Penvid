@@ -18,10 +18,12 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { formatCurrency } from '@/lib/loan-calculations'
-import { generateAmortizationSchedule } from '@/lib/loan-calculations'
 import { Card, CardContent } from '@/components/ui/card'
 import { DownloadIcon, ChevronLeftIcon, ChevronRightIcon } from 'lucide-react'
+import { generateAmortizationSchedule } from '@/lib/loan-calculations'
+import { CurrencyFormatter } from '@/components/ui/currency-formatter'
+import { useLocalization } from '@/context/LocalizationContext'
+import { Currency } from '@/i18n/config'
 
 interface LoanAmortizationScheduleProps {
   loan: Loan
@@ -39,13 +41,14 @@ type AmortizationEntry = {
 const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
   loan,
 }) => {
+  const { t, locale, currency, convertAmount } = useLocalization()
   const [amortizationSchedule, setAmortizationSchedule] = useState<
     AmortizationEntry[]
   >([])
   const [yearFilter, setYearFilter] = useState<'all' | number>('all')
   const [extraPayment, setExtraPayment] = useState<number>(0)
   const [currentPage, setCurrentPage] = useState(1)
-  const [itemsPerPage, setItemsPerPage] = useState(12) // Default to showing 1 year
+  const [itemsPerPage, setItemsPerPage] = useState(12)
 
   // Generate the amortization schedule when the loan or extra payment changes
   useEffect(() => {
@@ -98,20 +101,25 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
   const downloadCSV = () => {
     // Create CSV content
     const headers = [
-      'Payment #',
-      'Date',
-      'Payment',
-      'Principal',
-      'Interest',
-      'Remaining Balance',
+      t('loans.paymentNumber'),
+      t('loans.date'),
+      t('loans.payment'),
+      t('loans.principal'),
+      t('loans.interest'),
+      t('loans.remainingBalance'),
     ]
+
+    // Convert all amounts to the selected currency for the CSV
     const rows = amortizationSchedule.map((entry) => [
       entry.paymentNumber,
-      entry.date,
-      entry.payment.toFixed(2),
-      entry.principal.toFixed(2),
-      entry.interest.toFixed(2),
-      entry.balance.toFixed(2),
+      new Date(entry.date).toLocaleDateString(locale, {
+        year: 'numeric',
+        month: 'short',
+      }),
+      convertAmount(entry.payment).toFixed(2),
+      convertAmount(entry.principal).toFixed(2),
+      convertAmount(entry.interest).toFixed(2),
+      convertAmount(entry.balance).toFixed(2),
     ])
 
     const csvContent = [
@@ -124,7 +132,7 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `${loan.name.replace(/\s+/g, '_')}_amortization_schedule.csv`
+    link.download = `${loan.name.replace(/\s+/g, '_')}_amortization_schedule_${currency}.csv`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -150,7 +158,7 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
       <div className="flex flex-col md:flex-row gap-4 justify-between">
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
           <div>
-            <Label htmlFor="yearFilter">Filter by Year</Label>
+            <Label htmlFor="yearFilter">{t('loans.filterByYear')}</Label>
             <Select
               value={yearFilter.toString()}
               onValueChange={(value) => {
@@ -159,13 +167,13 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
               }}
             >
               <SelectTrigger className="w-36">
-                <SelectValue placeholder="Select year" />
+                <SelectValue placeholder={t('loans.selectYear')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Years</SelectItem>
+                <SelectItem value="all">{t('loans.allYears')}</SelectItem>
                 {yearOptions.map((year) => (
                   <SelectItem key={year} value={year.toString()}>
-                    Year {year + 1}
+                    {t('loans.yearNumber', { year: year + 1 })}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -173,10 +181,12 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
           </div>
 
           <div>
-            <Label htmlFor="extraPayment">Extra Monthly Payment</Label>
+            <Label htmlFor="extraPayment">
+              {t('loans.extraMonthlyPayment')}
+            </Label>
             <div className="relative">
               <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500">
-                $
+                {currency === 'USD' ? '$' : 'kr'}
               </span>
               <Input
                 id="extraPayment"
@@ -193,7 +203,7 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
 
         <Button onClick={downloadCSV} className="flex items-center">
           <DownloadIcon className="mr-2 h-4 w-4" />
-          Download CSV
+          {t('loans.downloadCSV')}
         </Button>
       </div>
 
@@ -201,21 +211,27 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
         <CardContent className="p-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <p className="text-sm text-gray-500">Total Payments</p>
+              <p className="text-sm text-gray-500">
+                {t('loans.totalPayments')}
+              </p>
               <p className="text-xl font-semibold">
-                {formatCurrency(totalPayments)}
+                <CurrencyFormatter value={totalPayments} />
               </p>
             </div>
             <div>
-              <p className="text-sm text-gray-500">Total Interest</p>
+              <p className="text-sm text-gray-500">
+                {t('loans.totalInterest')}
+              </p>
               <p className="text-xl font-semibold text-orange-600">
-                {formatCurrency(totalInterest)}
+                <CurrencyFormatter value={totalInterest} />
               </p>
             </div>
             <div>
-              <p className="text-sm text-gray-500">Principal Amount</p>
+              <p className="text-sm text-gray-500">
+                {t('loans.principalAmount')}
+              </p>
               <p className="text-xl font-semibold text-blue-600">
-                {formatCurrency(totalPrincipal)}
+                <CurrencyFormatter value={totalPrincipal} />
               </p>
             </div>
           </div>
@@ -226,12 +242,14 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>#</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead>Payment</TableHead>
-              <TableHead>Principal</TableHead>
-              <TableHead>Interest</TableHead>
-              <TableHead className="text-right">Remaining Balance</TableHead>
+              <TableHead>{t('loans.paymentNumber')}</TableHead>
+              <TableHead>{t('loans.date')}</TableHead>
+              <TableHead>{t('loans.payment')}</TableHead>
+              <TableHead>{t('loans.principal')}</TableHead>
+              <TableHead>{t('loans.interest')}</TableHead>
+              <TableHead className="text-right">
+                {t('loans.remainingBalance')}
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -240,23 +258,48 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
                 <TableRow key={entry.paymentNumber}>
                   <TableCell>{entry.paymentNumber}</TableCell>
                   <TableCell>
-                    {new Date(entry.date).toLocaleDateString('en-US', {
-                      month: 'short',
-                      year: 'numeric',
-                    })}
+                    {new Date(entry.date).toLocaleDateString(
+                      locale === 'da' ? 'da-DK' : 'en-US',
+                      {
+                        month: 'short',
+                        year: 'numeric',
+                      }
+                    )}
                   </TableCell>
-                  <TableCell>${entry.payment.toFixed(2)}</TableCell>
-                  <TableCell>${entry.principal.toFixed(2)}</TableCell>
-                  <TableCell>${entry.interest.toFixed(2)}</TableCell>
+                  <TableCell>
+                    <CurrencyFormatter
+                      value={entry.payment}
+                      minimumFractionDigits={2}
+                      maximumFractionDigits={2}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <CurrencyFormatter
+                      value={entry.principal}
+                      minimumFractionDigits={2}
+                      maximumFractionDigits={2}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <CurrencyFormatter
+                      value={entry.interest}
+                      minimumFractionDigits={2}
+                      maximumFractionDigits={2}
+                    />
+                  </TableCell>
                   <TableCell className="text-right">
-                    ${entry.balance.toFixed(2)}
+                    <CurrencyFormatter
+                      value={entry.balance}
+                      minimumFractionDigits={2}
+                      maximumFractionDigits={2}
+                    />
                   </TableCell>
                 </TableRow>
               ))
             ) : (
               <TableRow>
                 <TableCell colSpan={6} className="text-center py-6">
-                  No payments to display for the selected period.
+                  {t('loans.noPaymentsToDisplay')}
                 </TableCell>
               </TableRow>
             )}
@@ -268,9 +311,11 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
       {totalPages > 1 && (
         <div className="flex items-center justify-between">
           <div className="text-sm text-gray-500">
-            Showing payments {startIndex + 1} -{' '}
-            {Math.min(startIndex + itemsPerPage, filteredSchedule.length)} of{' '}
-            {filteredSchedule.length}
+            {t('loans.showingPayments', {
+              start: startIndex + 1,
+              end: Math.min(startIndex + itemsPerPage, filteredSchedule.length),
+              total: filteredSchedule.length,
+            })}
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -282,7 +327,10 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
               <ChevronLeftIcon className="h-4 w-4" />
             </Button>
             <span className="text-sm">
-              Page {currentPage} of {totalPages}
+              {t('common.pageXOfY', {
+                current: currentPage,
+                total: totalPages,
+              })}
             </span>
             <Button
               variant="outline"

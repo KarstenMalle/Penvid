@@ -1,3 +1,5 @@
+// src/components/features/loans/LoanEditDialog.tsx
+
 import React, { useState, useEffect } from 'react'
 import {
   Dialog,
@@ -20,6 +22,9 @@ import {
 } from '@/components/ui/select'
 import { calculateMonthlyPayment } from '@/components/features/wealth-optimizer/calculations'
 import { ArrowRightLeft } from 'lucide-react'
+import { useLocalization } from '@/context/LocalizationContext'
+import { Currency, currencyConfig } from '@/i18n/config'
+import { convertCurrencySync } from '@/lib/currency-converter'
 
 interface LoanEditDialogProps {
   loan: Loan
@@ -34,8 +39,17 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
   onSave,
   onCancel,
 }) => {
-  // Create a copy of the loan to work with
-  const [loanData, setLoanData] = useState<Loan>({ ...loan })
+  const { t, currency, formatCurrency, convertAmount } = useLocalization()
+
+  // Create a copy of the loan to work with - convert from USD to display currency
+  const [loanData, setLoanData] = useState<Loan>({
+    ...loan,
+    balance: currency === 'USD' ? loan.balance : convertAmount(loan.balance),
+    minimumPayment:
+      currency === 'USD'
+        ? loan.minimumPayment
+        : convertAmount(loan.minimumPayment),
+  })
 
   // Calculate mode: payment-based or term-based
   const [calculationMode, setCalculationMode] = useState<'payment' | 'term'>(
@@ -47,10 +61,17 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
 
   // Reset form when loan changes
   useEffect(() => {
-    setLoanData({ ...loan })
+    setLoanData({
+      ...loan,
+      balance: currency === 'USD' ? loan.balance : convertAmount(loan.balance),
+      minimumPayment:
+        currency === 'USD'
+          ? loan.minimumPayment
+          : convertAmount(loan.minimumPayment),
+    })
     setCalculationMode(loan.minimumPayment > 0 ? 'payment' : 'term')
     setInputValues({})
-  }, [loan])
+  }, [loan, currency, convertAmount])
 
   // Calculate monthly payment based on balance, interest rate, and term
   const calculatePayment = (
@@ -111,8 +132,18 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
       return
     }
 
-    // For numeric fields, validate format
-    const cleanedValue = value.replace(',', '.')
+    // For numeric fields, handle different decimal separators
+    // based on the selected currency
+    const decimalSeparator = currencyConfig[currency].decimal
+
+    // Clean the input value based on locale
+    let cleanedValue = value
+    if (decimalSeparator === ',') {
+      cleanedValue = value.replace(',', '.')
+    }
+
+    // Further clean and validate the numeric input
+    cleanedValue = cleanedValue.replace(/[^\d.-]/g, '')
 
     // Allow empty string
     if (cleanedValue === '') {
@@ -143,6 +174,8 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
         )
         updateField('minimumPayment', Math.ceil(payment * 100) / 100)
       }
+
+      // src/components/features/loans/LoanEditDialog.tsx (continued)
 
       // If we're changing balance, interest rate, or payment in payment mode,
       // recalculate the term
@@ -226,16 +259,33 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
     // Validate required fields
     if (!loanData.name) {
       // Could show an error, but for simplicity we'll use a default name
-      loanData.name = `Loan ${loanData.id}`
+      loanData.name = `${t('loans.loan')} ${loanData.id}`
     }
 
     // Ensure numeric fields are not negative
-    const finalLoan = {
+    const processedLoan = {
       ...loanData,
       balance: Math.max(0, loanData.balance),
       interestRate: Math.max(0, loanData.interestRate),
       termYears: Math.max(0, loanData.termYears),
       minimumPayment: Math.max(0, loanData.minimumPayment),
+    }
+
+    // If currency is not USD, convert back to USD for storage
+    const finalLoan = { ...processedLoan }
+
+    if (currency !== 'USD') {
+      // Convert displayed currency values back to USD for storage
+      finalLoan.balance = convertCurrencySync(
+        processedLoan.balance,
+        currency,
+        'USD'
+      )
+      finalLoan.minimumPayment = convertCurrencySync(
+        processedLoan.minimumPayment,
+        currency,
+        'USD'
+      )
     }
 
     onSave(finalLoan)
@@ -246,9 +296,9 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
       <DialogContent className="sm:max-w-[525px]">
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>Edit Loan</DialogTitle>
+            <DialogTitle>{t('loans.editLoan')}</DialogTitle>
             <DialogDescription>
-              Update the details for this loan.
+              {t('loans.updateLoanDetails')}
             </DialogDescription>
           </DialogHeader>
 
@@ -256,7 +306,7 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
             {/* Loan Name */}
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="name" className="text-right">
-                Loan Name
+                {t('loans.loanName')}
               </Label>
               <Input
                 id="name"
@@ -270,7 +320,7 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
             {/* Loan Type */}
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="type" className="text-right">
-                Loan Type
+                {t('loans.type')}
               </Label>
               <Select
                 value={loanData.loanType || LoanType.PERSONAL}
@@ -279,19 +329,27 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
                 }
               >
                 <SelectTrigger id="type" className="col-span-3">
-                  <SelectValue placeholder="Select loan type" />
+                  <SelectValue placeholder={t('loans.selectLoanType')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={LoanType.MORTGAGE}>Mortgage</SelectItem>
-                  <SelectItem value={LoanType.STUDENT}>Student Loan</SelectItem>
-                  <SelectItem value={LoanType.AUTO}>Auto Loan</SelectItem>
+                  <SelectItem value={LoanType.MORTGAGE}>
+                    {t('loans.types.mortgage')}
+                  </SelectItem>
+                  <SelectItem value={LoanType.STUDENT}>
+                    {t('loans.types.student')}
+                  </SelectItem>
+                  <SelectItem value={LoanType.AUTO}>
+                    {t('loans.types.auto')}
+                  </SelectItem>
                   <SelectItem value={LoanType.CREDIT_CARD}>
-                    Credit Card
+                    {t('loans.types.credit_card')}
                   </SelectItem>
                   <SelectItem value={LoanType.PERSONAL}>
-                    Personal Loan
+                    {t('loans.types.personal')}
                   </SelectItem>
-                  <SelectItem value={LoanType.OTHER}>Other</SelectItem>
+                  <SelectItem value={LoanType.OTHER}>
+                    {t('loans.types.other')}
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -299,11 +357,11 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
             {/* Balance */}
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="balance" className="text-right">
-                Current Balance
+                {t('loans.currentBalance')}
               </Label>
               <div className="col-span-3 relative">
                 <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500">
-                  $
+                  {currencyConfig[currency].symbol}
                 </span>
                 <Input
                   id="balance"
@@ -320,7 +378,7 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
             {/* Interest Rate */}
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="interestRate" className="text-right">
-                Interest Rate
+                {t('loans.interestRate')}
               </Label>
               <div className="col-span-3 relative">
                 <Input
@@ -343,9 +401,11 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
             {/* Term */}
             <div className="grid grid-cols-4 items-center gap-4">
               <div className="flex justify-end items-center gap-1 text-right">
-                <Label htmlFor="termYears">Term</Label>
+                <Label htmlFor="termYears">{t('loans.term')}</Label>
                 {calculationMode === 'payment' && (
-                  <span className="text-xs text-blue-600">(Calculated)</span>
+                  <span className="text-xs text-blue-600">
+                    ({t('loans.calculated')})
+                  </span>
                 )}
               </div>
               <div className="col-span-3 relative">
@@ -362,7 +422,7 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
                   inputMode="decimal"
                 />
                 <span className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500">
-                  Years
+                  {t('loans.years')}
                 </span>
               </div>
             </div>
@@ -370,14 +430,18 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
             {/* Minimum Payment */}
             <div className="grid grid-cols-4 items-center gap-4">
               <div className="flex justify-end items-center gap-1 text-right">
-                <Label htmlFor="minimumPayment">Monthly Payment</Label>
+                <Label htmlFor="minimumPayment">
+                  {t('loans.monthlyPayment')}
+                </Label>
                 {calculationMode === 'term' && (
-                  <span className="text-xs text-blue-600">(Calculated)</span>
+                  <span className="text-xs text-blue-600">
+                    ({t('loans.calculated')})
+                  </span>
                 )}
               </div>
               <div className="col-span-3 relative">
                 <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500">
-                  $
+                  {currencyConfig[currency].symbol}
                 </span>
                 <Input
                   id="minimumPayment"
@@ -404,19 +468,19 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
                 className="flex items-center gap-2"
               >
                 <ArrowRightLeft className="h-4 w-4" />
-                Switch to {calculationMode === 'payment'
-                  ? 'term'
-                  : 'payment'}{' '}
-                input
+                {t('loans.switchTo')}{' '}
+                {calculationMode === 'payment'
+                  ? t('loans.termInput')
+                  : t('loans.paymentInput')}
               </Button>
             </div>
           </div>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onCancel}>
-              Cancel
+              {t('common.cancel')}
             </Button>
-            <Button type="submit">Save Changes</Button>
+            <Button type="submit">{t('common.save')}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

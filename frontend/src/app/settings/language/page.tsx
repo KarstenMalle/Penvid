@@ -1,5 +1,5 @@
-// frontend/src/app/settings/language/page.tsx
-// frontend/src/app/settings/language/page.tsx (update)
+// src/app/settings/language/page.tsx
+
 'use client'
 
 import {
@@ -9,7 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { useLocalization } from '@/context/LocalizationContext' // Update this import
+import { useLocalization } from '@/context/LocalizationContext'
 import { Locale } from '@/i18n/config'
 import { useState } from 'react'
 import { Icons } from '@/components/ui/icons'

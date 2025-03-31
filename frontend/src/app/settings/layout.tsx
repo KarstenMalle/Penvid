@@ -1,4 +1,5 @@
-// frontend/src/app/settings/layout.tsx
+// src/app/settings/layout.tsx
+
 'use client'
 
 import Link from 'next/link'
@@ -14,6 +15,7 @@ import {
   Globe,
   DollarSign,
 } from 'lucide-react'
+import { useLocalization } from '@/context/LocalizationContext'
 
 interface SettingsLayoutProps {
   children: React.ReactNode
@@ -21,41 +23,42 @@ interface SettingsLayoutProps {
 
 export default function SettingsLayout({ children }: SettingsLayoutProps) {
   const pathname = usePathname()
+  const { t } = useLocalization()
 
   const routes = [
     {
       href: '/settings',
-      label: 'Account',
+      label: t('settings.account'),
       icon: <UserIcon className="mr-2 h-4 w-4" />,
       active: pathname === '/settings',
     },
     {
       href: '/settings/appearance',
-      label: 'Appearance',
+      label: t('settings.appearance'),
       icon: <Palette className="mr-2 h-4 w-4" />,
       active: pathname === '/settings/appearance',
     },
     {
       href: '/settings/language',
-      label: 'Language',
-      icon: <Globe className="mr-2 h-4 w-4" />, // Add this Lucide icon import
+      label: t('settings.language'),
+      icon: <Globe className="mr-2 h-4 w-4" />,
       active: pathname === '/settings/language',
     },
     {
       href: '/settings/currency',
-      label: 'Currency',
-      icon: <DollarSign className="mr-2 h-4 w-4" />, // Add this Lucide icon import
+      label: t('settings.currency'),
+      icon: <DollarSign className="mr-2 h-4 w-4" />,
       active: pathname === '/settings/currency',
     },
     {
       href: '/settings/notifications',
-      label: 'Notifications',
+      label: t('settings.notifications'),
       icon: <Bell className="mr-2 h-4 w-4" />,
       active: pathname === '/settings/notifications',
     },
     {
       href: '/settings/security',
-      label: 'Security',
+      label: t('settings.security'),
       icon: <Shield className="mr-2 h-4 w-4" />,
       active: pathname === '/settings/security',
     },
@@ -63,7 +66,7 @@ export default function SettingsLayout({ children }: SettingsLayoutProps) {
 
   return (
     <div className="container mx-auto p-8">
-      <h1 className="text-3xl font-bold mb-8">Settings</h1>
+      <h1 className="text-3xl font-bold mb-8">{t('settings.title')}</h1>
 
       <div className="flex flex-col md:flex-row gap-8">
         <aside className="md:w-64 shrink-0">

@@ -1,4 +1,5 @@
-// frontend/src/components/ui/currency-formatter.tsx
+// src/components/ui/currency-formatter.tsx
+
 'use client'
 
 import React from 'react'
@@ -10,6 +11,7 @@ interface CurrencyFormatterProps {
   minimumFractionDigits?: number
   className?: string
   showSymbol?: boolean
+  originalCurrency?: 'USD' | 'DKK' // Optional: Specify if value is already in a specific currency
 }
 
 export function CurrencyFormatter({
@@ -18,6 +20,7 @@ export function CurrencyFormatter({
   minimumFractionDigits = 0,
   className,
   showSymbol = true,
+  originalCurrency = 'USD', // Default assumption: values in components are stored in USD
 }: CurrencyFormatterProps) {
   const { formatCurrency } = useLocalization()
 
@@ -27,6 +30,7 @@ export function CurrencyFormatter({
         maximumFractionDigits,
         minimumFractionDigits,
         style: showSymbol ? 'currency' : 'decimal',
+        originalCurrency,
       })}
     </span>
   )

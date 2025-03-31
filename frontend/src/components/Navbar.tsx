@@ -1,3 +1,5 @@
+// src/components/Navbar.tsx
+
 // frontend/src/components/Navbar.tsx
 'use client'
 
@@ -20,7 +22,17 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { useLocalization } from '@/context/LocalizationContext'
-import { User, Settings, LogOut, Moon, Sun, UserCircle } from 'lucide-react'
+import {
+  User,
+  Settings,
+  LogOut,
+  Moon,
+  Sun,
+  Globe,
+  DollarSign,
+} from 'lucide-react'
+import { CurrencySwitch } from '@/components/ui/currency-switch'
+import { LanguageSwitch } from '@/components/ui/language-switch'
 
 export default function Navbar() {
   const pathname = usePathname()
@@ -28,7 +40,7 @@ export default function Navbar() {
   const { isAuthenticated, logout, user, profile } = useAuth()
   const [mounted, setMounted] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const { t, locale, setLocale } = useLocalization()
+  const { t, locale, currency, languages, currencies } = useLocalization()
 
   // Avoid hydration mismatch
   useEffect(() => {
@@ -154,6 +166,11 @@ export default function Navbar() {
 
           {/* Right side actions */}
           <div className="hidden sm:flex items-center space-x-4">
+            <div className="flex items-center space-x-2">
+              <CurrencySwitch minimal size="sm" variant="ghost" />
+              <LanguageSwitch minimal size="sm" variant="ghost" />
+            </div>
+
             {isAuthenticated ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -203,6 +220,28 @@ export default function Navbar() {
                         <span>{t('nav.settings')}</span>
                       </Link>
                     </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link
+                        href="/settings/language"
+                        className="cursor-pointer w-full flex items-center"
+                      >
+                        <Globe className="mr-2 h-4 w-4" />
+                        <span>
+                          {t('settings.language')}: {languages[locale].flag}
+                        </span>
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link
+                        href="/settings/currency"
+                        className="cursor-pointer w-full flex items-center"
+                      >
+                        <DollarSign className="mr-2 h-4 w-4" />
+                        <span>
+                          {t('settings.currency')}: {currencies[currency].flag}
+                        </span>
+                      </Link>
+                    </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() =>
                         setTheme(theme === 'light' ? 'dark' : 'light')
@@ -212,12 +251,12 @@ export default function Navbar() {
                       {theme === 'light' ? (
                         <>
                           <Moon className="mr-2 h-4 w-4" />
-                          <span>Dark mode</span>
+                          <span>{t('theme.dark')}</span>
                         </>
                       ) : (
                         <>
                           <Sun className="mr-2 h-4 w-4" />
-                          <span>Light mode</span>
+                          <span>{t('theme.light')}</span>
                         </>
                       )}
                     </DropdownMenuItem>
@@ -275,6 +314,21 @@ export default function Navbar() {
             </Link>
           ))}
 
+          {/* Mobile menu language and currency */}
+          <div className="flex justify-between items-center px-3 py-2">
+            <span className="text-sm text-gray-500">
+              {t('settings.language')}
+            </span>
+            <LanguageSwitch minimal size="sm" variant="ghost" />
+          </div>
+
+          <div className="flex justify-between items-center px-3 py-2">
+            <span className="text-sm text-gray-500">
+              {t('settings.currency')}
+            </span>
+            <CurrencySwitch minimal size="sm" variant="ghost" />
+          </div>
+
           {isAuthenticated ? (
             <>
               <Link
@@ -282,14 +336,14 @@ export default function Navbar() {
                 className="block text-lg font-medium transition-colors px-3 py-2 rounded-md text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700"
                 onClick={() => setMobileMenuOpen(false)}
               >
-                Profile
+                {t('nav.profile')}
               </Link>
               <Link
                 href="/settings"
                 className="block text-lg font-medium transition-colors px-3 py-2 rounded-md text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700"
                 onClick={() => setMobileMenuOpen(false)}
               >
-                Settings
+                {t('nav.settings')}
               </Link>
               <button
                 onClick={() => {
@@ -298,7 +352,7 @@ export default function Navbar() {
                 }}
                 className="block w-full text-left text-lg font-medium transition-colors px-3 py-2 rounded-md text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700"
               >
-                {theme === 'light' ? 'Dark Mode' : 'Light Mode'}
+                {theme === 'light' ? t('theme.dark') : t('theme.light')}
               </button>
               <Button
                 onClick={() => {
@@ -308,7 +362,7 @@ export default function Navbar() {
                 variant="outline"
                 className="w-full text-lg font-medium mt-2"
               >
-                Log Out
+                {t('nav.logout')}
               </Button>
             </>
           ) : (
@@ -318,7 +372,7 @@ export default function Navbar() {
                 className="block text-center text-lg font-medium text-gray-800 dark:text-white bg-gray-100 dark:bg-gray-700 px-3 py-2 rounded-md"
                 onClick={() => setMobileMenuOpen(false)}
               >
-                Log In
+                {t('nav.login')}
               </Link>
               <Link
                 href="/register"
@@ -326,7 +380,7 @@ export default function Navbar() {
                 onClick={() => setMobileMenuOpen(false)}
               >
                 <Button className="w-full px-4 py-2 bg-blue-900 text-white font-medium rounded-md">
-                  Start Your Free Trial
+                  {t('nav.startFreeTrial')}
                 </Button>
               </Link>
             </div>

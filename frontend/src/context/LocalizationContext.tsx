@@ -1,4 +1,5 @@
-// frontend/src/context/LocalizationContext.tsx
+// src/context/LocalizationContext.tsx
+
 'use client'
 
 import React, {
@@ -19,6 +20,10 @@ import {
   defaultCurrency,
 } from '@/i18n/config'
 import toast from 'react-hot-toast'
+import {
+  fetchExchangeRates,
+  convertCurrencySync,
+} from '@/lib/currency-converter'
 
 // Import translations
 import enTranslations from '@/i18n/en.json'
@@ -29,13 +34,18 @@ const translations = {
   da: daTranslations,
 }
 
+interface FormatCurrencyOptions extends Intl.NumberFormatOptions {
+  originalCurrency?: Currency
+}
+
 type LocalizationContextType = {
   locale: Locale
   setLocale: (locale: Locale) => Promise<void>
   currency: Currency
   setCurrency: (currency: Currency) => Promise<void>
   t: (key: string) => string
-  formatCurrency: (amount: number, options?: Intl.NumberFormatOptions) => string
+  formatCurrency: (amount: number, options?: FormatCurrencyOptions) => string
+  convertAmount: (amount: number, from?: Currency, to?: Currency) => number
   languages: typeof languages
   currencies: typeof currencyConfig
 }
@@ -49,6 +59,11 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>(defaultLocale)
   const [currency, setCurrencyState] = useState<Currency>(defaultCurrency)
   const supabase = createClient()
+
+  // Load exchange rates when component mounts
+  useEffect(() => {
+    fetchExchangeRates().catch(console.error)
+  }, [])
 
   // Load user's language and currency preferences
   useEffect(() => {
@@ -178,9 +193,23 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     let value = translations[locale]
 
     for (const k of keys) {
-      if (value[k] === undefined) {
+      if (value === undefined || value[k] === undefined) {
         console.warn(`Translation key not found: ${key}`)
-        return key
+        // Fallback to English or just return the key if not found
+        if (locale !== 'en') {
+          const englishValue = translations['en']
+          let found = true
+          for (const keyPart of keys) {
+            if (englishValue && englishValue[keyPart]) {
+              value = englishValue[keyPart]
+            } else {
+              found = false
+              break
+            }
+          }
+          if (found) return value as string
+        }
+        return key.split('.').pop() || key
       }
       value = value[k]
     }
@@ -188,11 +217,21 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     return value as string
   }
 
+  // Convert amount between currencies
+  const convertAmount = (
+    amount: number,
+    from: Currency = 'USD',
+    to: Currency = currency
+  ): number => {
+    return convertCurrencySync(amount, from, to)
+  }
+
   // Format currency function
   const formatCurrency = (
     amount: number,
-    options?: Intl.NumberFormatOptions
-  ) => {
+    options?: FormatCurrencyOptions
+  ): string => {
+    const { originalCurrency = 'USD', ...formatOptions } = options || {}
     const config = currencyConfig[currency]
 
     // Default formatting options
@@ -206,11 +245,17 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     // Merge with provided options
     const formattingOptions = {
       ...defaultOptions,
-      ...options,
+      ...formatOptions,
     }
 
+    // Convert amount if needed
+    const convertedAmount =
+      originalCurrency === currency
+        ? amount
+        : convertAmount(amount, originalCurrency, currency)
+
     return new Intl.NumberFormat(config.locale, formattingOptions).format(
-      amount
+      convertedAmount
     )
   }
 
@@ -223,6 +268,7 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
         setCurrency,
         t,
         formatCurrency,
+        convertAmount,
         languages,
         currencies: currencyConfig,
       }}

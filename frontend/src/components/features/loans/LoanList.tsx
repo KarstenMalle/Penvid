@@ -1,3 +1,5 @@
+// src/components/features/loans/LoanList.tsx
+
 import React, { useState } from 'react'
 import {
   Card,
@@ -26,12 +28,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  formatCurrency,
-  formatPercent,
-} from '@/components/features/wealth-optimizer/calculations'
+import { formatPercent } from '@/components/features/wealth-optimizer/calculations'
 import { Badge } from '@/components/ui/badge'
 import LoanEditDialog from './LoanEditDialog'
+import { CurrencyFormatter } from '@/components/ui/currency-formatter'
+import { useLocalization } from '@/context/LocalizationContext'
+import { CurrencySwitch } from '@/components/ui/currency-switch'
 
 interface LoanListProps {
   loans: Loan[]
@@ -77,6 +79,7 @@ const LoanList: React.FC<LoanListProps> = ({
   onDeleteLoan,
   isLoading = false,
 }) => {
+  const { t } = useLocalization() // Get translation function
   const [sortConfig, setSortConfig] = useState<{
     key: keyof Loan
     direction: 'ascending' | 'descending'
@@ -137,7 +140,7 @@ const LoanList: React.FC<LoanListProps> = ({
     return (
       <div className="text-center p-12 border rounded-lg bg-gray-50 dark:bg-gray-800">
         <p className="text-gray-500 dark:text-gray-400">
-          No loans found in this category. Add a loan to get started.
+          {t('loans.noLoansFound')}
         </p>
       </div>
     )
@@ -147,11 +150,20 @@ const LoanList: React.FC<LoanListProps> = ({
     <div className="space-y-6">
       <Card>
         <CardHeader className="pb-1">
-          <CardTitle>Your Loans</CardTitle>
-          <CardDescription>
-            {loans.length} {loans.length === 1 ? 'loan' : 'loans'} with a total
-            balance of {formatCurrency(totalBalance)}
-          </CardDescription>
+          <div className="flex justify-between items-center">
+            <div>
+              <CardTitle>{t('loans.yourLoans')}</CardTitle>
+              <CardDescription>
+                {loans.length}{' '}
+                {loans.length === 1
+                  ? t('loans.singleLoan')
+                  : t('loans.multipleLoans')}{' '}
+                {t('loans.withTotalBalance')}{' '}
+                <CurrencyFormatter value={totalBalance} />
+              </CardDescription>
+            </div>
+            <CurrencySwitch minimal size="sm" />
+          </div>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -162,7 +174,7 @@ const LoanList: React.FC<LoanListProps> = ({
                     className="cursor-pointer"
                     onClick={() => requestSort('name')}
                   >
-                    Name
+                    {t('loans.name')}
                     {sortConfig.key === 'name' && (
                       <span>
                         {sortConfig.direction === 'ascending' ? ' ↑' : ' ↓'}
@@ -173,7 +185,7 @@ const LoanList: React.FC<LoanListProps> = ({
                     className="cursor-pointer"
                     onClick={() => requestSort('balance')}
                   >
-                    Balance
+                    {t('loans.balance')}
                     {sortConfig.key === 'balance' && (
                       <span>
                         {sortConfig.direction === 'ascending' ? ' ↑' : ' ↓'}
@@ -184,25 +196,34 @@ const LoanList: React.FC<LoanListProps> = ({
                     className="cursor-pointer"
                     onClick={() => requestSort('interestRate')}
                   >
-                    Interest Rate
+                    {t('loans.interestRate')}
                     {sortConfig.key === 'interestRate' && (
                       <span>
                         {sortConfig.direction === 'ascending' ? ' ↑' : ' ↓'}
                       </span>
                     )}
                   </TableHead>
-                  <TableHead>Monthly Payment</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead>{t('loans.monthlyPayment')}</TableHead>
+                  <TableHead>{t('loans.type')}</TableHead>
+                  <TableHead>{t('common.actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {getSortedLoans().map((loan) => (
                   <TableRow key={loan.id}>
                     <TableCell className="font-medium">{loan.name}</TableCell>
-                    <TableCell>{formatCurrency(loan.balance)}</TableCell>
+                    <TableCell>
+                      <CurrencyFormatter value={loan.balance} />
+                    </TableCell>
                     <TableCell>{formatPercent(loan.interestRate)}</TableCell>
-                    <TableCell>${loan.minimumPayment.toFixed(2)}/mo</TableCell>
+                    <TableCell>
+                      <CurrencyFormatter
+                        value={loan.minimumPayment}
+                        minimumFractionDigits={2}
+                        maximumFractionDigits={2}
+                      />
+                      /{t('loans.month')}
+                    </TableCell>
                     <TableCell>
                       <Badge
                         className={
@@ -210,10 +231,9 @@ const LoanList: React.FC<LoanListProps> = ({
                             .color
                         }
                       >
-                        {
-                          LOAN_TYPE_CONFIG[loan.loanType || LoanType.OTHER]
-                            .label
-                        }
+                        {t(
+                          `loans.types.${(loan.loanType || LoanType.OTHER).toLowerCase()}`
+                        )}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -223,6 +243,7 @@ const LoanList: React.FC<LoanListProps> = ({
                           size="sm"
                           onClick={() => handleEdit(loan)}
                           disabled={isLoading}
+                          title={t('common.edit')}
                         >
                           <Edit className="h-4 w-4" />
                         </Button>
@@ -232,11 +253,16 @@ const LoanList: React.FC<LoanListProps> = ({
                           onClick={() => confirmDelete(loan)}
                           className="text-red-500 hover:text-red-700"
                           disabled={isLoading}
+                          title={t('common.delete')}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
                         <Link href={`/loans/${loan.id}`}>
-                          <Button variant="ghost" size="sm">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title={t('common.viewDetails')}
+                          >
                             <ExternalLink className="h-4 w-4" />
                           </Button>
                         </Link>
@@ -270,10 +296,11 @@ const LoanList: React.FC<LoanListProps> = ({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Confirm Deletion</DialogTitle>
+            <DialogTitle>{t('loans.confirmDeletion')}</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete {deleteConfirmLoan?.name}? This
-              action cannot be undone.
+              {t('loans.deleteConfirmMessage', {
+                loanName: deleteConfirmLoan?.name || '',
+              })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -281,10 +308,10 @@ const LoanList: React.FC<LoanListProps> = ({
               variant="outline"
               onClick={() => setDeleteConfirmLoan(null)}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button variant="destructive" onClick={executeDelete}>
-              Delete
+              {t('common.delete')}
             </Button>
           </DialogFooter>
         </DialogContent>

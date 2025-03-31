@@ -1,3 +1,5 @@
+// src/components/features/loans/LoanPaymentChart.tsx
+
 import React, { useState, useEffect } from 'react'
 import { Loan } from '@/components/features/wealth-optimizer/types'
 import { generateAmortizationSchedule } from '@/lib/loan-calculations'
@@ -18,12 +20,15 @@ import {
   Cell,
 } from 'recharts'
 import { Button } from '@/components/ui/button'
+import { CurrencyFormatter } from '@/components/ui/currency-formatter'
+import { useLocalization } from '@/context/LocalizationContext'
 
 interface LoanPaymentChartProps {
   loan: Loan
 }
 
 const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
+  const { t, formatCurrency, currency, convertAmount } = useLocalization()
   const [chartType, setChartType] = useState<
     'balance' | 'payment' | 'interest'
   >('balance')
@@ -103,9 +108,25 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
 
   // Data for pie chart
   const pieData = [
-    { name: 'Principal', value: totalPrincipal, color: '#3b82f6' },
-    { name: 'Interest', value: totalInterest, color: '#ef4444' },
+    { name: t('loans.principal'), value: totalPrincipal, color: '#3b82f6' },
+    { name: t('loans.interest'), value: totalInterest, color: '#ef4444' },
   ]
+
+  // Custom formatters for charts
+  const currencyTickFormatter = (value: number) => {
+    return formatCurrency(value, {
+      maximumFractionDigits: 0,
+      notation: 'compact',
+    })
+  }
+
+  const percentFormatter = (value: number) => {
+    return `${(value * 100).toFixed(1)}%`
+  }
+
+  const currencyTooltipFormatter = (value: any, name: string) => {
+    return [formatCurrency(value), name]
+  }
 
   // Render the appropriate chart based on selected type
   const renderChart = () => {
@@ -119,22 +140,13 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
             >
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="date" />
-              <YAxis
-                tickFormatter={(value) =>
-                  `$${Math.round(value).toLocaleString()}`
-                }
-              />
-              <Tooltip
-                formatter={(value: any) => [
-                  `$${Math.round(value).toLocaleString()}`,
-                  'Balance',
-                ]}
-              />
+              <YAxis tickFormatter={currencyTickFormatter} />
+              <Tooltip formatter={currencyTooltipFormatter} />
               <Legend />
               <Line
                 type="monotone"
                 dataKey="balance"
-                name="Remaining Balance"
+                name={t('loans.remainingBalance')}
                 stroke="#3b82f6"
                 activeDot={{ r: 8 }}
               />
@@ -151,26 +163,18 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
             >
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="date" />
-              <YAxis
-                tickFormatter={(value) =>
-                  `$${Math.round(value).toLocaleString()}`
-                }
-              />
-              <Tooltip
-                formatter={(value: any) => [
-                  `$${Math.round(value).toLocaleString()}`,
-                ]}
-              />
+              <YAxis tickFormatter={currencyTickFormatter} />
+              <Tooltip formatter={currencyTooltipFormatter} />
               <Legend />
               <Bar
                 dataKey="principalPaid"
-                name="Principal"
+                name={t('loans.principal')}
                 stackId="a"
                 fill="#3b82f6"
               />
               <Bar
                 dataKey="interestPaid"
-                name="Interest"
+                name={t('loans.interest')}
                 stackId="a"
                 fill="#ef4444"
               />
@@ -185,9 +189,11 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
               <CardContent className="p-4">
                 <div className="text-center mb-2">
                   <h3 className="text-lg font-semibold">
-                    Total Payment Breakdown
+                    {t('loans.totalPaymentBreakdown')}
                   </h3>
-                  <p className="text-sm text-gray-500">Principal vs Interest</p>
+                  <p className="text-sm text-gray-500">
+                    {t('loans.principalVsInterest')}
+                  </p>
                 </div>
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
@@ -210,11 +216,7 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
                           <Cell key={`cell-${index}`} fill={entry.color} />
                         ))}
                       </Pie>
-                      <Tooltip
-                        formatter={(value: any) => [
-                          `$${Math.round(value).toLocaleString()}`,
-                        ]}
-                      />
+                      <Tooltip formatter={currencyTooltipFormatter} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
@@ -225,9 +227,11 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
               <CardContent className="p-4">
                 <div className="text-center mb-2">
                   <h3 className="text-lg font-semibold">
-                    Interest to Principal Ratio
+                    {t('loans.interestToPrincipalRatio')}
                   </h3>
-                  <p className="text-sm text-gray-500">By Payment Year</p>
+                  <p className="text-sm text-gray-500">
+                    {t('loans.byPaymentYear')}
+                  </p>
                 </div>
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
@@ -237,12 +241,11 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
                     >
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="date" />
-                      <YAxis
-                        tickFormatter={(value) => `${Math.round(value * 100)}%`}
-                      />
+                      <YAxis tickFormatter={percentFormatter} />
                       <Tooltip
                         formatter={(value: any) => [
                           `${(value * 100).toFixed(1)}%`,
+                          t('loans.interestRatio'),
                         ]}
                       />
                       <Legend />
@@ -251,7 +254,7 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
                           entry.interestPaid /
                           (entry.principalPaid + entry.interestPaid)
                         }
-                        name="Interest Ratio"
+                        name={t('loans.interestRatio')}
                         fill="#ef4444"
                       />
                     </BarChart>
@@ -273,21 +276,21 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
             onClick={() => setChartType('balance')}
             className="rounded-l-md rounded-r-none"
           >
-            Balance Over Time
+            {t('loans.balanceOverTime')}
           </Button>
           <Button
             variant={chartType === 'payment' ? 'default' : 'outline'}
             onClick={() => setChartType('payment')}
             className="rounded-none border-l-0 border-r-0"
           >
-            Payment Breakdown
+            {t('loans.paymentBreakdown')}
           </Button>
           <Button
             variant={chartType === 'interest' ? 'default' : 'outline'}
             onClick={() => setChartType('interest')}
             className="rounded-r-md rounded-l-none"
           >
-            Interest Analysis
+            {t('loans.interestAnalysis')}
           </Button>
         </div>
       </div>
@@ -298,9 +301,11 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
         <Card>
           <CardContent className="p-4">
             <div className="text-center">
-              <p className="text-sm text-gray-500">Total Principal</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {t('loans.totalPrincipal')}
+              </p>
               <p className="text-xl font-semibold text-blue-600">
-                ${loan.balance.toLocaleString()}
+                <CurrencyFormatter value={loan.balance} />
               </p>
             </div>
           </CardContent>
@@ -309,9 +314,11 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
         <Card>
           <CardContent className="p-4">
             <div className="text-center">
-              <p className="text-sm text-gray-500">Total Interest</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {t('loans.totalInterest')}
+              </p>
               <p className="text-xl font-semibold text-red-600">
-                ${Math.round(totalInterest).toLocaleString()}
+                <CurrencyFormatter value={totalInterest} />
               </p>
             </div>
           </CardContent>
@@ -320,8 +327,8 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
         <Card>
           <CardContent className="p-4">
             <div className="text-center">
-              <p className="text-sm text-gray-500">
-                Interest-to-Principal Ratio
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {t('loans.interestToPrincipalRatio')}
               </p>
               <p className="text-xl font-semibold text-purple-600">
                 {((totalInterest / loan.balance) * 100).toFixed(1)}%

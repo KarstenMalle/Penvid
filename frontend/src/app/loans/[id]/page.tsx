@@ -1,3 +1,4 @@
+// src/app/loans/[id]/page.tsx (partial update)
 'use client'
 
 import React, { useState, useEffect } from 'react'
@@ -26,7 +27,7 @@ import {
   PercentIcon,
   BarChart4Icon,
 } from 'lucide-react'
-import { formatCurrency, formatPercent } from '@/lib/loan-calculations'
+import { formatPercent } from '@/lib/loan-calculations'
 import {
   Dialog,
   DialogContent,
@@ -43,34 +44,31 @@ import {
 } from '@/lib/loan-calculations'
 import LoanAmortizationSchedule from '@/components/features/loans/LoanAmortizationSchedule'
 import LoanPaymentChart from '@/components/features/loans/LoanPaymentChart'
+import { CurrencyFormatter } from '@/components/ui/currency-formatter'
+import { useLocalization } from '@/context/LocalizationContext'
+import { CurrencySwitch } from '@/components/ui/currency-switch'
 
-// Map loan types to more user-friendly labels and colors
-const LOAN_TYPE_CONFIG: Record<LoanType, { label: string; color: string }> = {
+// Update loan types mapping to use translated values
+const LOAN_TYPE_CONFIG: Record<LoanType, { color: string }> = {
   [LoanType.MORTGAGE]: {
-    label: 'Mortgage',
     color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300',
   },
   [LoanType.STUDENT]: {
-    label: 'Student',
     color:
       'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300',
   },
   [LoanType.AUTO]: {
-    label: 'Auto',
     color:
       'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-300',
   },
   [LoanType.CREDIT_CARD]: {
-    label: 'Credit Card',
     color: 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300',
   },
   [LoanType.PERSONAL]: {
-    label: 'Personal',
     color:
       'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-300',
   },
   [LoanType.OTHER]: {
-    label: 'Other',
     color: 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-300',
   },
 }
@@ -79,6 +77,7 @@ export default function LoanDetailPage() {
   const params = useParams()
   const router = useRouter()
   const { user, isAuthenticated, loading } = useAuth()
+  const { t, locale } = useLocalization()
 
   const [loan, setLoan] = useState<Loan | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -109,7 +108,7 @@ export default function LoanDetailPage() {
       const loanId = Number(params.id)
       if (isNaN(loanId)) {
         setIsLoading(false)
-        toast.error('Invalid loan ID')
+        toast.error(t('loans.invalidLoanId'))
         return
       }
 
@@ -121,19 +120,19 @@ export default function LoanDetailPage() {
         if (foundLoan) {
           setLoan(foundLoan)
         } else {
-          toast.error('Loan not found')
+          toast.error(t('loans.loanNotFound'))
           router.push('/loans')
         }
       } catch (error) {
         console.error('Error loading loan:', error)
-        toast.error('Failed to load loan')
+        toast.error(t('loans.failedToLoadLoan'))
       } finally {
         setIsLoading(false)
       }
     }
 
     loadLoan()
-  }, [user, isAuthenticated, params.id, router])
+  }, [user, isAuthenticated, params.id, router, t])
 
   // Calculate payoff date
   function calculatePayoffDate(loan: Loan): Date {
@@ -157,10 +156,10 @@ export default function LoanDetailPage() {
       await LoanService.updateLoan(user.id, updatedLoan)
       setLoan(updatedLoan)
       setIsEditing(false)
-      toast.success('Loan updated successfully')
+      toast.success(t('loans.loanUpdatedSuccessfully'))
     } catch (error) {
       console.error('Error updating loan:', error)
-      toast.error('Failed to update loan')
+      toast.error(t('loans.failedToUpdateLoan'))
     } finally {
       setIsLoading(false)
     }
@@ -173,11 +172,11 @@ export default function LoanDetailPage() {
     try {
       setIsLoading(true)
       await LoanService.deleteLoan(user.id, loan.id)
-      toast.success('Loan deleted successfully')
+      toast.success(t('loans.loanDeletedSuccessfully'))
       router.push('/loans')
     } catch (error) {
       console.error('Error deleting loan:', error)
-      toast.error('Failed to delete loan')
+      toast.error(t('loans.failedToDeleteLoan'))
     } finally {
       setIsLoading(false)
       setShowDeleteConfirm(false)
@@ -190,7 +189,9 @@ export default function LoanDetailPage() {
       <div className="container mx-auto p-8 flex items-center justify-center min-h-screen">
         <div className="text-center">
           <Icons.spinner className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
-          <p className="text-lg text-gray-600">Loading loan details...</p>
+          <p className="text-lg text-gray-600">
+            {t('loans.loadingLoanDetails')}
+          </p>
         </div>
       </div>
     )
@@ -201,16 +202,16 @@ export default function LoanDetailPage() {
     return (
       <div className="container mx-auto p-8 max-w-3xl">
         <div className="text-center p-12 border rounded-lg bg-white shadow-sm">
-          <h2 className="text-2xl font-bold mb-4">View Loan Details</h2>
-          <p className="mb-6 text-gray-600">
-            You need to be logged in to view loan details.
-          </p>
+          <h2 className="text-2xl font-bold mb-4">
+            {t('loans.viewLoanDetails')}
+          </h2>
+          <p className="mb-6 text-gray-600">{t('loans.needLoginToViewLoan')}</p>
           <Button
             onClick={() =>
               (window.location.href = `/login?redirect=/loans/${params.id}`)
             }
           >
-            Sign In
+            {t('common.signIn')}
           </Button>
         </div>
       </div>
@@ -222,13 +223,10 @@ export default function LoanDetailPage() {
     return (
       <div className="container mx-auto p-8 max-w-3xl">
         <div className="text-center p-12 border rounded-lg bg-white shadow-sm">
-          <h2 className="text-2xl font-bold mb-4">Loan Not Found</h2>
-          <p className="mb-6 text-gray-600">
-            The loan you're looking for doesn't exist or you don't have
-            permission to view it.
-          </p>
+          <h2 className="text-2xl font-bold mb-4">{t('loans.loanNotFound')}</h2>
+          <p className="mb-6 text-gray-600">{t('loans.loanNotFoundMessage')}</p>
           <Link href="/loans">
-            <Button>Back to Loans</Button>
+            <Button>{t('common.backToLoans')}</Button>
           </Link>
         </div>
       </div>
@@ -252,22 +250,27 @@ export default function LoanDetailPage() {
                   LOAN_TYPE_CONFIG[loan.loanType || LoanType.OTHER].color
                 }
               >
-                {LOAN_TYPE_CONFIG[loan.loanType || LoanType.OTHER].label}
+                {t(
+                  `loans.types.${(loan.loanType || LoanType.OTHER).toLowerCase()}`
+                )}
               </Badge>
+              <div className="ml-2">
+                <CurrencySwitch minimal size="sm" variant="ghost" />
+              </div>
             </div>
           </div>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => setIsEditing(true)}>
             <EditIcon className="h-4 w-4 mr-2" />
-            Edit
+            {t('common.edit')}
           </Button>
           <Button
             variant="destructive"
             onClick={() => setShowDeleteConfirm(true)}
           >
             <Trash2Icon className="h-4 w-4 mr-2" />
-            Delete
+            {t('common.delete')}
           </Button>
         </div>
       </div>
@@ -279,20 +282,20 @@ export default function LoanDetailPage() {
             className="mr-2"
             onClick={() => setActiveTab('overview')}
           >
-            Overview
+            {t('loans.overview')}
           </Button>
           <Button
             variant={activeTab === 'schedule' ? 'default' : 'outline'}
             className="mr-2"
             onClick={() => setActiveTab('schedule')}
           >
-            Amortization Schedule
+            {t('loans.amortizationSchedule')}
           </Button>
           <Button
             variant={activeTab === 'payments' ? 'default' : 'outline'}
             onClick={() => setActiveTab('payments')}
           >
-            Payment Analysis
+            {t('loans.paymentAnalysis')}
           </Button>
         </div>
 
@@ -300,24 +303,24 @@ export default function LoanDetailPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Card>
               <CardHeader>
-                <CardTitle>Loan Overview</CardTitle>
+                <CardTitle>{t('loans.loanOverview')}</CardTitle>
                 <CardDescription>
-                  Key details about your {loan.name}
+                  {t('loans.keyDetailsAbout')} {loan.name}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <p className="text-sm text-gray-500 dark:text-gray-400">
-                      Balance
+                      {t('loans.balance')}
                     </p>
                     <p className="text-2xl font-bold">
-                      {formatCurrency(loan.balance)}
+                      <CurrencyFormatter value={loan.balance} />
                     </p>
                   </div>
                   <div>
                     <p className="text-sm text-gray-500 dark:text-gray-400">
-                      Interest Rate
+                      {t('loans.interestRate')}
                     </p>
                     <p className="text-2xl font-bold">
                       {formatPercent(loan.interestRate)}
@@ -325,18 +328,22 @@ export default function LoanDetailPage() {
                   </div>
                   <div>
                     <p className="text-sm text-gray-500 dark:text-gray-400">
-                      Monthly Payment
+                      {t('loans.monthlyPayment')}
                     </p>
                     <p className="text-2xl font-bold">
-                      ${loan.minimumPayment.toFixed(2)}
+                      <CurrencyFormatter
+                        value={loan.minimumPayment}
+                        minimumFractionDigits={2}
+                        maximumFractionDigits={2}
+                      />
                     </p>
                   </div>
                   <div>
                     <p className="text-sm text-gray-500 dark:text-gray-400">
-                      Term
+                      {t('loans.term')}
                     </p>
                     <p className="text-2xl font-bold">
-                      {loan.termYears.toFixed(2)} years
+                      {loan.termYears.toFixed(2)} {t('loans.years')}
                     </p>
                   </div>
                 </div>
@@ -344,23 +351,26 @@ export default function LoanDetailPage() {
                 <div className="pt-4 border-t">
                   <div className="flex justify-between mb-2">
                     <span className="text-gray-500 dark:text-gray-400">
-                      Total interest
+                      {t('loans.totalInterest')}
                     </span>
                     <span className="font-semibold text-orange-600">
-                      {formatCurrency(totalInterest)}
+                      <CurrencyFormatter value={totalInterest} />
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-500 dark:text-gray-400">
-                      Estimated payoff date
+                      {t('loans.estimatedPayoffDate')}
                     </span>
                     <span className="font-semibold">
                       {payoffDate
-                        ? payoffDate.toLocaleDateString('en-US', {
-                            year: 'numeric',
-                            month: 'long',
-                          })
-                        : 'N/A'}
+                        ? payoffDate.toLocaleDateString(
+                            locale === 'da' ? 'da-DK' : 'en-US',
+                            {
+                              year: 'numeric',
+                              month: 'long',
+                            }
+                          )
+                        : t('common.notAvailable')}
                     </span>
                   </div>
                 </div>
@@ -369,9 +379,9 @@ export default function LoanDetailPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Key Metrics</CardTitle>
+                <CardTitle>{t('loans.keyMetrics')}</CardTitle>
                 <CardDescription>
-                  Important financial metrics for this loan
+                  {t('loans.importantFinancialMetrics')}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -382,10 +392,12 @@ export default function LoanDetailPage() {
                     </div>
                     <div>
                       <p className="text-sm text-gray-500 dark:text-gray-400">
-                        Total Cost
+                        {t('loans.totalCost')}
                       </p>
                       <p className="text-lg font-semibold">
-                        {formatCurrency(loan.balance + totalInterest)}
+                        <CurrencyFormatter
+                          value={loan.balance + totalInterest}
+                        />
                       </p>
                     </div>
                   </div>
@@ -396,7 +408,7 @@ export default function LoanDetailPage() {
                     </div>
                     <div>
                       <p className="text-sm text-gray-500 dark:text-gray-400">
-                        Interest-to-Principal Ratio
+                        {t('loans.interestToPrincipalRatio')}
                       </p>
                       <p className="text-lg font-semibold">
                         {((totalInterest / loan.balance) * 100).toFixed(2)}%
@@ -410,7 +422,7 @@ export default function LoanDetailPage() {
                     </div>
                     <div>
                       <p className="text-sm text-gray-500 dark:text-gray-400">
-                        Months Remaining
+                        {t('loans.monthsRemaining')}
                       </p>
                       <p className="text-lg font-semibold">
                         {
@@ -430,12 +442,14 @@ export default function LoanDetailPage() {
                     </div>
                     <div>
                       <p className="text-sm text-gray-500 dark:text-gray-400">
-                        Monthly Interest
+                        {t('loans.monthlyInterest')}
                       </p>
                       <p className="text-lg font-semibold">
-                        {formatCurrency(
-                          loan.balance * (loan.interestRate / 100 / 12)
-                        )}
+                        <CurrencyFormatter
+                          value={loan.balance * (loan.interestRate / 100 / 12)}
+                          minimumFractionDigits={2}
+                          maximumFractionDigits={2}
+                        />
                       </p>
                     </div>
                   </div>
@@ -448,9 +462,9 @@ export default function LoanDetailPage() {
         {activeTab === 'schedule' && (
           <Card>
             <CardHeader>
-              <CardTitle>Amortization Schedule</CardTitle>
+              <CardTitle>{t('loans.amortizationSchedule')}</CardTitle>
               <CardDescription>
-                Month-by-month breakdown of your loan payments
+                {t('loans.monthByMonthBreakdown')}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -462,10 +476,8 @@ export default function LoanDetailPage() {
         {activeTab === 'payments' && (
           <Card>
             <CardHeader>
-              <CardTitle>Payment Analysis</CardTitle>
-              <CardDescription>
-                Visual breakdown of your loan payments
-              </CardDescription>
+              <CardTitle>{t('loans.paymentAnalysis')}</CardTitle>
+              <CardDescription>{t('loans.visualBreakdown')}</CardDescription>
             </CardHeader>
             <CardContent>
               <LoanPaymentChart loan={loan} />
@@ -488,10 +500,9 @@ export default function LoanDetailPage() {
       <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Confirm Deletion</DialogTitle>
+            <DialogTitle>{t('loans.confirmDeletion')}</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete {loan.name}? This action cannot be
-              undone.
+              {t('loans.deleteConfirmMessage', { loanName: loan.name })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -499,10 +510,10 @@ export default function LoanDetailPage() {
               variant="outline"
               onClick={() => setShowDeleteConfirm(false)}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button variant="destructive" onClick={handleDeleteLoan}>
-              Delete
+              {t('common.delete')}
             </Button>
           </DialogFooter>
         </DialogContent>

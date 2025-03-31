@@ -1,4 +1,5 @@
-// frontend/src/app/settings/currency/page.tsx
+// src/app/settings/currency/page.tsx
+
 'use client'
 
 import {
