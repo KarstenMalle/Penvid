@@ -39,18 +39,29 @@
     "system": "System"
   },
   "settings": {
-    "title": "Indstillinger",
-    "account": "Konto",
-    "appearance": "Udseende",
-    "notifications": "Notifikationer",
-    "security": "Sikkerhed",
-    "language": "Sprog",
-    "selectLanguage": "Vælg sprog",
-    "dangerZone": "Farlig zone",
-    "deleteAccount": "Slet konto",
-    "deleteAccountWarning": "Dette vil permanent slette din konto og alle tilknyttede data.",
-    "currency": "Valuta",
-    "selectCurrency": "Vælg din foretrukne valuta"
+    "country": "Land",
+    "selectCountry": "Vælg dit bopælsland",
+    "countryFinancialRules": "Finansielle regler og bestemmelser",
+    "ruleDescription": "Finansielle regler for dit valgte land",
+    "mortgageRules": "Regler for boliglån",
+    "studentLoanRules": "Regler for SU-lån",
+    "mortgageInterestDeductible": "Rentefradrag på boliglån",
+    "studentLoanInterestDeductible": "Rentefradrag på SU-lån",
+    "maxMortgageDeduction": "Maksimalt fradragsberettiget gæld",
+    "maxStudentDeduction": "Maksimalt årligt fradrag",
+    "deductionRate": "Fradragssats",
+    "countryRuleNote": "Bemærkning om landespecifikke regler",
+    "countryRuleExplanation": "Disse regler påvirker, hvordan dine lån beskattes, og kan påvirke din strategi for tilbagebetaling af lån. Forskellige lande har forskellige skattefordele for forskellige typer lån.",
+    "updateCurrencyToCountryDefault": "Vil du opdatere din valuta til {currency} for at matche dit valgte land?",
+    "updateLanguageToCountryDefault": "Vil du opdatere din sprogindstilling til at matche dit valgte land?"
+  },
+  "countries": {
+    "US": {
+      "description": "Amerikanske skatte- og finansielle regler"
+    },
+    "DK": {
+      "description": "Danske skatte- og finansielle regler"
+    }
   },
   "profile": {
     "title": "Din profil",

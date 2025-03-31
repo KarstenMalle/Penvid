@@ -14,6 +14,7 @@ import {
   Palette,
   Globe,
   DollarSign,
+  Map,
 } from 'lucide-react'
 import { useLocalization } from '@/context/LocalizationContext'
 
@@ -49,6 +50,12 @@ export default function SettingsLayout({ children }: SettingsLayoutProps) {
       label: t('settings.currency'),
       icon: <DollarSign className="mr-2 h-4 w-4" />,
       active: pathname === '/settings/currency',
+    },
+    {
+      href: '/settings/country',
+      label: t('settings.country'),
+      icon: <Map className="mr-2 h-4 w-4" />,
+      active: pathname === '/settings/country',
     },
     {
       href: '/settings/notifications',

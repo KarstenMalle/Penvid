@@ -18,6 +18,10 @@ import {
   currencyConfig,
   Currency,
   defaultCurrency,
+  countries,
+  Country,
+  defaultCountry,
+  countryConfig,
 } from '@/i18n/config'
 import toast from 'react-hot-toast'
 import {
@@ -43,11 +47,14 @@ type LocalizationContextType = {
   setLocale: (locale: Locale) => Promise<void>
   currency: Currency
   setCurrency: (currency: Currency) => Promise<void>
+  country: Country
+  setCountry: (country: Country) => Promise<void>
   t: (key: string) => string
   formatCurrency: (amount: number, options?: FormatCurrencyOptions) => string
   convertAmount: (amount: number, from?: Currency, to?: Currency) => number
   languages: typeof languages
   currencies: typeof currencyConfig
+  countries: typeof countryConfig
 }
 
 const LocalizationContext = createContext<LocalizationContextType | undefined>(
@@ -58,6 +65,7 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
   const [locale, setLocaleState] = useState<Locale>(defaultLocale)
   const [currency, setCurrencyState] = useState<Currency>(defaultCurrency)
+  const [country, setCountryState] = useState<Country>(defaultCountry)
   const supabase = createClient()
 
   // Load exchange rates when component mounts
@@ -65,12 +73,13 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     fetchExchangeRates().catch(console.error)
   }, [])
 
-  // Load user's language and currency preferences
+  // Load user's language, currency, and country preferences
   useEffect(() => {
     async function loadPreferences() {
       // First check localStorage
       const storedLocale = localStorage.getItem('locale') as Locale | null
       const storedCurrency = localStorage.getItem('currency') as Currency | null
+      const storedCountry = localStorage.getItem('country') as Country | null
 
       if (storedLocale && Object.keys(languages).includes(storedLocale)) {
         setLocaleState(storedLocale)
@@ -83,12 +92,18 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
         setCurrencyState(storedCurrency)
       }
 
+      if (storedCountry && Object.keys(countryConfig).includes(storedCountry)) {
+        setCountryState(storedCountry)
+      }
+
       // If authenticated, check database
       if (user) {
         try {
           const { data, error } = await supabase
             .from('profiles')
-            .select('language_preference, currency_preference')
+            .select(
+              'language_preference, currency_preference, country_preference'
+            )
             .eq('id', user.id)
             .single()
 
@@ -109,6 +124,14 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
             setCurrencyState(data.currency_preference as Currency)
             localStorage.setItem('currency', data.currency_preference)
           }
+
+          if (
+            data?.country_preference &&
+            Object.keys(countryConfig).includes(data.country_preference)
+          ) {
+            setCountryState(data.country_preference as Country)
+            localStorage.setItem('country', data.country_preference)
+          }
         } catch (error) {
           console.error('Error loading preferences:', error)
         }
@@ -128,6 +151,14 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
         if (locale === 'da') {
           setCurrencyState('DKK')
           localStorage.setItem('currency', 'DKK')
+        }
+      }
+
+      if (!storedCountry) {
+        // Try to match country to locale
+        if (locale === 'da') {
+          setCountryState('DK')
+          localStorage.setItem('country', 'DK')
         }
       }
     }
@@ -187,8 +218,50 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  // Function to change country
+  const setCountry = async (newCountry: Country) => {
+    // Update local state
+    setCountryState(newCountry)
+
+    // Save to localStorage
+    localStorage.setItem('country', newCountry)
+
+    // If authenticated, save to database
+    if (user) {
+      try {
+        const { error } = await supabase
+          .from('profiles')
+          .update({ country_preference: newCountry })
+          .eq('id', user.id)
+
+        if (error) throw error
+
+        // Optionally update currency and language based on country default settings
+        const countrySettings = countryConfig[newCountry]
+
+        // Ask user if they want to update currency to country's default
+        if (currency !== countrySettings.defaultCurrency) {
+          const shouldUpdateCurrency = confirm(
+            t('settings.updateCurrencyToCountryDefault', {
+              currency: currencyConfig[countrySettings.defaultCurrency].name,
+            })
+          )
+
+          if (shouldUpdateCurrency) {
+            await setCurrency(countrySettings.defaultCurrency)
+          }
+        }
+
+        toast.success(`Country changed to ${countryConfig[newCountry].name}`)
+      } catch (error) {
+        console.error('Error saving country preference:', error)
+        toast.error('Failed to save country preference')
+      }
+    }
+  }
+
   // Translation function
-  const t = (key: string) => {
+  const t = (key: string, params?: Record<string, string | number>) => {
     const keys = key.split('.')
     let value = translations[locale]
 
@@ -199,19 +272,32 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
         if (locale !== 'en') {
           const englishValue = translations['en']
           let found = true
+          let currentValue = englishValue
+
           for (const keyPart of keys) {
-            if (englishValue && englishValue[keyPart]) {
-              value = englishValue[keyPart]
+            if (currentValue && currentValue[keyPart]) {
+              currentValue = currentValue[keyPart]
             } else {
               found = false
               break
             }
           }
-          if (found) return value as string
+
+          if (found) {
+            value = currentValue
+            break
+          }
         }
         return key.split('.').pop() || key
       }
       value = value[k]
+    }
+
+    // Handle parameter substitution
+    if (params && typeof value === 'string') {
+      return Object.entries(params).reduce((str, [key, val]) => {
+        return str.replace(new RegExp(`{${key}}`, 'g'), String(val))
+      }, value)
     }
 
     return value as string
@@ -266,11 +352,14 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
         setLocale,
         currency,
         setCurrency,
+        country,
+        setCountry,
         t,
         formatCurrency,
         convertAmount,
         languages,
         currencies: currencyConfig,
+        countries: countryConfig,
       }}
     >
       {children}

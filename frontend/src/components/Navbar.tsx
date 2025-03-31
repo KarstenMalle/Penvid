@@ -1,6 +1,5 @@
-// src/components/Navbar.tsx
+// src/components/Navbar.tsx (updated)
 
-// frontend/src/components/Navbar.tsx
 'use client'
 
 import Link from 'next/link'
@@ -22,17 +21,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { useLocalization } from '@/context/LocalizationContext'
-import {
-  User,
-  Settings,
-  LogOut,
-  Moon,
-  Sun,
-  Globe,
-  DollarSign,
-} from 'lucide-react'
-import { CurrencySwitch } from '@/components/ui/currency-switch'
-import { LanguageSwitch } from '@/components/ui/language-switch'
+import { User, Settings, LogOut, Moon, Sun, Globe } from 'lucide-react'
 
 export default function Navbar() {
   const pathname = usePathname()
@@ -40,7 +29,7 @@ export default function Navbar() {
   const { isAuthenticated, logout, user, profile } = useAuth()
   const [mounted, setMounted] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const { t, locale, currency, languages, currencies } = useLocalization()
+  const { t, locale, languages } = useLocalization()
 
   // Avoid hydration mismatch
   useEffect(() => {
@@ -166,11 +155,6 @@ export default function Navbar() {
 
           {/* Right side actions */}
           <div className="hidden sm:flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
-              <CurrencySwitch minimal size="sm" variant="ghost" />
-              <LanguageSwitch minimal size="sm" variant="ghost" />
-            </div>
-
             {isAuthenticated ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -228,17 +212,6 @@ export default function Navbar() {
                         <Globe className="mr-2 h-4 w-4" />
                         <span>
                           {t('settings.language')}: {languages[locale].flag}
-                        </span>
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link
-                        href="/settings/currency"
-                        className="cursor-pointer w-full flex items-center"
-                      >
-                        <DollarSign className="mr-2 h-4 w-4" />
-                        <span>
-                          {t('settings.currency')}: {currencies[currency].flag}
                         </span>
                       </Link>
                     </DropdownMenuItem>
@@ -314,21 +287,6 @@ export default function Navbar() {
             </Link>
           ))}
 
-          {/* Mobile menu language and currency */}
-          <div className="flex justify-between items-center px-3 py-2">
-            <span className="text-sm text-gray-500">
-              {t('settings.language')}
-            </span>
-            <LanguageSwitch minimal size="sm" variant="ghost" />
-          </div>
-
-          <div className="flex justify-between items-center px-3 py-2">
-            <span className="text-sm text-gray-500">
-              {t('settings.currency')}
-            </span>
-            <CurrencySwitch minimal size="sm" variant="ghost" />
-          </div>
-
           {isAuthenticated ? (
             <>
               <Link
@@ -344,6 +302,13 @@ export default function Navbar() {
                 onClick={() => setMobileMenuOpen(false)}
               >
                 {t('nav.settings')}
+              </Link>
+              <Link
+                href="/settings/language"
+                className="block text-lg font-medium transition-colors px-3 py-2 rounded-md text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                {t('settings.language')}
               </Link>
               <button
                 onClick={() => {

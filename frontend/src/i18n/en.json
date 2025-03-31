@@ -39,18 +39,29 @@
     "system": "System"
   },
   "settings": {
-    "title": "Settings",
-    "account": "Account",
-    "appearance": "Appearance",
-    "notifications": "Notifications",
-    "security": "Security",
-    "language": "Language",
-    "selectLanguage": "Select Language",
-    "dangerZone": "Danger Zone",
-    "deleteAccount": "Delete Account",
-    "deleteAccountWarning": "This will permanently delete your account and all associated data.",
-    "currency": "Currency",
-    "selectCurrency": "Select your preferred currency"
+    "country": "Country",
+    "selectCountry": "Select your country of residence",
+    "countryFinancialRules": "Financial Rules & Regulations",
+    "ruleDescription": "Financial regulations for your selected country",
+    "mortgageRules": "Mortgage Rules",
+    "studentLoanRules": "Student Loan Rules",
+    "mortgageInterestDeductible": "Mortgage interest is tax deductible",
+    "studentLoanInterestDeductible": "Student loan interest is tax deductible",
+    "maxMortgageDeduction": "Maximum deductible debt",
+    "maxStudentDeduction": "Maximum annual deduction",
+    "deductionRate": "Tax deduction rate",
+    "countryRuleNote": "Note about country-specific rules",
+    "countryRuleExplanation": "These rules affect how your loans are taxed and can impact your loan payoff strategy. Different countries have different tax benefits for various types of loans.",
+    "updateCurrencyToCountryDefault": "Would you like to update your currency to {currency} to match your selected country?",
+    "updateLanguageToCountryDefault": "Would you like to update your language preference to match your selected country?"
+  },
+  "countries": {
+    "US": {
+      "description": "United States tax and financial rules"
+    },
+    "DK": {
+      "description": "Danish tax and financial rules"
+    }
   },
   "profile": {
     "title": "Your Profile",
