@@ -1,0 +1,52 @@
+{
+  "common": {
+    "appName": "Penvid",
+    "save": "Save",
+    "cancel": "Cancel",
+    "update": "Update",
+    "delete": "Delete",
+    "loading": "Loading..."
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "loans": "Loans",
+    "wealthTools": "Wealth Tools",
+    "whatIsPenvid": "What is Penvid",
+    "pricing": "Pricing",
+    "contact": "Contact",
+    "profile": "Profile",
+    "settings": "Settings",
+    "logout": "Log out",
+    "login": "Log In",
+    "startFreeTrial": "Start Your Free Trial"
+  },
+  "auth": {
+    "email": "Email",
+    "password": "Password",
+    "forgotPassword": "Forgot password?",
+    "name": "Name"
+  },
+  "theme": {
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
+  },
+  "settings": {
+    "title": "Settings",
+    "account": "Account",
+    "appearance": "Appearance",
+    "notifications": "Notifications",
+    "security": "Security",
+    "language": "Language",
+    "selectLanguage": "Select Language",
+    "dangerZone": "Danger Zone",
+    "deleteAccount": "Delete Account",
+    "deleteAccountWarning": "This will permanently delete your account and all associated data."
+  },
+  "profile": {
+    "title": "Your Profile",
+    "profilePicture": "Profile Picture",
+    "personalInfo": "Personal Information",
+    "update": "Update Profile"
+  }
+}

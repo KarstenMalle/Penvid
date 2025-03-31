@@ -1,0 +1,52 @@
+{
+  "common": {
+    "appName": "Penvid",
+    "save": "Gem",
+    "cancel": "Annuller",
+    "update": "Opdater",
+    "delete": "Slet",
+    "loading": "Indlæser..."
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "loans": "Lån",
+    "wealthTools": "Formueværktøjer",
+    "whatIsPenvid": "Hvad er Penvid",
+    "pricing": "Priser",
+    "contact": "Kontakt",
+    "profile": "Profil",
+    "settings": "Indstillinger",
+    "logout": "Log ud",
+    "login": "Log ind",
+    "startFreeTrial": "Start gratis prøveperiode"
+  },
+  "auth": {
+    "email": "E-mail",
+    "password": "Adgangskode",
+    "forgotPassword": "Glemt adgangskode?",
+    "name": "Navn"
+  },
+  "theme": {
+    "light": "Lys",
+    "dark": "Mørk",
+    "system": "System"
+  },
+  "settings": {
+    "title": "Indstillinger",
+    "account": "Konto",
+    "appearance": "Udseende",
+    "notifications": "Notifikationer",
+    "security": "Sikkerhed",
+    "language": "Sprog",
+    "selectLanguage": "Vælg sprog",
+    "dangerZone": "Farlig zone",
+    "deleteAccount": "Slet konto",
+    "deleteAccountWarning": "Dette vil permanent slette din konto og alle tilknyttede data."
+  },
+  "profile": {
+    "title": "Din profil",
+    "profilePicture": "Profilbillede",
+    "personalInfo": "Personlige oplysninger",
+    "update": "Opdater profil"
+  }
+}

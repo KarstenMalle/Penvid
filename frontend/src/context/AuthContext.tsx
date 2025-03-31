@@ -129,6 +129,57 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [])
 
+  useEffect(() => {
+    const fetchProfile = async () => {
+      if (!user) {
+        setProfile(null)
+        return
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single()
+
+        if (error) {
+          console.error('Error fetching profile:', error)
+          return
+        }
+
+        if (data) {
+          setProfile(data)
+        } else {
+          // Create a basic profile if none exists
+          const tempProfile = {
+            id: user.id,
+            name:
+              user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+            created_at: new Date().toISOString(),
+          }
+
+          setProfile(tempProfile)
+
+          // Optionally create profile in database
+          const { error: insertError } = await supabase
+            .from('profiles')
+            .upsert(tempProfile)
+
+          if (insertError) {
+            console.error('Error creating profile:', insertError)
+          }
+        }
+      } catch (error) {
+        console.error('Error in profile fetch:', error)
+      }
+    }
+
+    if (isAuthenticated) {
+      fetchProfile()
+    }
+  }, [user, isAuthenticated, supabase])
+
   // Login function
   const login = async (email: string, password: string) => {
     try {

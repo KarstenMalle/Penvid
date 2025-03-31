@@ -2,6 +2,7 @@
 
 import { AuthProvider } from '@/context/AuthContext'
 import { ThemeProvider } from '@/components/ThemeProvider'
+import { LanguageProvider } from '@/context/LanguageContext'
 import Navbar from '@/components/Navbar'
 import { usePathname, useParams, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useState } from 'react'
@@ -56,35 +57,37 @@ export default function RootLayout({
       <body className="font-['Overpass'] min-h-screen" suppressHydrationWarning>
         <Suspense fallback={<LoadingSpinner />}>
           <AuthProvider>
-            {isClient ? (
-              <ThemeProvider>
-                {showNavbar && <Navbar />}
-                <main
-                  className={
-                    showNavbar ? 'min-h-[calc(100vh-4rem)]' : 'min-h-screen'
-                  }
-                >
-                  {children}
-                </main>
-                <Toaster
-                  position="top-right"
-                  toastOptions={{
-                    duration: 5000,
-                    style: {
-                      borderRadius: '8px',
-                      padding: '16px',
-                      backgroundColor: '#333',
-                      color: '#fff',
-                    },
-                  }}
-                />
-              </ThemeProvider>
-            ) : (
-              <div className="opacity-0">
-                {showNavbar && <Navbar />}
-                <main className="min-h-screen">{children}</main>
-              </div>
-            )}
+            <LanguageProvider>
+              {isClient ? (
+                <ThemeProvider>
+                  {showNavbar && <Navbar />}
+                  <main
+                    className={
+                      showNavbar ? 'min-h-[calc(100vh-4rem)]' : 'min-h-screen'
+                    }
+                  >
+                    {children}
+                  </main>
+                  <Toaster
+                    position="top-right"
+                    toastOptions={{
+                      duration: 5000,
+                      style: {
+                        borderRadius: '8px',
+                        padding: '16px',
+                        backgroundColor: '#333',
+                        color: '#fff',
+                      },
+                    }}
+                  />
+                </ThemeProvider>
+              ) : (
+                <div className="opacity-0">
+                  {showNavbar && <Navbar />}
+                  <main className="min-h-screen">{children}</main>
+                </div>
+              )}
+            </LanguageProvider>
           </AuthProvider>
         </Suspense>
       </body>
