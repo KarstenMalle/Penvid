@@ -32,7 +32,7 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
   spReturn,
   riskFactor = 0.7, // Default risk factor - 70% confidence in market returns
 }) => {
-  const { t, locale, formatCurrency, currency } = useLocalization()
+  const { t, locale } = useLocalization()
 
   // Calculate risk-adjusted return
   const riskAdjustedReturn = spReturn * riskFactor
@@ -142,20 +142,39 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
         return (
           <Card
             key={comparison.loanId}
-            className={/* styling remains the same */}
+            className={
+              strategy.recommendation === 'definitely-pay'
+                ? 'border-green-200 dark:border-green-900'
+                : strategy.recommendation === 'probably-pay'
+                  ? 'border-amber-200 dark:border-amber-900'
+                  : 'border-blue-200 dark:border-blue-900'
+            }
           >
             <CardHeader className="pb-2">
               <div className="flex justify-between items-start">
                 <CardTitle>{comparison.loanName}</CardTitle>
-                {/* Strategy recommendation badge remains the same */}
+                <div
+                  className={`text-xs font-medium px-2 py-1 rounded-full ${
+                    strategy.recommendation === 'definitely-pay'
+                      ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300'
+                      : strategy.recommendation === 'probably-pay'
+                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/20 dark:text-amber-300'
+                        : 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300'
+                  }`}
+                >
+                  {t(`loanComparison.${strategy.recommendation}`)}
+                </div>
               </div>
               <CardDescription>
-                {comparison.interestRate}% {t('loans.interestRate')} •
-                {/* KEY FIX: No originalCurrency - let CurrencyFormatter handle the conversion */}
-                <CurrencyFormatter value={comparison.originalBalance} />{' '}
-                {t('loans.balance')} •
+                {comparison.interestRate}% {t('loans.interestRate')} •{' '}
+                <CurrencyFormatter
+                  value={comparison.originalBalance}
+                  originalCurrency="USD"
+                />{' '}
+                {t('loans.balance')} •{' '}
                 <CurrencyFormatter
                   value={comparison.minimumPayment}
+                  originalCurrency="USD"
                   minimumFractionDigits={2}
                   maximumFractionDigits={2}
                 />
@@ -176,6 +195,7 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
                         <span className="font-medium">
                           <CurrencyFormatter
                             value={comparison.minimumPayment}
+                            originalCurrency="USD"
                             minimumFractionDigits={2}
                             maximumFractionDigits={2}
                           />
@@ -195,6 +215,7 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
                         <span className="font-medium text-red-600">
                           <CurrencyFormatter
                             value={comparison.baselinePayoff.totalInterestPaid}
+                            originalCurrency="USD"
                           />
                         </span>
                       </li>
@@ -203,6 +224,7 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
                         <span className="font-medium text-green-600">
                           <CurrencyFormatter
                             value={comparison.potentialInvestmentGrowth}
+                            originalCurrency="USD"
                           />
                         </span>
                       </li>
@@ -213,6 +235,7 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
                             value={
                               comparison.potentialInvestmentGrowth * riskFactor
                             }
+                            originalCurrency="USD"
                           />
                         </span>
                       </li>
@@ -232,6 +255,7 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
                               comparison.minimumPayment +
                               comparison.extraMonthlyPayment
                             }
+                            originalCurrency="USD"
                             minimumFractionDigits={2}
                             maximumFractionDigits={2}
                           />

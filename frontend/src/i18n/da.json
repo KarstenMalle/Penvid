@@ -241,6 +241,27 @@
     "Risk-Balanced Approach": "Risikobalanceret tilgang"
   },
   "loanComparison": {
+    "fairComparisonExplanation": "Fair sammenligning: Kort sigt vs Lang sigt",
+    "fairComparisonDescription": "Vi giver to sammenligningsmetoder for at hjælpe dig med at træffe en mere informeret beslutning. Kort-sigts sammenligningen viser, hvad der sker i løbet af den accelererede afbetalingsperiode, mens lang-sigts sammenligningen viser, hvad der sker i løbet af den fulde almindelige låneperiode.",
+    "shortTermComparison": "Kort-sigts sammenligning",
+    "shortTermDescription": "Sammenligner at betale ekstra på dette lån vs. at investere disse penge i samme tidsperiode, som det ville tage at betale lånet af med ekstra betalinger.",
+    "payoffTimeAccelerated": "Accelereret afbetalingstid:",
+    "interestSavedShortTerm": "Renter sparet:",
+    "investmentGrowthSameTime": "Investeringsvækst (samme periode):",
+    "netAdvantage": "Nettofordel:",
+
+    "fullTermComparison": "Fuld-løbetid sammenligning",
+    "fullTermDescription": "Sammenligner det samlede resultat efter den oprindelige {years}-års låneperiode for begge strategier.",
+    "regularPayoffTime": "Almindelig afbetalingstid:",
+    "fullTermInvestmentGrowth": "Investeringsvækst (fuld løbetid):",
+    "acceleratedStrategyTotal": "Accelereret strategi total værdi:",
+    "bestLongTermStrategy": "Bedste langsigtede strategi:",
+    "payThenInvest": "Betal ned, investér derefter",
+    "investImmediately": "Investér med det samme",
+
+    "importantNote": "Vigtig bemærkning",
+    "fairComparisonNote": "Kort-sigts sammenligningen er den mest fair direkte sammenligning, men lang-sigts sammenligningen viser det fulde potentiale af hver strategi over tid. Din personlige tidshorisont bør påvirke, hvilken metrik du prioriterer.",
+
     "loanByLoanStrategy": "Lån-for-lån strategisk oversigt",
     "breakdown": "Denne oversigt viser præcist, hvad der sker, hvis du sætter dine ekstra penge mod hvert lån vs. investerer dem",
     "riskAdjustedAnalysis": "Risikojusteret Analyse",

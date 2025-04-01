@@ -95,10 +95,7 @@ const LoanSelectList = ({
             </div>
             <div className="text-right">
               <div className="font-medium">
-                <CurrencyFormatter
-                  value={loan.balance}
-                  originalCurrency="USD"
-                />
+                <CurrencyFormatter value={loan.balance} />
               </div>
               <div className="text-sm text-gray-500">
                 {formatPercent(loan.interestRate)}
@@ -424,16 +421,7 @@ const WealthOptimizer: React.FC = () => {
                 min="0"
                 className="pl-7"
                 value={monthlyAvailable || ''}
-                onChange={(e) => {
-                  const value = e.target.value
-                  if (value === '') {
-                    setMonthlyAvailable(0)
-                  } else {
-                    const numValue = parseFloat(value)
-                    // The input is already in the current currency context, no conversion needed
-                    setMonthlyAvailable(isNaN(numValue) ? 0 : numValue)
-                  }
-                }}
+                onChange={handleMonthlyAvailableChange}
               />
             </div>
             <p className="text-sm text-gray-500">
@@ -481,21 +469,15 @@ const WealthOptimizer: React.FC = () => {
             {isOverallBudget ? (
               <p>
                 {t('wealthOptimizer.totalBudgetInfo', {
-                  totalBudget: formatCurrency(monthlyAvailable, {
-                    originalCurrency: currency,
-                  }),
+                  totalBudget: formatCurrency(monthlyAvailable),
                 })}
               </p>
             ) : (
               <p>
                 {t('wealthOptimizer.extraBudgetInfo', {
-                  // Do NOT convert these values - display them as-is since they're already in the current currency
-                  extraMoney: formatCurrency(monthlyAvailable, {
-                    originalCurrency: currency,
-                  }),
+                  extraMoney: formatCurrency(monthlyAvailable),
                   minimumPayments: formatCurrency(
-                    calculateTotalMinimumPayment(),
-                    { originalCurrency: currency }
+                    calculateTotalMinimumPayment()
                   ),
                 })}
               </p>

@@ -1,5 +1,5 @@
 // frontend/src/components/features/wealth-optimizer/calculations.ts
-// Updated with proper currency handling
+// Fixed to provide fair time-based comparison and ensure proper currency handling
 
 import {
   Loan,
@@ -13,238 +13,34 @@ import {
   InvestmentDetail,
   LoanStrategyComparison,
 } from './types'
-import { useLocalization } from '@/context/LocalizationContext'
-import { Currency } from '@/i18n/config'
-
-const { SP500_INFLATION_ADJUSTED_RETURN, COMPARISON_YEARS } =
-  FINANCIAL_CONSTANTS
 
 /**
- * Calculates the monthly payment needed to pay off a loan in a given number of years
+ * For each loan, calculate whether paying down or investing is better using fair comparison methods
  */
-export const calculateMonthlyPayment = (
-  principal: number,
-  annualRate: number,
-  years: number
-): number => {
-  const monthlyRate = annualRate / 100 / 12
-  const numPayments = years * 12
+export const calculateLoanWiseComparisons = (
+  loans: Loan[],
+  monthlyAvailable: number
+): LoanStrategyComparison[] => {
+  const remainingMoney = calculateRemainingMoney(monthlyAvailable, loans)
 
-  if (monthlyRate === 0) return principal / numPayments
-
-  return (
-    (principal * monthlyRate * Math.pow(1 + monthlyRate, numPayments)) /
-    (Math.pow(1 + monthlyRate, numPayments) - 1)
-  )
-}
-
-/**
- * Calculates time needed to pay off a loan with a given monthly payment
- */
-export const calculateLoanPayoffTime = (
-  principal: number,
-  annualRate: number,
-  monthlyPayment: number
-): { months: number; years: number } => {
-  // If loan amount is 0 or payment is 0
-  if (principal <= 0 || monthlyPayment <= 0) {
-    return { months: 0, years: 0 }
+  // If there's no extra money available, return empty comparisons
+  if (remainingMoney <= 0) {
+    return []
   }
 
-  const monthlyRate = annualRate / 100 / 12
+  // Calculate how much extra money to allocate to each loan
+  const comparisons: LoanStrategyComparison[] = []
 
-  // If interest rate is 0, simple division
-  if (monthlyRate === 0) {
-    const months = Math.ceil(principal / monthlyPayment)
-    return {
-      months: months,
-      years: Math.floor(months / 12),
-    }
-  }
+  // Sort loans by interest rate (highest first)
+  const sortedLoans = [...loans].sort((a, b) => b.interestRate - a.interestRate)
 
-  // For interest-bearing loans, use the formula:
-  // n = -log(1 - P*r/PMT) / log(1 + r)
-  // where n is number of payments, P is principal, r is monthly rate, PMT is payment
-  const n =
-    -Math.log(1 - (principal * monthlyRate) / monthlyPayment) /
-    Math.log(1 + monthlyRate)
-  const months = Math.ceil(n)
+  // For each loan, calculate comparison if all extra money went to it
+  sortedLoans.forEach((loan) => {
+    const comparison = calculateLoanStrategyComparison(loan, remainingMoney)
+    comparisons.push(comparison)
+  })
 
-  return {
-    months: months,
-    years: Math.floor(months / 12),
-  }
-}
-
-/**
- * Calculates total interest paid on a loan
- */
-export const calculateTotalInterestPaid = (
-  principal: number,
-  annualRate: number,
-  monthlyPayment: number
-): number => {
-  if (principal <= 0 || monthlyPayment <= 0) {
-    return 0
-  }
-
-  const monthlyRate = annualRate / 100 / 12
-
-  // If interest rate is 0, no interest is paid
-  if (monthlyRate === 0) {
-    return 0
-  }
-
-  // Calculate payoff time
-  const { months } = calculateLoanPayoffTime(
-    principal,
-    annualRate,
-    monthlyPayment
-  )
-
-  // Total amount paid
-  const totalPaid = monthlyPayment * months
-
-  // Total interest is the difference between total paid and principal
-  return Math.max(0, totalPaid - principal)
-}
-
-/**
- * Calculates potential investment growth over a period
- */
-export const calculateInvestmentGrowth = (
-  monthlyContribution: number,
-  yearsInvesting: number,
-  annualReturnRate: number = SP500_INFLATION_ADJUSTED_RETURN
-): number => {
-  if (monthlyContribution <= 0 || yearsInvesting <= 0) {
-    return 0
-  }
-
-  const months = yearsInvesting * 12
-  const monthlyRate = annualReturnRate / 100 / 12
-
-  // Formula for future value of periodic payments with compound interest
-  const futureValue =
-    monthlyContribution *
-    ((Math.pow(1 + monthlyRate, months) - 1) / monthlyRate)
-
-  // Calculate total contributions
-  const totalContributions = monthlyContribution * months
-
-  // Return just the interest/growth portion
-  return Math.max(0, futureValue - totalContributions)
-}
-
-/**
- * Calculates total minimum monthly payment for all loans
- */
-export const calculateTotalMinimumPayment = (loans: Loan[]): number => {
-  return loans.reduce((total, loan) => total + loan.minimumPayment, 0)
-}
-
-/**
- * Calculates remaining money after paying minimums
- */
-export const calculateRemainingMoney = (
-  monthlyAvailable: number,
-  loans: Loan[]
-): number => {
-  const totalMinimumPayment = calculateTotalMinimumPayment(loans)
-  return Math.max(0, monthlyAvailable - totalMinimumPayment)
-}
-
-/**
- * Get detailed payoff information for a loan with minimum payments
- */
-export const calculateLoanDetailedPayoff = (
-  loan: Loan,
-  extraPayment: number = 0
-): PayoffDetail => {
-  const totalPayment = loan.minimumPayment + extraPayment
-  const { months, years } = calculateLoanPayoffTime(
-    loan.balance,
-    loan.interestRate,
-    totalPayment
-  )
-
-  const totalInterest = calculateTotalInterestPaid(
-    loan.balance,
-    loan.interestRate,
-    totalPayment
-  )
-
-  const totalPaid = loan.balance + totalInterest
-
-  return {
-    loanId: loan.id,
-    loanName: loan.name,
-    payoffTimeMonths: months,
-    payoffTimeYears: years,
-    totalInterestPaid: totalInterest,
-    totalPaid: totalPaid,
-    monthlyPayment: totalPayment,
-    originalLoanAmount: loan.balance,
-  }
-}
-
-/**
- * Calculate detailed loan comparison for different strategies
- */
-export const calculateLoanStrategyComparison = (
-  loan: Loan,
-  extraMonthlyPayment: number
-): LoanStrategyComparison => {
-  // Calculate baseline (minimum payment only)
-  const baselinePayoff = calculateLoanDetailedPayoff(loan, 0)
-
-  // Calculate with extra payment
-  const acceleratedPayoff = calculateLoanDetailedPayoff(
-    loan,
-    extraMonthlyPayment
-  )
-
-  // Calculate potential investment growth if extra payment was invested instead
-  const potentialInvestmentGrowth = calculateInvestmentGrowth(
-    extraMonthlyPayment,
-    baselinePayoff.payoffTimeYears,
-    SP500_INFLATION_ADJUSTED_RETURN
-  )
-
-  // Calculate interest saved by paying early
-  const interestSaved =
-    baselinePayoff.totalInterestPaid - acceleratedPayoff.totalInterestPaid
-
-  // Determine if paying down is better than investing
-  const payingDownIsBetter = interestSaved > potentialInvestmentGrowth
-
-  // Calculate total cost for each approach (for comparison)
-  const totalCostWithInvestments =
-    baselinePayoff.totalInterestPaid - potentialInvestmentGrowth
-
-  const totalCostWithAcceleratedPayments = acceleratedPayoff.totalInterestPaid
-
-  return {
-    loanId: loan.id,
-    loanName: loan.name,
-    interestRate: loan.interestRate,
-    originalBalance: loan.balance,
-    minimumPayment: loan.minimumPayment,
-    baselinePayoff,
-    acceleratedPayoff,
-    extraMonthlyPayment,
-    interestSaved,
-    potentialInvestmentGrowth,
-    payingDownIsBetter,
-    netAdvantage: payingDownIsBetter
-      ? interestSaved - potentialInvestmentGrowth
-      : potentialInvestmentGrowth - interestSaved,
-    betterStrategy: payingDownIsBetter
-      ? 'Pay Down Loan'
-      : 'Minimum Payment + Invest',
-    totalCostWithInvestments,
-    totalCostWithAcceleratedPayments,
-  }
+  return comparisons
 }
 
 /**
@@ -458,7 +254,7 @@ export const calculateAvalancheStrategy = (
     yearlyData.push(yearSummary)
   }
 
-  // Calculate loan payoff details for each loan
+  // Calculate loan payoff details for each loan with the appropriate extra payments
   loans.forEach((loan) => {
     loanPayoffDetails[loan.id] = calculateLoanDetailedPayoff(
       loan,
@@ -607,7 +403,7 @@ export const calculateHybridStrategy = (
     yearlyData.push(yearSummary)
   }
 
-  // Calculate loan payoff details for each loan
+  // Calculate loan payoff details for each loan with the appropriate extra payments
   loans.forEach((loan) => {
     const extraPayment = isHighInterest(loan.interestRate)
       ? extraPayments[loan.id]
@@ -745,7 +541,7 @@ export const calculateCustomStrategy = (
     yearlyData.push(yearSummary)
   }
 
-  // Calculate loan payoff details for each loan
+  // Calculate loan payoff details for each loan with appropriate extra payments
   loans.forEach((loan) => {
     loanPayoffDetails[loan.id] = calculateLoanDetailedPayoff(
       loan,
@@ -763,35 +559,6 @@ export const calculateCustomStrategy = (
     strategyDescription:
       'Aggressively pay down all loans for the first 5 years (focusing on high-interest loans first), then switch to investing all extra money after that.',
   }
-}
-
-/**
- * For each loan, calculate whether paying down or investing is better
- */
-export const calculateLoanWiseComparisons = (
-  loans: Loan[],
-  monthlyAvailable: number
-): LoanStrategyComparison[] => {
-  const remainingMoney = calculateRemainingMoney(monthlyAvailable, loans)
-
-  // If there's no extra money available, return empty comparisons
-  if (remainingMoney <= 0) {
-    return []
-  }
-
-  // Calculate how much extra money to allocate to each loan
-  const comparisons: LoanStrategyComparison[] = []
-
-  // Sort loans by interest rate (highest first)
-  const sortedLoans = [...loans].sort((a, b) => b.interestRate - a.interestRate)
-
-  // For each loan, calculate comparison if all extra money went to it
-  sortedLoans.forEach((loan) => {
-    const comparison = calculateLoanStrategyComparison(loan, remainingMoney)
-    comparisons.push(comparison)
-  })
-
-  return comparisons
 }
 
 /**
@@ -902,5 +669,281 @@ export const formatTimeSpan = (
     } else {
       return `${years} year${years !== 1 ? 's' : ''} and ${remainingMonths} month${remainingMonths !== 1 ? 's' : ''}`
     }
+  }
+}
+
+const { SP500_INFLATION_ADJUSTED_RETURN, COMPARISON_YEARS } =
+  FINANCIAL_CONSTANTS
+
+/**
+ * Calculates the monthly payment needed to pay off a loan in a given number of years
+ */
+export const calculateMonthlyPayment = (
+  principal: number,
+  annualRate: number,
+  years: number
+): number => {
+  const monthlyRate = annualRate / 100 / 12
+  const numPayments = years * 12
+
+  if (monthlyRate === 0) return principal / numPayments
+
+  return (
+    (principal * monthlyRate * Math.pow(1 + monthlyRate, numPayments)) /
+    (Math.pow(1 + monthlyRate, numPayments) - 1)
+  )
+}
+
+/**
+ * Calculates time needed to pay off a loan with a given monthly payment
+ */
+export const calculateLoanPayoffTime = (
+  principal: number,
+  annualRate: number,
+  monthlyPayment: number
+): { months: number; years: number } => {
+  // If loan amount is 0 or payment is 0
+  if (principal <= 0 || monthlyPayment <= 0) {
+    return { months: 0, years: 0 }
+  }
+
+  const monthlyRate = annualRate / 100 / 12
+
+  // If interest rate is 0, simple division
+  if (monthlyRate === 0) {
+    const months = Math.ceil(principal / monthlyPayment)
+    return {
+      months: months,
+      years: Math.floor(months / 12) + (months % 12) / 12,
+    }
+  }
+
+  // For interest-bearing loans, use the formula:
+  // n = -log(1 - P*r/PMT) / log(1 + r)
+  // where n is number of payments, P is principal, r is monthly rate, PMT is payment
+  const n =
+    -Math.log(1 - (principal * monthlyRate) / monthlyPayment) /
+    Math.log(1 + monthlyRate)
+  const months = Math.ceil(n)
+
+  return {
+    months: months,
+    years: Math.floor(months / 12) + (months % 12) / 12,
+  }
+}
+
+/**
+ * Calculates total interest paid on a loan
+ */
+export const calculateTotalInterestPaid = (
+  principal: number,
+  annualRate: number,
+  monthlyPayment: number
+): number => {
+  if (principal <= 0 || monthlyPayment <= 0) {
+    return 0
+  }
+
+  const monthlyRate = annualRate / 100 / 12
+
+  // If interest rate is 0, no interest is paid
+  if (monthlyRate === 0) {
+    return 0
+  }
+
+  // Calculate payoff time
+  const { months } = calculateLoanPayoffTime(
+    principal,
+    annualRate,
+    monthlyPayment
+  )
+
+  // Total amount paid
+  const totalPaid = monthlyPayment * months
+
+  // Total interest is the difference between total paid and principal
+  return Math.max(0, totalPaid - principal)
+}
+
+/**
+ * Calculates potential investment growth over a period
+ *
+ * @param monthlyContribution Monthly amount to invest
+ * @param yearsInvesting Number of years to invest
+ * @param annualReturnRate Expected annual return rate (default: S&P500 inflation-adjusted)
+ * @returns Total investment growth (not including contributions)
+ */
+export const calculateInvestmentGrowth = (
+  monthlyContribution: number,
+  yearsInvesting: number,
+  annualReturnRate: number = SP500_INFLATION_ADJUSTED_RETURN
+): number => {
+  if (monthlyContribution <= 0 || yearsInvesting <= 0) {
+    return 0
+  }
+
+  const months = Math.round(yearsInvesting * 12)
+  const monthlyRate = annualReturnRate / 100 / 12
+
+  // Formula for future value of periodic payments with compound interest
+  const futureValue =
+    monthlyContribution *
+    ((Math.pow(1 + monthlyRate, months) - 1) / monthlyRate)
+
+  // Calculate total contributions
+  const totalContributions = monthlyContribution * months
+
+  // Return just the interest/growth portion
+  return Math.max(0, futureValue - totalContributions)
+}
+
+/**
+ * Calculates total minimum monthly payment for all loans
+ */
+export const calculateTotalMinimumPayment = (loans: Loan[]): number => {
+  return loans.reduce((total, loan) => total + loan.minimumPayment, 0)
+}
+
+/**
+ * Calculates remaining money after paying minimums
+ */
+export const calculateRemainingMoney = (
+  monthlyAvailable: number,
+  loans: Loan[]
+): number => {
+  const totalMinimumPayment = calculateTotalMinimumPayment(loans)
+  return Math.max(0, monthlyAvailable - totalMinimumPayment)
+}
+
+/**
+ * Get detailed payoff information for a loan with minimum payments
+ */
+export const calculateLoanDetailedPayoff = (
+  loan: Loan,
+  extraPayment: number = 0
+): PayoffDetail => {
+  const totalPayment = loan.minimumPayment + extraPayment
+  const { months, years } = calculateLoanPayoffTime(
+    loan.balance,
+    loan.interestRate,
+    totalPayment
+  )
+
+  const totalInterest = calculateTotalInterestPaid(
+    loan.balance,
+    loan.interestRate,
+    totalPayment
+  )
+
+  const totalPaid = loan.balance + totalInterest
+
+  return {
+    loanId: loan.id,
+    loanName: loan.name,
+    payoffTimeMonths: months,
+    payoffTimeYears: years,
+    totalInterestPaid: totalInterest,
+    totalPaid: totalPaid,
+    monthlyPayment: totalPayment,
+    originalLoanAmount: loan.balance,
+  }
+}
+
+/**
+ * Calculate detailed loan comparison for different strategies with fair comparison timeframes
+ */
+export const calculateLoanStrategyComparison = (
+  loan: Loan,
+  extraMonthlyPayment: number
+): LoanStrategyComparison => {
+  // Calculate baseline (minimum payment only)
+  const baselinePayoff = calculateLoanDetailedPayoff(loan, 0)
+
+  // Calculate with extra payment
+  const acceleratedPayoff = calculateLoanDetailedPayoff(
+    loan,
+    extraMonthlyPayment
+  )
+
+  // *** IMPORTANT FIX: Calculate investment growth for two timeframes ***
+
+  // 1. Short-term: Investment growth during the accelerated payoff period
+  // This gives us a fair comparison of what happens during the accelerated payoff timeframe
+  const shortTermInvestmentGrowth = calculateInvestmentGrowth(
+    extraMonthlyPayment,
+    acceleratedPayoff.payoffTimeYears,
+    SP500_INFLATION_ADJUSTED_RETURN
+  )
+
+  // 2. Long-term: Total investment growth if investing for the full baseline term
+  // This shows what happens if we choose the minimum payment + invest strategy
+  const longTermInvestmentGrowth = calculateInvestmentGrowth(
+    extraMonthlyPayment,
+    baselinePayoff.payoffTimeYears,
+    SP500_INFLATION_ADJUSTED_RETURN
+  )
+
+  // For a fair comparison, we should compare:
+  // - The interest saved by paying down the loan early
+  // - The potential investment growth during that SAME shortened time period
+  const interestSaved =
+    baselinePayoff.totalInterestPaid - acceleratedPayoff.totalInterestPaid
+
+  // Primary comparison uses the short-term investment growth for fair comparison
+  const payingDownIsBetter = interestSaved > shortTermInvestmentGrowth
+
+  // Calculate what happens after the accelerated loan is paid off
+  // If we take those loan payments and invest them for the remainder of the original term
+  const remainingYears =
+    baselinePayoff.payoffTimeYears - acceleratedPayoff.payoffTimeYears
+
+  // Only calculate this if there are remaining years
+  const additionalInvestmentGrowth =
+    remainingYears > 0
+      ? calculateInvestmentGrowth(
+          loan.minimumPayment + extraMonthlyPayment, // Now we can invest the entire payment
+          remainingYears,
+          SP500_INFLATION_ADJUSTED_RETURN
+        )
+      : 0
+
+  // Total investment potential for the accelerated strategy over the full term
+  const acceleratedStrategyTotalValue =
+    shortTermInvestmentGrowth + additionalInvestmentGrowth
+
+  return {
+    loanId: loan.id,
+    loanName: loan.name,
+    interestRate: loan.interestRate,
+    originalBalance: loan.balance,
+    minimumPayment: loan.minimumPayment,
+    baselinePayoff,
+    acceleratedPayoff,
+    extraMonthlyPayment,
+    interestSaved,
+    // For fair comparison we provide both short and long term metrics
+    potentialInvestmentGrowth: shortTermInvestmentGrowth, // Fair comparison (same timeframe)
+    longTermInvestmentGrowth, // Full timeframe potential
+    acceleratedStrategyTotalValue, // The total value of the accelerated strategy over full term
+    payingDownIsBetter,
+    netAdvantage: payingDownIsBetter
+      ? interestSaved - shortTermInvestmentGrowth
+      : shortTermInvestmentGrowth - interestSaved,
+    betterStrategy: payingDownIsBetter
+      ? 'Pay Down Loan'
+      : 'Minimum Payment + Invest',
+    totalCostWithInvestments:
+      baselinePayoff.totalInterestPaid - shortTermInvestmentGrowth,
+    totalCostWithAcceleratedPayments: acceleratedPayoff.totalInterestPaid,
+    // Add additional metrics for full comparison
+    fullTermComparison: {
+      investingOnlyNetWorth:
+        longTermInvestmentGrowth - baselinePayoff.totalInterestPaid,
+      acceleratedStrategyNetWorth:
+        acceleratedStrategyTotalValue - acceleratedPayoff.totalInterestPaid,
+      isBetter:
+        acceleratedStrategyTotalValue - acceleratedPayoff.totalInterestPaid >
+        longTermInvestmentGrowth - baselinePayoff.totalInterestPaid,
+    },
   }
 }

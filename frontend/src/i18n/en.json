@@ -241,6 +241,27 @@
     "Risk-Balanced Approach": "Risk-Balanced Approach"
   },
   "loanComparison": {
+    "fairComparisonExplanation": "Fair Comparison: Short-term vs Long-term",
+    "fairComparisonDescription": "We provide two comparison methods to help you make a more informed decision. The short-term comparison shows what happens during the accelerated payoff period, while the long-term comparison shows what happens over the full regular loan term.",
+    "shortTermComparison": "Short-term Comparison",
+    "shortTermDescription": "Compares paying extra on this loan vs investing that money for the same time period it would take to pay off the loan with extra payments.",
+    "payoffTimeAccelerated": "Accelerated payoff time:",
+    "interestSavedShortTerm": "Interest saved:",
+    "investmentGrowthSameTime": "Investment growth (same period):",
+    "netAdvantage": "Net advantage:",
+
+    "fullTermComparison": "Full-term Comparison",
+    "fullTermDescription": "Compares the total outcome after the original {years}-year loan term for both strategies.",
+    "regularPayoffTime": "Regular payoff time:",
+    "fullTermInvestmentGrowth": "Investment growth (full term):",
+    "acceleratedStrategyTotal": "Accelerated strategy total value:",
+    "bestLongTermStrategy": "Best long-term strategy:",
+    "payThenInvest": "Pay down, then invest",
+    "investImmediately": "Invest immediately",
+
+    "importantNote": "Important Note",
+    "fairComparisonNote": "The short-term comparison is the fairest direct comparison, but the long-term comparison shows the full potential of each strategy over time. Your personal time horizon should influence which metric you prioritize.",
+
     "loanByLoanStrategy": "Loan-by-Loan Strategy Breakdown",
     "breakdown": "This breakdown shows exactly what happens if you put your extra money toward each loan vs. investing it",
     "riskAdjustedAnalysis": "Risk-Adjusted Analysis",
