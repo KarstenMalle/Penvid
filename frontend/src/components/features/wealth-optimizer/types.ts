@@ -7,12 +7,14 @@
  * Enum representing different types of loans
  */
 export enum LoanType {
-  MORTGAGE = 'mortgage',
-  STUDENT = 'student',
-  AUTO = 'auto',
-  CREDIT_CARD = 'credit_card',
-  PERSONAL = 'personal',
-  OTHER = 'other',
+  MORTGAGE = 'MORTGAGE', // General mortgage (for US, UK, etc.)
+  MORTGAGE_BOND = 'MORTGAGE_BOND', // Danish realkreditlån
+  HOME_LOAN = 'HOME_LOAN', // Danish boliglån
+  STUDENT = 'STUDENT',
+  AUTO = 'AUTO',
+  CREDIT_CARD = 'CREDIT_CARD',
+  PERSONAL = 'PERSONAL',
+  OTHER = 'OTHER',
 }
 
 /**

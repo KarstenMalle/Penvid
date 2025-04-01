@@ -55,14 +55,6 @@
     "updateCurrencyToCountryDefault": "Would you like to update your currency to {currency} to match your selected country?",
     "updateLanguageToCountryDefault": "Would you like to update your language preference to match your selected country?"
   },
-  "countries": {
-    "US": {
-      "description": "United States tax and financial rules"
-    },
-    "DK": {
-      "description": "Danish tax and financial rules"
-    }
-  },
   "profile": {
     "title": "Your Profile",
     "profilePicture": "Profile Picture",
@@ -70,6 +62,50 @@
     "update": "Update Profile"
   },
   "loans": {
+    "countries": {
+      "US": {
+        "description": "United States tax and financial rules"
+      },
+      "DK": {
+        "description": "Danish tax and financial rules"
+      }
+    },
+    "taxInfo": {
+      "title": "Tax Insights",
+      "description": "Country-specific tax rules and savings opportunities",
+      "loading": "Loading tax information...",
+      "tryAgain": "Please try again later or refresh the page.",
+      "loginPrompt": "Sign in to see tax insights",
+      "loginRequired": "You need to be logged in to view tax optimization recommendations for this loan.",
+      "taxStatusFor": "Tax Status for",
+      "annualInterest": "Annual Interest",
+      "deductibility": "Tax Status",
+      "taxDeductible": "Tax Deductible",
+      "notDeductible": "Not Deductible",
+      "deductionRate": "Deduction Rate",
+      "annualSavings": "Est. Annual Savings",
+      "deductionCap": "Maximum deduction",
+      "countrySpecificRules": "Country-Specific Tax Rules",
+      "mortgageDeductionExplanation": "In {country}, mortgage interest is tax-deductible at a rate of approximately {rate}.",
+      "mortgageDeductionCap": "The deduction is limited to loan amounts up to {cap}.",
+      "studentDeductionExplanation": "In {country}, student loan interest may be eligible for tax deductions.",
+      "studentDeductionCap": "You can deduct up to {cap} per year from your taxable income.",
+      "otherLoanExplanation": "In {country}, {loanType} interest is typically treated differently than mortgage interest for tax purposes.",
+      "optimizationTips": "Tax Optimization Tips",
+      "optimizationDescription": "Based on your country's tax rules, here are some optimization strategies to consider:",
+      "disclaimer": "Tax rules change frequently. Consult a tax professional for personalized advice.",
+      "errorFetching": "Could not retrieve tax information",
+      "unexpectedError": "An unexpected error occurred while loading tax information.",
+      "taxSystem": "tax system",
+      "dataSourceNote": "Tax data updated for 2025 fiscal year",
+      "updatedRegularly": "Updated with latest regulations",
+      "mortgageExplanation": "In {country}, mortgage interest is tax-deductible at a rate of approximately {rate}. This means you get back about {rate} of your interest payments as tax savings.",
+      "studentLoanExplanation": "In {country}, student loan interest may be eligible for tax deductions. These are typically calculated automatically in your annual tax return.",
+      "deductibleLoanExplanation": "In {country}, {loanType} interest is also tax-deductible at approximately {rate}. Interest expenses to banks should be automatically reported to the tax authorities.",
+      "nonDeductibleLoanExplanation": "In {country}, {loanType} interest is typically not tax-deductible in the same way as mortgage interest.",
+      "mortgageBondExplanation": "In {country}, mortgage bond (realkreditlån) interest is tax-deductible at approximately {rate}. This is the traditional Danish mortgage type with advantageous terms.",
+      "homeLoanExplanation": "In {country}, home loan (boliglån) interest from banks is also tax-deductible at approximately {rate}, even though they're not mortgage bonds."
+    },
     "yourLoans": "Your Loans",
     "loanOverview": "Loan Overview",
     "keyDetailsAbout": "Key details about",
@@ -90,6 +126,8 @@
     "name": "Name",
     "type": "Type",
     "types": {
+      "mortgage_bond": "Mortgage Bond",
+      "home_loan": "Home Loan",
       "mortgage": "Mortgage",
       "student": "Student Loan",
       "auto": "Auto Loan",

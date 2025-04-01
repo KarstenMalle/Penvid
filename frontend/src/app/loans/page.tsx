@@ -13,6 +13,7 @@ import { Icons } from '@/components/ui/icons'
 import toast from 'react-hot-toast'
 import { Loan } from '@/components/features/wealth-optimizer/types'
 import { PlusIcon } from 'lucide-react'
+import { useLocalization } from '@/context/LocalizationContext'
 
 export default function LoansPage() {
   const { user, isAuthenticated, loading } = useAuth()
@@ -20,6 +21,7 @@ export default function LoansPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('all-loans')
   const [isSaving, setIsSaving] = useState(false)
+  const { t } = useLocalization()
 
   // Load user's loans from Supabase
   useEffect(() => {
@@ -227,13 +229,31 @@ export default function LoansPage() {
         value={activeTab}
       >
         <TabsList className="mb-4">
-          <TabsTrigger value="all-loans">All Loans</TabsTrigger>
-          <TabsTrigger value={LoanType.MORTGAGE}>Mortgage</TabsTrigger>
-          <TabsTrigger value={LoanType.STUDENT}>Student</TabsTrigger>
-          <TabsTrigger value={LoanType.AUTO}>Auto</TabsTrigger>
-          <TabsTrigger value={LoanType.CREDIT_CARD}>Credit Card</TabsTrigger>
-          <TabsTrigger value={LoanType.PERSONAL}>Personal</TabsTrigger>
-          <TabsTrigger value={LoanType.OTHER}>Other</TabsTrigger>
+          <TabsTrigger value="all-loans">{t('loans.allLoans')}</TabsTrigger>
+          <TabsTrigger value={LoanType.MORTGAGE}>
+            {t('loans.types.mortgage')}
+          </TabsTrigger>
+          <TabsTrigger value={LoanType.MORTGAGE_BOND}>
+            {t('loans.types.mortgage_bond')}
+          </TabsTrigger>
+          <TabsTrigger value={LoanType.HOME_LOAN}>
+            {t('loans.types.home_loan')}
+          </TabsTrigger>
+          <TabsTrigger value={LoanType.STUDENT}>
+            {t('loans.types.student')}
+          </TabsTrigger>
+          <TabsTrigger value={LoanType.AUTO}>
+            {t('loans.types.auto')}
+          </TabsTrigger>
+          <TabsTrigger value={LoanType.CREDIT_CARD}>
+            {t('loans.types.credit_card')}
+          </TabsTrigger>
+          <TabsTrigger value={LoanType.PERSONAL}>
+            {t('loans.types.personal')}
+          </TabsTrigger>
+          <TabsTrigger value={LoanType.OTHER}>
+            {t('loans.types.other')}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value={activeTab} className="mt-4">

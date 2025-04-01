@@ -55,14 +55,6 @@
     "updateCurrencyToCountryDefault": "Vil du opdatere din valuta til {currency} for at matche dit valgte land?",
     "updateLanguageToCountryDefault": "Vil du opdatere din sprogindstilling til at matche dit valgte land?"
   },
-  "countries": {
-    "US": {
-      "description": "Amerikanske skatte- og finansielle regler"
-    },
-    "DK": {
-      "description": "Danske skatte- og finansielle regler"
-    }
-  },
   "profile": {
     "title": "Din profil",
     "profilePicture": "Profilbillede",
@@ -70,6 +62,50 @@
     "update": "Opdater profil"
   },
   "loans": {
+    "countries": {
+      "US": {
+        "description": "Amerikanske skatte- og finansielle regler"
+      },
+      "DK": {
+        "description": "Danske skatte- og finansielle regler"
+      }
+    },
+    "taxInfo": {
+      "title": "Skatteindsigt",
+      "description": "Landespecifikke skatteregler og besparelsesmuligheder",
+      "loading": "Indlæser skatteoplysninger...",
+      "tryAgain": "Prøv igen senere eller opdater siden.",
+      "loginPrompt": "Log ind for at se skatteindsigt",
+      "loginRequired": "Du skal være logget ind for at se skatteoptimeringsforslagene for dette lån.",
+      "taxStatusFor": "Skattestatus for",
+      "annualInterest": "Årlig rente",
+      "deductibility": "Skattestatus",
+      "taxDeductible": "Fradragsberettiget",
+      "notDeductible": "Ikke fradragsberettiget",
+      "deductionRate": "Fradragsprocent",
+      "annualSavings": "Est. årlig besparelse",
+      "deductionCap": "Maksimalt fradrag",
+      "countrySpecificRules": "Landespecifikke skatteregler",
+      "mortgageDeductionExplanation": "I {country} er renteudgifter på boliglån fradragsberettigede med en sats på cirka {rate}.",
+      "mortgageDeductionCap": "Fradraget er begrænset til lånebeløb op til {cap}.",
+      "studentDeductionExplanation": "I {country} kan SU-lånerenter være berettiget til skattefradrag.",
+      "studentDeductionCap": "Du kan fratrække op til {cap} om året fra din skattepligtige indkomst.",
+      "otherLoanExplanation": "I {country} behandles renter på {loanType} typisk anderledes end realkreditlån i skattemæssig sammenhæng.",
+      "optimizationTips": "Skatteoptimeringsforsslag",
+      "optimizationDescription": "Baseret på dit lands skatteregler, her er nogle optimeringsstrategier at overveje:",
+      "disclaimer": "Skatteregler ændres hyppigt. Kontakt en skatterådgiver for personlig rådgivning.",
+      "errorFetching": "Kunne ikke hente skatteoplysninger",
+      "unexpectedError": "Der opstod en uventet fejl under indlæsning af skatteoplysninger.",
+      "taxSystem": "skattesystem",
+      "dataSourceNote": "Skattedata opdateret for 2025 skatteår",
+      "updatedRegularly": "Opdateret med nyeste regler",
+      "mortgageExplanation": "I {country} er renteudgifter på boliglån fradragsberettigede med cirka {rate} af rentebeløbet. Dette betyder, at du får ca. {rate} af dine renteudgifter tilbage i skattelettelse.",
+      "studentLoanExplanation": "I {country} er SU-lån fradragsberettigede med en sats svarende til rentefradraget. Dette registreres automatisk på din årsopgørelse.",
+      "deductibleLoanExplanation": "I {country} er renter på {loanType} også fradragsberettigede med cirka {rate} af rentebeløbet. Alle renteudgifter til banker bør automatisk indberettes til Skattestyrelsen.",
+      "nonDeductibleLoanExplanation": "I {country} er renter på {loanType} typisk ikke fradragsberettigede på samme måde som realkreditlån.",
+      "mortgageBondExplanation": "I {country} er renteudgifter på realkreditlån fradragsberettigede med cirka {rate} af rentebeløbet. Dette betyder, at du får ca. {rate} af dine renteudgifter tilbage i skattelettelse.",
+      "homeLoanExplanation": "I {country} er renteudgifter på boliglån fra banker også fradragsberettigede med cirka {rate} af rentebeløbet, selvom de ikke er realkreditlån."
+    },
     "yourLoans": "Dine lån",
     "loanOverview": "Lånoversigt",
     "keyDetailsAbout": "Nøgledetaljer om",
@@ -90,6 +126,8 @@
     "name": "Navn",
     "type": "Type",
     "types": {
+      "mortgage_bond": "Realkreditlån",
+      "home_loan": "Boliglån",
       "mortgage": "Boliglån",
       "student": "SU-lån",
       "auto": "Billån",

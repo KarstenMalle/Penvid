@@ -157,7 +157,15 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
 
     const numValue = parseFloat(cleanedValue)
     if (!isNaN(numValue)) {
-      updateField(field, numValue)
+      // Round to 2 decimal places for currency fields
+      if (field === 'balance' || field === 'minimumPayment') {
+        updateField(field, Math.round(numValue * 100) / 100)
+      } else if (field === 'interestRate') {
+        // Allow up to 3 decimal places for interest rates
+        updateField(field, Math.round(numValue * 1000) / 1000)
+      } else {
+        updateField(field, numValue)
+      }
 
       // If we're changing balance, interest rate, or term in term mode,
       // recalculate the payment
@@ -172,10 +180,9 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
           field === 'interestRate' ? numValue : loanData.interestRate,
           field === 'termYears' ? numValue : loanData.termYears
         )
+        // Round payment to 2 decimal places
         updateField('minimumPayment', Math.ceil(payment * 100) / 100)
       }
-
-      // src/components/features/loans/LoanEditDialog.tsx (continued)
 
       // If we're changing balance, interest rate, or payment in payment mode,
       // recalculate the term
@@ -190,6 +197,7 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
           field === 'interestRate' ? numValue : loanData.interestRate,
           field === 'minimumPayment' ? numValue : loanData.minimumPayment
         )
+        // Round term to 2 decimal places
         updateField('termYears', Math.ceil(term * 100) / 100)
       }
     }
@@ -247,6 +255,16 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
     const value = loanData[field]
     if (typeof value === 'number') {
       if (value === 0) return ''
+
+      // Format with appropriate number of decimal places
+      if (field === 'balance' || field === 'minimumPayment') {
+        return value.toFixed(2)
+      } else if (field === 'interestRate') {
+        return value.toFixed(3)
+      } else if (field === 'termYears') {
+        return value.toFixed(2)
+      }
+
       return value.toString()
     }
     return value
@@ -334,6 +352,12 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
                 <SelectContent>
                   <SelectItem value={LoanType.MORTGAGE}>
                     {t('loans.types.mortgage')}
+                  </SelectItem>
+                  <SelectItem value={LoanType.MORTGAGE_BOND}>
+                    {t('loans.types.mortgage_bond')}
+                  </SelectItem>
+                  <SelectItem value={LoanType.HOME_LOAN}>
+                    {t('loans.types.home_loan')}
                   </SelectItem>
                   <SelectItem value={LoanType.STUDENT}>
                     {t('loans.types.student')}

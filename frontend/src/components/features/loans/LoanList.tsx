@@ -43,32 +43,33 @@ interface LoanListProps {
 }
 
 // Map loan types to more user-friendly labels and colors
-const LOAN_TYPE_CONFIG: Record<LoanType, { label: string; color: string }> = {
+const LOAN_TYPE_CONFIG: Record<LoanType, { color: string }> = {
   [LoanType.MORTGAGE]: {
-    label: 'Mortgage',
     color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300',
   },
+  [LoanType.MORTGAGE_BOND]: {
+    color:
+      'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/20 dark:text-indigo-300',
+  },
+  [LoanType.HOME_LOAN]: {
+    color: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/20 dark:text-cyan-300',
+  },
   [LoanType.STUDENT]: {
-    label: 'Student',
     color:
       'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300',
   },
   [LoanType.AUTO]: {
-    label: 'Auto',
     color:
       'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-300',
   },
   [LoanType.CREDIT_CARD]: {
-    label: 'Credit Card',
     color: 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300',
   },
   [LoanType.PERSONAL]: {
-    label: 'Personal',
     color:
       'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-300',
   },
   [LoanType.OTHER]: {
-    label: 'Other',
     color: 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-300',
   },
 }
@@ -227,8 +228,10 @@ const LoanList: React.FC<LoanListProps> = ({
                     <TableCell>
                       <Badge
                         className={
-                          LOAN_TYPE_CONFIG[loan.loanType || LoanType.OTHER]
-                            .color
+                          (
+                            LOAN_TYPE_CONFIG[loan.loanType] ??
+                            LOAN_TYPE_CONFIG[LoanType.OTHER]
+                          ).color
                         }
                       >
                         {t(

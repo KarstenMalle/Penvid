@@ -320,6 +320,11 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     const { originalCurrency = 'USD', ...formatOptions } = options || {}
     const config = currencyConfig[currency]
 
+    // Handle NaN, Infinity, etc.
+    if (!isFinite(amount)) {
+      return 'N/A'
+    }
+
     // Default formatting options
     const defaultOptions: Intl.NumberFormatOptions = {
       style: 'currency',
@@ -328,10 +333,31 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
       maximumFractionDigits: 0,
     }
 
-    // Merge with provided options
-    const formattingOptions = {
-      ...defaultOptions,
-      ...formatOptions,
+    // Validate and merge with provided options
+    const safeOptions = { ...defaultOptions }
+
+    if (formatOptions.minimumFractionDigits !== undefined) {
+      safeOptions.minimumFractionDigits = Math.max(
+        0,
+        Math.min(20, formatOptions.minimumFractionDigits)
+      )
+    }
+
+    if (formatOptions.maximumFractionDigits !== undefined) {
+      safeOptions.maximumFractionDigits = Math.max(
+        0,
+        Math.min(20, formatOptions.maximumFractionDigits)
+      )
+    }
+
+    // Ensure minimumFractionDigits <= maximumFractionDigits
+    if (safeOptions.minimumFractionDigits > safeOptions.maximumFractionDigits) {
+      safeOptions.minimumFractionDigits = safeOptions.maximumFractionDigits
+    }
+
+    // Apply other options
+    if (formatOptions.style) {
+      safeOptions.style = formatOptions.style
     }
 
     // Convert amount if needed
@@ -340,9 +366,17 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
         ? amount
         : convertAmount(amount, originalCurrency, currency)
 
-    return new Intl.NumberFormat(config.locale, formattingOptions).format(
-      convertedAmount
-    )
+    try {
+      return new Intl.NumberFormat(config.locale, safeOptions).format(
+        convertedAmount
+      )
+    } catch (error) {
+      console.error('Error formatting currency:', error)
+      // Fallback to basic formatting
+      return currency === 'USD'
+        ? `$${convertedAmount.toFixed(safeOptions.minimumFractionDigits)}`
+        : `${convertedAmount.toFixed(safeOptions.minimumFractionDigits)} ${currency}`
+    }
   }
 
   return (

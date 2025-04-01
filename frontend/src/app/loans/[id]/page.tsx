@@ -47,11 +47,19 @@ import LoanPaymentChart from '@/components/features/loans/LoanPaymentChart'
 import { CurrencyFormatter } from '@/components/ui/currency-formatter'
 import { useLocalization } from '@/context/LocalizationContext'
 import { CurrencySwitch } from '@/components/ui/currency-switch'
+import LoanTaxOptimization from '@/components/features/loans/LoanTaxOptimization'
 
 // Update loan types mapping to use translated values
 const LOAN_TYPE_CONFIG: Record<LoanType, { color: string }> = {
   [LoanType.MORTGAGE]: {
     color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300',
+  },
+  [LoanType.MORTGAGE_BOND]: {
+    color:
+      'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/20 dark:text-indigo-300',
+  },
+  [LoanType.HOME_LOAN]: {
+    color: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/20 dark:text-cyan-300',
   },
   [LoanType.STUDENT]: {
     color:
@@ -247,7 +255,10 @@ export default function LoanDetailPage() {
             <div className="flex items-center mt-1">
               <Badge
                 className={
-                  LOAN_TYPE_CONFIG[loan.loanType || LoanType.OTHER].color
+                  (
+                    LOAN_TYPE_CONFIG[loan.loanType] ??
+                    LOAN_TYPE_CONFIG[LoanType.OTHER]
+                  ).color
                 }
               >
                 {t(
@@ -483,6 +494,25 @@ export default function LoanDetailPage() {
               <LoanPaymentChart loan={loan} />
             </CardContent>
           </Card>
+        )}
+
+        {activeTab === 'overview' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Card>{/* Existing card content */}</Card>
+
+            <Card>{/* Existing card content */}</Card>
+
+            {/* Add the Tax Optimization Component */}
+            <div className="md:col-span-2 mt-6">
+              <LoanTaxOptimization
+                loanId={loan.id}
+                loanType={loan.loanType || 'OTHER'}
+                loanName={loan.name}
+                balance={loan.balance}
+                interestRate={loan.interestRate}
+              />
+            </div>
+          </div>
         )}
       </div>
 
