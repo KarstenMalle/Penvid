@@ -1,3 +1,6 @@
+// frontend/src/components/features/wealth-optimizer/calculations.ts
+// Updated with proper currency handling
+
 import {
   Loan,
   YearlyData,
@@ -10,6 +13,8 @@ import {
   InvestmentDetail,
   LoanStrategyComparison,
 } from './types'
+import { useLocalization } from '@/context/LocalizationContext'
+import { Currency } from '@/i18n/config'
 
 const { SP500_INFLATION_ADJUSTED_RETURN, COMPARISON_YEARS } =
   FINANCIAL_CONSTANTS
@@ -213,6 +218,12 @@ export const calculateLoanStrategyComparison = (
   // Determine if paying down is better than investing
   const payingDownIsBetter = interestSaved > potentialInvestmentGrowth
 
+  // Calculate total cost for each approach (for comparison)
+  const totalCostWithInvestments =
+    baselinePayoff.totalInterestPaid - potentialInvestmentGrowth
+
+  const totalCostWithAcceleratedPayments = acceleratedPayoff.totalInterestPaid
+
   return {
     loanId: loan.id,
     loanName: loan.name,
@@ -231,6 +242,8 @@ export const calculateLoanStrategyComparison = (
     betterStrategy: payingDownIsBetter
       ? 'Pay Down Loan'
       : 'Minimum Payment + Invest',
+    totalCostWithInvestments,
+    totalCostWithAcceleratedPayments,
   }
 }
 
@@ -840,7 +853,8 @@ export const calculateAllStrategies = (
 }
 
 /**
- * Format currency for display
+ * Format currency for display - use the context's formatCurrency when possible,
+ * but provide this as a standalone function for places where context isn't available
  */
 export const formatCurrency = (amount: number): string => {
   return new Intl.NumberFormat('en-US', {
@@ -864,15 +878,29 @@ export const formatPercent = (percent: number): string => {
 /**
  * Format years and months for display
  */
-export const formatTimeSpan = (months: number): string => {
+export const formatTimeSpan = (
+  months: number,
+  locale: string = 'en'
+): string => {
   const years = Math.floor(months / 12)
   const remainingMonths = months % 12
 
-  if (years === 0) {
-    return `${remainingMonths} month${remainingMonths !== 1 ? 's' : ''}`
-  } else if (remainingMonths === 0) {
-    return `${years} year${years !== 1 ? 's' : ''}`
+  if (locale === 'da') {
+    if (years === 0) {
+      return `${remainingMonths} måned${remainingMonths !== 1 ? 'er' : ''}`
+    } else if (remainingMonths === 0) {
+      return `${years} år`
+    } else {
+      return `${years} år og ${remainingMonths} måned${remainingMonths !== 1 ? 'er' : ''}`
+    }
   } else {
-    return `${years} year${years !== 1 ? 's' : ''} and ${remainingMonths} month${remainingMonths !== 1 ? 's' : ''}`
+    // Default English format
+    if (years === 0) {
+      return `${remainingMonths} month${remainingMonths !== 1 ? 's' : ''}`
+    } else if (remainingMonths === 0) {
+      return `${years} year${years !== 1 ? 's' : ''}`
+    } else {
+      return `${years} year${years !== 1 ? 's' : ''} and ${remainingMonths} month${remainingMonths !== 1 ? 's' : ''}`
+    }
   }
 }

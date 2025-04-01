@@ -17,8 +17,12 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
+  ReferenceLine,
+  Label,
+  Area,
+  AreaChart,
 } from 'recharts'
-import { formatCurrency, formatPercent, formatTimeSpan } from './calculations'
+import { formatPercent } from './calculations'
 import {
   StrategyResults,
   OptimalStrategy,
@@ -27,6 +31,17 @@ import {
   FINANCIAL_CONSTANTS,
 } from './types'
 import LoanComparison from './LoanComparison'
+import { useLocalization } from '@/context/LocalizationContext'
+import { CurrencyFormatter } from '@/components/ui/currency-formatter'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  InfoIcon,
+  TrendingUp,
+  Share2,
+  ShieldAlert,
+  BarChart2,
+} from 'lucide-react'
+import { Button } from '@/components/ui/button'
 
 interface StrategyResultsProps {
   results: StrategyResults
@@ -44,6 +59,7 @@ const strategyColors = {
   'Debt Avalanche': '#0ea5e9', // sky blue
   'Hybrid Approach': '#10b981', // emerald
   '5-Year Aggressive Paydown': '#f59e0b', // amber
+  'Risk-Balanced Approach': '#8b5cf6', // purple
 }
 
 const StrategyResultsComponent: React.FC<StrategyResultsProps> = ({
@@ -55,9 +71,23 @@ const StrategyResultsComponent: React.FC<StrategyResultsProps> = ({
   recommendations,
   loanComparisons,
 }) => {
-  const [activeTab, setActiveTab] = useState<'chart' | 'comparison' | 'loans'>(
-    'loans'
-  )
+  const [activeTab, setActiveTab] = useState<
+    'loans' | 'chart' | 'comparison' | 'risk'
+  >('loans')
+  const [riskView, setRiskView] = useState<
+    'standard' | 'optimistic' | 'pessimistic'
+  >('standard')
+
+  const { t, formatCurrency } = useLocalization()
+
+  // Risk adjustment factors
+  const riskAdjustments = {
+    standard: 0.7, // 70% confidence
+    optimistic: 0.9, // 90% confidence (closer to full return)
+    pessimistic: 0.5, // 50% confidence (greater risk consideration)
+  }
+
+  const riskAdjustment = riskAdjustments[riskView]
 
   // Prepare comparison data for the bar chart
   const prepareComparisonData = () => {
@@ -65,7 +95,7 @@ const StrategyResultsComponent: React.FC<StrategyResultsProps> = ({
 
     const comparisonData = [
       {
-        category: 'Total Interest Paid',
+        category: t('strategyResults.totalInterestPaid'),
         ...Object.keys(totalInterestPaid).reduce(
           (acc, strategy) => {
             acc[strategy] = -totalInterestPaid[strategy] // Negative to show as cost
@@ -75,20 +105,39 @@ const StrategyResultsComponent: React.FC<StrategyResultsProps> = ({
         ),
       },
       {
-        category: 'Final Investment Value',
+        category: t('strategyResults.finalInvestmentValue'),
         ...Object.keys(totalInvestmentValue).reduce(
           (acc, strategy) => {
-            acc[strategy] = totalInvestmentValue[strategy]
+            // Apply risk adjustment to investment returns
+            const adjustedValue =
+              riskView === 'standard'
+                ? totalInvestmentValue[strategy]
+                : (totalInvestmentValue[strategy] * riskAdjustment) /
+                  riskAdjustments.standard
+
+            acc[strategy] = adjustedValue
             return acc
           },
           {} as Record<string, number>
         ),
       },
       {
-        category: 'Final Net Worth',
+        category: t('strategyResults.finalNetWorth'),
         ...Object.keys(results).reduce(
           (acc, strategy) => {
-            acc[strategy] = results[strategy].finalNetWorth
+            // Adjust net worth based on risk-adjusted investment returns
+            const baseNetWorth = results[strategy].finalNetWorth
+            const investmentComponent = totalInvestmentValue[strategy]
+            const adjustedInvestmentComponent =
+              riskView === 'standard'
+                ? investmentComponent
+                : (investmentComponent * riskAdjustment) /
+                  riskAdjustments.standard
+
+            const adjustedNetWorth =
+              baseNetWorth - investmentComponent + adjustedInvestmentComponent
+
+            acc[strategy] = adjustedNetWorth
             return acc
           },
           {} as Record<string, number>
@@ -99,43 +148,206 @@ const StrategyResultsComponent: React.FC<StrategyResultsProps> = ({
     return comparisonData
   }
 
+  // Prepare risk scenario data for charts
+  const prepareRiskScenarioData = () => {
+    const scenarioData = []
+
+    for (let year = 0; year <= 30; year += 5) {
+      const yearData: any = { year }
+
+      Object.keys(results).forEach((strategy) => {
+        const baseYearData = yearByYearData.find((d) => d.year === year)
+        if (!baseYearData) return
+
+        const baseNetWorth = baseYearData[strategy]
+        const investmentPortion =
+          year > 0
+            ? results[strategy].investmentDetails.find((d) => d.year === year)
+                ?.totalValue || 0
+            : 0
+
+        const nonInvestmentPortion = baseNetWorth - investmentPortion
+
+        // Calculate optimistic scenario (90% confidence)
+        const optimisticInvestment = investmentPortion * 1.3 // 30% better than expected
+        yearData[`${strategy}_optimistic`] =
+          nonInvestmentPortion + optimisticInvestment
+
+        // Use standard projection as is
+        yearData[`${strategy}_standard`] = baseNetWorth
+
+        // Calculate pessimistic scenario (50% confidence)
+        const pessimisticInvestment = investmentPortion * 0.6 // 40% worse than expected
+        yearData[`${strategy}_pessimistic`] =
+          nonInvestmentPortion + pessimisticInvestment
+      })
+
+      scenarioData.push(yearData)
+    }
+
+    return scenarioData
+  }
+
+  // Get an array of strategies sorted by performance in current risk view
+  const getStrategiesByPerformance = () => {
+    const scenarioData = prepareRiskScenarioData()
+    const finalYearData = scenarioData[scenarioData.length - 1]
+
+    return Object.keys(results).sort((a, b) => {
+      const aValue = finalYearData[`${a}_${riskView}`] || 0
+      const bValue = finalYearData[`${b}_${riskView}`] || 0
+      return bValue - aValue // Descending order
+    })
+  }
+
+  // Get the optimal strategy given the current risk perspective
+  const getRiskAdjustedOptimalStrategy = () => {
+    const sortedStrategies = getStrategiesByPerformance()
+    const bestStrategy = sortedStrategies[0]
+
+    // Calculate difference between strategies in this risk scenario
+    const scenarioData = prepareRiskScenarioData()
+    const finalYearData = scenarioData[scenarioData.length - 1]
+
+    const netWorthDifference: { [key: string]: number } = {}
+    sortedStrategies.slice(1).forEach((strategy) => {
+      const bestValue = finalYearData[`${bestStrategy}_${riskView}`]
+      const compareValue = finalYearData[`${strategy}_${riskView}`]
+
+      netWorthDifference[strategy] =
+        ((bestValue - compareValue) / Math.abs(compareValue)) * 100
+    })
+
+    return {
+      name: bestStrategy,
+      description: results[bestStrategy].strategyDescription,
+      netWorthDifference,
+    }
+  }
+
+  // Get current optimal strategy based on risk view
+  const currentOptimalStrategy =
+    riskView === 'standard' ? optimalStrategy : getRiskAdjustedOptimalStrategy()
+
   return (
     <div className="space-y-8">
+      {/* Risk View Selector */}
+      <div className="bg-blue-50 dark:bg-blue-900/10 p-4 rounded-lg">
+        <div className="flex items-center mb-2">
+          <ShieldAlert className="h-5 w-5 text-blue-600 mr-2" />
+          <h3 className="font-medium">
+            {t('strategyResults.riskPerspective')}
+          </h3>
+        </div>
+        <p className="text-sm mb-3">{t('strategyResults.riskExplanation')}</p>
+
+        <Tabs
+          defaultValue="standard"
+          value={riskView}
+          onValueChange={(v) => setRiskView(v as any)}
+        >
+          <TabsList className="w-full">
+            <TabsTrigger value="pessimistic" className="flex-1">
+              {t('strategyResults.pessimistic')}
+            </TabsTrigger>
+            <TabsTrigger value="standard" className="flex-1">
+              {t('strategyResults.standard')}
+            </TabsTrigger>
+            <TabsTrigger value="optimistic" className="flex-1">
+              {t('strategyResults.optimistic')}
+            </TabsTrigger>
+          </TabsList>
+
+          <div className="mt-2 text-sm">
+            {riskView === 'pessimistic' && (
+              <p className="text-amber-600">
+                {t('strategyResults.pessimisticDescription')}
+              </p>
+            )}
+            {riskView === 'standard' && (
+              <p className="text-blue-600">
+                {t('strategyResults.standardDescription')}
+              </p>
+            )}
+            {riskView === 'optimistic' && (
+              <p className="text-green-600">
+                {t('strategyResults.optimisticDescription')}
+              </p>
+            )}
+          </div>
+        </Tabs>
+      </div>
+
       {/* Optimal Strategy Card */}
-      <Card className="bg-green-50 dark:bg-green-900/20">
+      <Card
+        className={`${
+          riskView === 'pessimistic'
+            ? 'bg-amber-50 dark:bg-amber-900/20'
+            : riskView === 'optimistic'
+              ? 'bg-green-50 dark:bg-green-900/20'
+              : 'bg-blue-50 dark:bg-blue-900/20'
+        }`}
+      >
         <CardHeader>
-          <CardTitle className="text-green-700 dark:text-green-400">
-            Recommended Strategy
+          <CardTitle
+            className={`${
+              riskView === 'pessimistic'
+                ? 'text-amber-700 dark:text-amber-400'
+                : riskView === 'optimistic'
+                  ? 'text-green-700 dark:text-green-400'
+                  : 'text-blue-700 dark:text-blue-400'
+            }`}
+          >
+            {riskView === 'standard'
+              ? t('strategyResults.recommendedStrategy')
+              : t('strategyResults.recommendedStrategyRisk', {
+                  risk: t(`strategyResults.${riskView}`),
+                })}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
             <div>
-              <h4 className="text-xl font-bold">{optimalStrategy.name}</h4>
+              <h4 className="text-xl font-bold">
+                {t(`strategyNames.${currentOptimalStrategy.name}`)}
+              </h4>
               <p className="text-gray-600 dark:text-gray-400 mt-1">
-                {optimalStrategy.description}
+                {currentOptimalStrategy.description}
               </p>
             </div>
 
             <div>
-              <p className="font-medium">Projected 30-year outcome:</p>
-              <p className="text-2xl font-bold text-green-700 dark:text-green-400">
-                {formatCurrency(results[optimalStrategy.name].finalNetWorth)}
+              <p className="font-medium">
+                {t('strategyResults.projected30YearOutcome')}
               </p>
+              <p className="text-2xl font-bold text-blue-700 dark:text-blue-400">
+                <CurrencyFormatter
+                  value={results[currentOptimalStrategy.name].finalNetWorth}
+                  originalCurrency="USD"
+                />
+              </p>
+              {riskView !== 'standard' && (
+                <p className="text-sm text-gray-600">
+                  {t('strategyResults.riskAdjustedValue')}
+                </p>
+              )}
             </div>
 
             <div>
-              <p className="font-medium">Why this is better:</p>
+              <p className="font-medium">
+                {t('strategyResults.whyThisIsBetter')}
+              </p>
               <ul className="list-disc list-inside space-y-1 mt-2">
-                {Object.keys(optimalStrategy.netWorthDifference).map(
+                {Object.keys(currentOptimalStrategy.netWorthDifference).map(
                   (strategy) => (
                     <li key={strategy}>
                       <span className="font-medium">
                         {formatPercent(
-                          optimalStrategy.netWorthDifference[strategy]
+                          currentOptimalStrategy.netWorthDifference[strategy]
                         )}
                       </span>{' '}
-                      better than "{strategy}"
+                      {t('strategyResults.betterThan')} "
+                      {t(`strategyNames.${strategy}`)}"
                     </li>
                   )
                 )}
@@ -147,37 +359,46 @@ const StrategyResultsComponent: React.FC<StrategyResultsProps> = ({
 
       {/* Tabs for switching between views */}
       <div className="border-b">
-        <div className="flex space-x-8">
-          <button
-            className={`pb-2 font-medium ${
-              activeTab === 'loans'
-                ? 'border-b-2 border-blue-600 text-blue-600'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant={activeTab === 'loans' ? 'default' : 'outline'}
+            size="sm"
             onClick={() => setActiveTab('loans')}
+            className="flex items-center"
           >
-            Loan-by-Loan Analysis
-          </button>
-          <button
-            className={`pb-2 font-medium ${
-              activeTab === 'chart'
-                ? 'border-b-2 border-blue-600 text-blue-600'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
+            <BarChart2 className="h-4 w-4 mr-2" />
+            {t('strategyResults.loanByLoanAnalysis')}
+          </Button>
+
+          <Button
+            variant={activeTab === 'chart' ? 'default' : 'outline'}
+            size="sm"
             onClick={() => setActiveTab('chart')}
+            className="flex items-center"
           >
-            Net Worth Over Time
-          </button>
-          <button
-            className={`pb-2 font-medium ${
-              activeTab === 'comparison'
-                ? 'border-b-2 border-blue-600 text-blue-600'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
+            <TrendingUp className="h-4 w-4 mr-2" />
+            {t('strategyResults.netWorthOverTime')}
+          </Button>
+
+          <Button
+            variant={activeTab === 'comparison' ? 'default' : 'outline'}
+            size="sm"
             onClick={() => setActiveTab('comparison')}
+            className="flex items-center"
           >
-            Strategy Comparison
-          </button>
+            <Share2 className="h-4 w-4 mr-2" />
+            {t('strategyResults.strategyComparison')}
+          </Button>
+
+          <Button
+            variant={activeTab === 'risk' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setActiveTab('risk')}
+            className="flex items-center"
+          >
+            <ShieldAlert className="h-4 w-4 mr-2" />
+            {t('strategyResults.riskAnalysis')}
+          </Button>
         </div>
       </div>
 
@@ -186,6 +407,7 @@ const StrategyResultsComponent: React.FC<StrategyResultsProps> = ({
         <LoanComparison
           comparisons={loanComparisons}
           spReturn={FINANCIAL_CONSTANTS.SP500_INFLATION_ADJUSTED_RETURN}
+          riskFactor={riskAdjustment}
         />
       )}
 
@@ -193,7 +415,7 @@ const StrategyResultsComponent: React.FC<StrategyResultsProps> = ({
       {activeTab === 'chart' && (
         <div className="h-96 mt-8">
           <h3 className="text-lg font-medium mb-4">
-            Net Worth Comparison Over Time
+            {t('strategyResults.netWorthComparisonOverTime')}
           </h3>
           <ResponsiveContainer width="100%" height="100%">
             <LineChart
@@ -204,26 +426,42 @@ const StrategyResultsComponent: React.FC<StrategyResultsProps> = ({
               <XAxis
                 dataKey="year"
                 label={{
-                  value: 'Years',
+                  value: t('strategyResults.years'),
                   position: 'insideBottomRight',
                   offset: -10,
                 }}
               />
               <YAxis
-                tickFormatter={(value) =>
-                  `$${Math.abs(value) >= 1000000 ? (value / 1000000).toFixed(1) + 'M' : (value / 1000).toFixed(0) + 'K'}`
-                }
+                tickFormatter={(value) => {
+                  const convertedValue = value // Value is already in the proper currency context
+                  return `${
+                    Math.abs(convertedValue) >= 1000000
+                      ? formatCurrency(convertedValue / 1000000, {
+                          maximumFractionDigits: 1,
+                        }) + 'M'
+                      : formatCurrency(convertedValue / 1000, {
+                          maximumFractionDigits: 0,
+                        }) + 'K'
+                  }`
+                }}
                 label={{
-                  value: 'Net Worth',
+                  value: t('strategyResults.netWorth'),
                   angle: -90,
                   position: 'insideLeft',
                 }}
               />
               <Tooltip
-                formatter={(value: any) => formatCurrency(value)}
-                labelFormatter={(label) => `Year ${label}`}
+                formatter={(value: any, name: string) => {
+                  return [
+                    formatCurrency(value, { originalCurrency: 'USD' }),
+                    t(`strategyNames.${name}`),
+                  ]
+                }}
+                labelFormatter={(label) =>
+                  `${t('strategyResults.year')} ${label}`
+                }
               />
-              <Legend />
+              <Legend formatter={(value) => t(`strategyNames.${value}`)} />
               {Object.keys(results).map((strategy) => (
                 <Line
                   key={strategy}
@@ -233,11 +471,22 @@ const StrategyResultsComponent: React.FC<StrategyResultsProps> = ({
                   stroke={
                     strategyColors[strategy as keyof typeof strategyColors]
                   }
-                  strokeWidth={strategy === optimalStrategy.name ? 3 : 2}
+                  strokeWidth={strategy === currentOptimalStrategy.name ? 3 : 2}
                   dot={false}
                   activeDot={{ r: 6 }}
                 />
               ))}
+
+              {/* Add zero net worth reference line */}
+              <ReferenceLine
+                y={0}
+                stroke="gray"
+                strokeDasharray="3 3"
+                label={{
+                  value: t('strategyResults.zeroNetWorth'),
+                  position: 'insideBottomRight',
+                }}
+              />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -246,7 +495,9 @@ const StrategyResultsComponent: React.FC<StrategyResultsProps> = ({
       {/* Comparison View */}
       {activeTab === 'comparison' && (
         <div className="h-96 mt-8">
-          <h3 className="text-lg font-medium mb-4">Strategy Comparison</h3>
+          <h3 className="text-lg font-medium mb-4">
+            {t('strategyResults.strategyComparison')}
+          </h3>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
               data={prepareComparisonData()}
@@ -255,12 +506,27 @@ const StrategyResultsComponent: React.FC<StrategyResultsProps> = ({
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="category" />
               <YAxis
-                tickFormatter={(value) =>
-                  `$${Math.abs(value) >= 1000000 ? (value / 1000000).toFixed(1) + 'M' : (value / 1000).toFixed(0) + 'K'}`
-                }
+                tickFormatter={(value) => {
+                  return `${
+                    Math.abs(value) >= 1000000
+                      ? formatCurrency(value / 1000000, {
+                          maximumFractionDigits: 1,
+                        }) + 'M'
+                      : formatCurrency(value / 1000, {
+                          maximumFractionDigits: 0,
+                        }) + 'K'
+                  }`
+                }}
               />
-              <Tooltip formatter={(value: any) => formatCurrency(value)} />
-              <Legend />
+              <Tooltip
+                formatter={(value: any, name: string) => {
+                  return [
+                    formatCurrency(value, { originalCurrency: 'USD' }),
+                    t(`strategyNames.${name}`),
+                  ]
+                }}
+              />
+              <Legend formatter={(value) => t(`strategyNames.${value}`)} />
               {Object.keys(results).map((strategy) => (
                 <Bar
                   key={strategy}
@@ -268,52 +534,305 @@ const StrategyResultsComponent: React.FC<StrategyResultsProps> = ({
                   name={strategy}
                   fill={strategyColors[strategy as keyof typeof strategyColors]}
                   stroke={
-                    strategy === optimalStrategy.name ? '#000' : undefined
+                    strategy === currentOptimalStrategy.name
+                      ? '#000'
+                      : undefined
                   }
-                  strokeWidth={strategy === optimalStrategy.name ? 1 : 0}
+                  strokeWidth={strategy === currentOptimalStrategy.name ? 1 : 0}
                 />
               ))}
+
+              {/* Zero line reference */}
+              <ReferenceLine y={0} stroke="#000" />
             </BarChart>
           </ResponsiveContainer>
         </div>
       )}
 
+      {/* Risk Analysis View */}
+      {activeTab === 'risk' && (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('strategyResults.riskAnalysisTitle')}</CardTitle>
+              <CardDescription>
+                {t('strategyResults.riskAnalysisDescription')}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-80 mb-4">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart
+                    data={prepareRiskScenarioData()}
+                    margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="year"
+                      label={{
+                        value: t('strategyResults.years'),
+                        position: 'insideBottomRight',
+                        offset: -10,
+                      }}
+                    />
+                    <YAxis
+                      tickFormatter={(value) => {
+                        return `${
+                          Math.abs(value) >= 1000000
+                            ? formatCurrency(value / 1000000, {
+                                maximumFractionDigits: 1,
+                              }) + 'M'
+                            : formatCurrency(value / 1000, {
+                                maximumFractionDigits: 0,
+                              }) + 'K'
+                        }`
+                      }}
+                    />
+                    <Tooltip
+                      formatter={(value: any, name: string) => {
+                        const parts = name.split('_')
+                        const strategy = parts[0]
+                        const scenario = parts[1]
+                        return [
+                          formatCurrency(value, { originalCurrency: 'USD' }),
+                          `${t(`strategyNames.${strategy}`)} (${t(`strategyResults.${scenario}`)})`,
+                        ]
+                      }}
+                      labelFormatter={(label) =>
+                        `${t('strategyResults.year')} ${label}`
+                      }
+                    />
+                    <Legend
+                      formatter={(value) => {
+                        const parts = value.split('_')
+                        const strategy = parts[0]
+                        const scenario = parts[1]
+                        return `${t(`strategyNames.${strategy}`)} (${t(`strategyResults.${scenario}`)})`
+                      }}
+                    />
+
+                    {/* Only show the current optimal strategy with all three risk scenarios */}
+                    <Area
+                      type="monotone"
+                      dataKey={`${currentOptimalStrategy.name}_pessimistic`}
+                      stackId="1"
+                      stroke="#f97316"
+                      fill="#fdba74"
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey={`${currentOptimalStrategy.name}_standard`}
+                      stackId="2"
+                      stroke="#0ea5e9"
+                      fill="#7dd3fc"
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey={`${currentOptimalStrategy.name}_optimistic`}
+                      stackId="3"
+                      stroke="#10b981"
+                      fill="#6ee7b7"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="mt-6 space-y-4">
+                <h4 className="font-medium">
+                  {t('strategyResults.riskAnalysisSummary')}
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <Card className="bg-amber-50 dark:bg-amber-900/10">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">
+                        {t('strategyResults.pessimisticScenario')}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-xl font-bold">
+                        <CurrencyFormatter
+                          value={
+                            prepareRiskScenarioData()[
+                              prepareRiskScenarioData().length - 1
+                            ][`${currentOptimalStrategy.name}_pessimistic`]
+                          }
+                          originalCurrency="USD"
+                        />
+                      </p>
+                      <p className="text-sm text-gray-600">
+                        {t('strategyResults.pessimisticScenarioDesc')}
+                      </p>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="bg-blue-50 dark:bg-blue-900/10">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">
+                        {t('strategyResults.standardScenario')}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-xl font-bold">
+                        <CurrencyFormatter
+                          value={
+                            prepareRiskScenarioData()[
+                              prepareRiskScenarioData().length - 1
+                            ][`${currentOptimalStrategy.name}_standard`]
+                          }
+                          originalCurrency="USD"
+                        />
+                      </p>
+                      <p className="text-sm text-gray-600">
+                        {t('strategyResults.standardScenarioDesc')}
+                      </p>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="bg-green-50 dark:bg-green-900/10">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">
+                        {t('strategyResults.optimisticScenario')}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-xl font-bold">
+                        <CurrencyFormatter
+                          value={
+                            prepareRiskScenarioData()[
+                              prepareRiskScenarioData().length - 1
+                            ][`${currentOptimalStrategy.name}_optimistic`]
+                          }
+                          originalCurrency="USD"
+                        />
+                      </p>
+                      <p className="text-sm text-gray-600">
+                        {t('strategyResults.optimisticScenarioDesc')}
+                      </p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                  <div className="flex items-start mb-2">
+                    <InfoIcon className="h-5 w-5 text-blue-600 mr-2 mt-0.5" />
+                    <div>
+                      <h5 className="font-medium">
+                        {t('strategyResults.whatThisMeans')}
+                      </h5>
+                      <p className="text-sm">
+                        {t('strategyResults.whatThisMeansDesc')}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4">
+                    <h5 className="font-medium mb-2">
+                      {t('strategyResults.riskFactors')}
+                    </h5>
+                    <ul className="list-disc list-inside space-y-1 text-sm">
+                      <li>{t('strategyResults.marketVolatility')}</li>
+                      <li>{t('strategyResults.inflationRisk')}</li>
+                      <li>{t('strategyResults.jobLossRisk')}</li>
+                      <li>{t('strategyResults.interestRateChanges')}</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Key Metrics Table */}
       <div>
-        <h3 className="text-lg font-medium mb-4">Key Results</h3>
+        <h3 className="text-lg font-medium mb-4">
+          {t('strategyResults.keyResults')}
+        </h3>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-100 dark:bg-gray-800">
-                <th className="text-left p-2">Strategy</th>
-                <th className="text-right p-2">Total Interest Paid</th>
-                <th className="text-right p-2">Final Investment Value</th>
-                <th className="text-right p-2">Final Net Worth</th>
+                <th className="text-left p-2">
+                  {t('strategyResults.strategy')}
+                </th>
+                <th className="text-right p-2">
+                  {t('strategyResults.totalInterestPaid')}
+                </th>
+                <th className="text-right p-2">
+                  {t('strategyResults.finalInvestmentValue')}
+                </th>
+                <th className="text-right p-2">
+                  {t('strategyResults.finalNetWorth')}
+                </th>
+                <th className="text-right p-2">
+                  {t('strategyResults.riskAdjustedNetWorth')}
+                </th>
               </tr>
             </thead>
             <tbody>
-              {Object.keys(results).map((strategy) => (
-                <tr
-                  key={strategy}
-                  className={`border-b ${strategy === optimalStrategy.name ? 'bg-green-50 dark:bg-green-900/10' : ''}`}
-                >
-                  <td className="p-2 font-medium">
-                    {strategy}
-                    {strategy === optimalStrategy.name && (
-                      <span className="ml-2 text-green-600">★</span>
-                    )}
-                  </td>
-                  <td className="text-right p-2 text-red-600">
-                    {formatCurrency(totalInterestPaid[strategy])}
-                  </td>
-                  <td className="text-right p-2 text-blue-600">
-                    {formatCurrency(totalInvestmentValue[strategy])}
-                  </td>
-                  <td className="text-right p-2 font-bold">
-                    {formatCurrency(results[strategy].finalNetWorth)}
-                  </td>
-                </tr>
-              ))}
+              {Object.keys(results).map((strategy) => {
+                // Calculate risk-adjusted investment value
+                const standardInvestmentValue = totalInvestmentValue[strategy]
+                const adjustedInvestmentValue =
+                  riskView === 'standard'
+                    ? standardInvestmentValue
+                    : (standardInvestmentValue * riskAdjustment) /
+                      riskAdjustments.standard
+
+                // Calculate risk-adjusted net worth
+                const standardNetWorth = results[strategy].finalNetWorth
+                const debtComponent = standardNetWorth - standardInvestmentValue
+                const adjustedNetWorth = debtComponent + adjustedInvestmentValue
+
+                return (
+                  <tr
+                    key={strategy}
+                    className={`border-b ${strategy === currentOptimalStrategy.name ? 'bg-blue-50 dark:bg-blue-900/10' : ''}`}
+                  >
+                    <td className="p-2 font-medium">
+                      {t(`strategyNames.${strategy}`)}
+                      {strategy === currentOptimalStrategy.name && (
+                        <span className="ml-2 text-blue-600">★</span>
+                      )}
+                    </td>
+                    <td className="text-right p-2 text-red-600">
+                      <CurrencyFormatter
+                        value={totalInterestPaid[strategy]}
+                        originalCurrency="USD"
+                      />
+                    </td>
+                    <td className="text-right p-2 text-blue-600">
+                      <CurrencyFormatter
+                        value={adjustedInvestmentValue}
+                        originalCurrency="USD"
+                      />
+                      {riskView !== 'standard' && (
+                        <span className="text-xs ml-1">
+                          ({riskView === 'optimistic' ? '+' : ''}
+                          {(
+                            (adjustedInvestmentValue / standardInvestmentValue -
+                              1) *
+                            100
+                          ).toFixed(0)}
+                          %)
+                        </span>
+                      )}
+                    </td>
+                    <td className="text-right p-2">
+                      <CurrencyFormatter
+                        value={standardNetWorth}
+                        originalCurrency="USD"
+                      />
+                    </td>
+                    <td className="text-right p-2 font-bold">
+                      <CurrencyFormatter
+                        value={adjustedNetWorth}
+                        originalCurrency="USD"
+                      />
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -321,7 +840,9 @@ const StrategyResultsComponent: React.FC<StrategyResultsProps> = ({
 
       {/* Custom Recommendations */}
       <div className="space-y-4">
-        <h3 className="text-lg font-medium">Personalized Recommendations</h3>
+        <h3 className="text-lg font-medium">
+          {t('strategyResults.personalizedRecommendations')}
+        </h3>
         <div className="space-y-4">
           {recommendations.map((rec, index) => (
             <div
@@ -343,26 +864,17 @@ const StrategyResultsComponent: React.FC<StrategyResultsProps> = ({
 
       {/* Important Notes */}
       <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg text-sm space-y-2">
-        <h3 className="font-medium">Important Notes:</h3>
+        <h3 className="font-medium">{t('strategyResults.importantNotes')}</h3>
         <ul className="list-disc list-inside space-y-1">
           <li>
-            These projections use a{' '}
-            {FINANCIAL_CONSTANTS.SP500_INFLATION_ADJUSTED_RETURN}%
-            inflation-adjusted annual return for S&P 500 investments (historical
-            average from 1928 to 2024).
+            {t('strategyResults.projectionNote', {
+              rate: FINANCIAL_CONSTANTS.SP500_INFLATION_ADJUSTED_RETURN,
+            })}
           </li>
-          <li>
-            Actual market returns may vary significantly over time. Past
-            performance is not indicative of future results.
-          </li>
-          <li>
-            The analysis assumes consistent monthly contributions and doesn't
-            account for taxes on investment gains or interest tax deductions.
-          </li>
-          <li>
-            Your specific loan terms, income, and financial goals may require a
-            customized approach.
-          </li>
+          <li>{t('strategyResults.marketReturnsNote')}</li>
+          <li>{t('strategyResults.consistentContributionsNote')}</li>
+          <li>{t('strategyResults.customizedApproachNote')}</li>
+          <li>{t('strategyResults.riskConsiderationNote')}</li>
         </ul>
       </div>
     </div>

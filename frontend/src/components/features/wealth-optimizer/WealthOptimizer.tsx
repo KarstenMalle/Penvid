@@ -1,3 +1,6 @@
+// frontend/src/components/features/wealth-optimizer/WealthOptimizer.tsx
+// with fixed currency handling
+
 'use client'
 
 import React, { useState, useEffect } from 'react'
@@ -34,9 +37,8 @@ import { HelpCircle } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useLocalization } from '@/context/LocalizationContext'
 import { Currency } from '@/i18n/config'
-import { convertCurrency } from '@/lib/currency-converter'
 import Link from 'next/link'
-import { currencies } from '@/i18n/config'
+import { CurrencyFormatter } from '@/components/ui/currency-formatter'
 
 // Component that displays a list of loans with checkboxes for selection
 const LoanSelectList = ({
@@ -48,16 +50,18 @@ const LoanSelectList = ({
   selectedLoanIds: number[]
   onToggleLoan: (id: number) => void
 }) => {
+  const { t } = useLocalization()
+
   if (loans.length === 0) {
     return (
       <div className="p-4 text-center border rounded-md bg-gray-50">
-        <p>You don't have any loans yet.</p>
+        <p>{t('loans.noLoansFound')}</p>
         <Link
           href="/loans"
           className="text-blue-600 hover:underline inline-block mt-2"
         >
           <Button variant="link" className="p-0">
-            Add loans to get started
+            {t('loans.addLoanToGetStarted')}
           </Button>
         </Link>
       </div>
@@ -85,15 +89,16 @@ const LoanSelectList = ({
             <div>
               <div className="font-medium">{loan.name}</div>
               <div className="text-sm text-gray-500">
-                {loan.loanType
-                  ? loan.loanType.charAt(0).toUpperCase() +
-                    loan.loanType.slice(1)
-                  : 'N/A'}
+                {loan.loanType &&
+                  t(`loans.types.${loan.loanType.toLowerCase()}`)}
               </div>
             </div>
             <div className="text-right">
               <div className="font-medium">
-                <CurrencyFormatter value={loan.balance} />
+                <CurrencyFormatter
+                  value={loan.balance}
+                  originalCurrency="USD"
+                />
               </div>
               <div className="text-sm text-gray-500">
                 {formatPercent(loan.interestRate)}
@@ -118,7 +123,8 @@ const WealthOptimizer: React.FC = () => {
   const [isCalculating, setIsCalculating] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
 
-  const { formatCurrency, currency, currencies } = useLocalization()
+  const { t, formatCurrency, currency, currencies, convertAmount } =
+    useLocalization()
 
   // Results
   const [results, setResults] = useState<StrategyResults | null>(null)
@@ -149,14 +155,14 @@ const WealthOptimizer: React.FC = () => {
         // Fetch user's loans
         const userLoans = await LoanService.getUserLoans(user.id)
 
-        if (userLoans.length > 0 && currency) {
+        if (userLoans.length > 0) {
           setAllLoans(userLoans)
           // Select all loans by default
           setSelectedLoanIds(userLoans.map((loan) => loan.id))
         }
       } catch (error) {
         console.error('Error loading loans:', error)
-        toast.error('Failed to load your loan data')
+        toast.error(t('loans.failedToLoadLoanData'))
         setAllLoans([])
       } finally {
         setIsLoading(false)
@@ -164,7 +170,7 @@ const WealthOptimizer: React.FC = () => {
     }
 
     loadUserLoans()
-  }, [user, isAuthenticated])
+  }, [user, isAuthenticated, t])
 
   // Toggle a loan selection
   const toggleLoanSelection = (loanId: number) => {
@@ -214,7 +220,7 @@ const WealthOptimizer: React.FC = () => {
     const selectedLoans = getSelectedLoans()
 
     if (selectedLoans.length === 0) {
-      toast.error('Please select at least one loan')
+      toast.error(t('wealthOptimizer.selectAtLeastOneLoan'))
       return
     }
 
@@ -223,14 +229,41 @@ const WealthOptimizer: React.FC = () => {
     // Small delay to allow UI to update and show loading state
     setTimeout(() => {
       try {
-        // Calculate different strategies
-        const actualAvailable = isOverallBudget
-          ? monthlyAvailable
-          : monthlyAvailable + calculateTotalMinimumPayment()
+        // If we're in a non-USD currency, we need to convert values to USD for calculation
+        let selectedLoansInUSD = selectedLoans
+        let monthlyAvailableInUSD = monthlyAvailable
 
+        // Convert loans to USD if needed
+        if (currency !== 'USD') {
+          selectedLoansInUSD = selectedLoans.map((loan) => ({
+            ...loan,
+            balance: convertAmount(loan.balance, currency, 'USD'),
+            minimumPayment: convertAmount(loan.minimumPayment, currency, 'USD'),
+          }))
+
+          // Convert monthly available to USD
+          monthlyAvailableInUSD = convertAmount(
+            monthlyAvailable,
+            currency,
+            'USD'
+          )
+        }
+
+        // Calculate total minimum payment in USD
+        const totalMinimumPaymentInUSD = selectedLoansInUSD.reduce(
+          (sum, loan) => sum + loan.minimumPayment,
+          0
+        )
+
+        // Calculate based on overall budget setting
+        const actualAvailableInUSD = isOverallBudget
+          ? monthlyAvailableInUSD // Already in USD if needed
+          : monthlyAvailableInUSD + totalMinimumPaymentInUSD
+
+        // Continue with calculations using USD values
         const calculationResults = calculateAllStrategies(
-          selectedLoans,
-          actualAvailable
+          selectedLoansInUSD,
+          actualAvailableInUSD
         )
         const { strategies, optimal, loanComparisons } = calculationResults
 
@@ -241,15 +274,15 @@ const WealthOptimizer: React.FC = () => {
             if (!combinedYearlyData[yearData.year]) {
               combinedYearlyData[yearData.year] = { year: yearData.year }
             }
-            combinedYearlyData[yearData.year][
-              `{currencies[currency].symbol}{strategyName}`
-            ] = yearData.netWorth
+            // Store net worth in chart data without any currency conversion
+            // this will be handled by the components that display the data
+            combinedYearlyData[yearData.year][strategyName] = yearData.netWorth
           })
         })
 
         const chartData = Object.values(combinedYearlyData)
 
-        // Prepare totals for display
+        // Prepare totals for display - these are in USD and will be converted by the UI components
         const totalInterest: { [key: string]: number } = {}
         const totalInvestment: { [key: string]: number } = {}
 
@@ -264,8 +297,8 @@ const WealthOptimizer: React.FC = () => {
 
         // Generate personalized recommendations
         const personalRecommendations = generateRecommendations(
-          selectedLoans,
-          actualAvailable,
+          selectedLoansInUSD,
+          actualAvailableInUSD,
           strategies,
           optimal
         )
@@ -280,7 +313,7 @@ const WealthOptimizer: React.FC = () => {
         setLoanComparisons(loanComparisons)
       } catch (error) {
         console.error('Error calculating results:', error)
-        toast.error('Error calculating results. Please check your inputs.')
+        toast.error(t('wealthOptimizer.errorCalculatingResults'))
       } finally {
         setIsCalculating(false)
       }
@@ -291,7 +324,7 @@ const WealthOptimizer: React.FC = () => {
     return (
       <div className="flex items-center justify-center min-h-[300px]">
         <Icons.spinner className="h-8 w-8 animate-spin text-primary" />
-        <span className="ml-2">Loading your loan data...</span>
+        <span className="ml-2">{t('loans.loadingLoanData')}</span>
       </div>
     )
   }
@@ -300,18 +333,13 @@ const WealthOptimizer: React.FC = () => {
     <div className="max-w-5xl mx-auto space-y-8">
       <Card>
         <CardHeader>
-          <CardTitle>
-            Optimize Your Extra Money: Loan Paydown vs. Investment
-          </CardTitle>
-          <CardDescription>
-            This premium tool helps you decide whether to use extra money to pay
-            down debt or invest in the stock market.
-          </CardDescription>
+          <CardTitle>{t('wealthOptimizer.title')}</CardTitle>
+          <CardDescription>{t('wealthOptimizer.description')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Loan Selection */}
           <div className="space-y-2">
-            <Label>Select Loans to Include in Analysis</Label>
+            <Label>{t('wealthOptimizer.selectLoans')}</Label>
             <LoanSelectList
               loans={allLoans}
               selectedLoanIds={selectedLoanIds}
@@ -321,7 +349,8 @@ const WealthOptimizer: React.FC = () => {
             {allLoans.length > 0 && (
               <div className="flex justify-between items-center text-sm text-gray-500 mt-2">
                 <span>
-                  {selectedLoanIds.length} of {allLoans.length} loans selected
+                  {selectedLoanIds.length} {t('wealthOptimizer.of')}{' '}
+                  {allLoans.length} {t('wealthOptimizer.loansSelected')}
                 </span>
                 <div>
                   <Button
@@ -332,7 +361,7 @@ const WealthOptimizer: React.FC = () => {
                       setSelectedLoanIds(allLoans.map((loan) => loan.id))
                     }
                   >
-                    Select All
+                    {t('wealthOptimizer.selectAll')}
                   </Button>
                   {' | '}
                   <Button
@@ -341,7 +370,7 @@ const WealthOptimizer: React.FC = () => {
                     className="p-0 h-auto"
                     onClick={() => setSelectedLoanIds([])}
                   >
-                    Clear All
+                    {t('wealthOptimizer.clearAll')}
                   </Button>
                 </div>
               </div>
@@ -350,7 +379,7 @@ const WealthOptimizer: React.FC = () => {
             <div className="flex justify-end">
               <Link href="/loans">
                 <Button variant="outline" size="sm">
-                  Manage Loans
+                  {t('wealthOptimizer.manageLoans')}
                 </Button>
               </Link>
             </div>
@@ -361,8 +390,8 @@ const WealthOptimizer: React.FC = () => {
             <div className="flex items-center justify-between">
               <Label htmlFor="monthlyAvailable">
                 {isOverallBudget
-                  ? 'Total monthly budget for debt & investing'
-                  : 'Monthly money available for extra payments & investing'}
+                  ? t('wealthOptimizer.totalMonthlyBudget')
+                  : t('wealthOptimizer.monthlyMoneyAvailable')}
               </Label>
               <div className="flex items-center">
                 <Button
@@ -370,15 +399,17 @@ const WealthOptimizer: React.FC = () => {
                   size="sm"
                   onClick={() => setIsOverallBudget(!isOverallBudget)}
                 >
-                  Switch to{' '}
-                  {isOverallBudget ? 'extra money only' : 'total budget'}
+                  {t('wealthOptimizer.switchTo')}{' '}
+                  {isOverallBudget
+                    ? t('wealthOptimizer.extraMoneyOnly')
+                    : t('wealthOptimizer.totalBudget')}
                 </Button>
                 <div className="relative ml-2 group">
                   <HelpCircle className="h-5 w-5 text-gray-400" />
                   <div className="absolute right-0 w-64 p-2 bg-gray-100 rounded shadow-lg invisible group-hover:visible z-10 text-xs">
                     {isOverallBudget
-                      ? 'This is your total monthly budget for debt payments and investing, including minimum payments.'
-                      : 'This is extra money available after accounting for your minimum loan payments.'}
+                      ? t('wealthOptimizer.totalBudgetHelp')
+                      : t('wealthOptimizer.extraMoneyHelp')}
                   </div>
                 </div>
               </div>
@@ -393,19 +424,32 @@ const WealthOptimizer: React.FC = () => {
                 min="0"
                 className="pl-7"
                 value={monthlyAvailable || ''}
-                onChange={handleMonthlyAvailableChange}
+                onChange={(e) => {
+                  const value = e.target.value
+                  if (value === '') {
+                    setMonthlyAvailable(0)
+                  } else {
+                    const numValue = parseFloat(value)
+                    // The input is already in the current currency context, no conversion needed
+                    setMonthlyAvailable(isNaN(numValue) ? 0 : numValue)
+                  }
+                }}
               />
             </div>
             <p className="text-sm text-gray-500">
               {isOverallBudget
-                ? `This includes all loan payments (minimum: {currencies[currency].symbol}{calculateTotalMinimumPayment().toFixed(2)}/month) plus any extra for additional payments or investing.`
-                : `This is money available after paying for essentials (housing, food, utilities, etc.) that can be used for extra debt payments or investing.`}
+                ? t('wealthOptimizer.totalBudgetDescription', {
+                    minimumPayment: formatCurrency(
+                      calculateTotalMinimumPayment()
+                    ),
+                  })
+                : t('wealthOptimizer.extraMoneyDescription')}
             </p>
             {isOverallBudget && (
               <div className="text-sm text-blue-600 mt-1">
-                Extra available after minimum payments:{' '}
-                {currencies[currency].symbol}
-                {calculateRemainingMoney().toFixed(2)}/month
+                {t('wealthOptimizer.extraAvailableAfterMinimumPayments')}{' '}
+                {formatCurrency(calculateRemainingMoney())}
+                {t('wealthOptimizer.perMonth')}
               </div>
             )}
           </div>
@@ -424,10 +468,10 @@ const WealthOptimizer: React.FC = () => {
               {isCalculating ? (
                 <>
                   <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
-                  Calculating...
+                  {t('wealthOptimizer.calculating')}
                 </>
               ) : (
-                'Analyze My Options'
+                t('wealthOptimizer.analyzeMyOptions')
               )}
             </Button>
           </div>
@@ -436,16 +480,24 @@ const WealthOptimizer: React.FC = () => {
           <div className="mt-2 text-sm text-center text-gray-500">
             {isOverallBudget ? (
               <p>
-                Analysis will consider your total budget of{' '}
-                {currencies[currency].symbol}
-                {monthlyAvailable.toFixed(2)}/month, including minimum payments.
+                {t('wealthOptimizer.totalBudgetInfo', {
+                  totalBudget: formatCurrency(monthlyAvailable, {
+                    originalCurrency: currency,
+                  }),
+                })}
               </p>
             ) : (
               <p>
-                Analysis will consider your extra {currencies[currency].symbol}
-                {monthlyAvailable.toFixed(2)}
-                /month plus minimum payments of {currencies[currency].symbol}
-                {calculateTotalMinimumPayment().toFixed(2)}/month.
+                {t('wealthOptimizer.extraBudgetInfo', {
+                  // Do NOT convert these values - display them as-is since they're already in the current currency
+                  extraMoney: formatCurrency(monthlyAvailable, {
+                    originalCurrency: currency,
+                  }),
+                  minimumPayments: formatCurrency(
+                    calculateTotalMinimumPayment(),
+                    { originalCurrency: currency }
+                  ),
+                })}
               </p>
             )}
           </div>
@@ -456,11 +508,11 @@ const WealthOptimizer: React.FC = () => {
       {results && !isCalculating && (
         <Card>
           <CardHeader>
-            <CardTitle>Your Personalized Wealth Plan</CardTitle>
+            <CardTitle>{t('wealthOptimizer.personalizedWealthPlan')}</CardTitle>
             <CardDescription>
-              Based on your inputs, we've analyzed different strategies over{' '}
-              {FINANCIAL_CONSTANTS.COMPARISON_YEARS} years to maximize your
-              wealth.
+              {t('wealthOptimizer.basedOnInputs', {
+                years: FINANCIAL_CONSTANTS.COMPARISON_YEARS,
+              })}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -479,7 +531,7 @@ const WealthOptimizer: React.FC = () => {
 
       {/* Premium Feature Info */}
       <div className="text-center text-xs text-gray-500">
-        WealthOptimizer™ is a premium Penvid feature
+        {t('wealthOptimizer.premiumFeature')}
       </div>
     </div>
   )
