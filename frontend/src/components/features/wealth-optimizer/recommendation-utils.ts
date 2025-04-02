@@ -6,6 +6,7 @@ import {
   STRATEGY_EXPLANATIONS,
   StrategyType,
   FINANCIAL_CONSTANTS,
+  LoanStrategyComparison,
 } from './types'
 import _ from 'lodash'
 
@@ -18,7 +19,8 @@ export function generateRecommendations(
   loans: Loan[],
   monthlyAvailable: number,
   results: StrategyResults,
-  optimalStrategy: OptimalStrategy
+  optimalStrategy: OptimalStrategy,
+  loanComparisons: LoanStrategyComparison[] // Include loan comparisons for better recommendations
 ): Recommendation[] {
   if (!results || !optimalStrategy) return []
 
@@ -47,6 +49,42 @@ export function generateRecommendations(
       `This strategy provides the best long-term financial outcome based on your specific situation.`,
     priority: 'high',
   })
+
+  // Add loan-specific recommendations based on fair comparisons
+  if (loanComparisons.length > 0) {
+    // Find highest interest loan first for prioritization
+    const highestInterestLoan = _.maxBy(loanComparisons, 'interestRate')
+
+    // Find loan with the biggest advantage from paying down vs investing
+    const bestLoanToPayDown = _.maxBy(
+      loanComparisons.filter((loan) => loan.payingDownIsBetter),
+      'netAdvantage'
+    )
+
+    // Find loan with biggest advantage from investing vs paying down
+    const bestLoanToInvest = _.maxBy(
+      loanComparisons.filter((loan) => !loan.payingDownIsBetter),
+      'netAdvantage'
+    )
+
+    // Add specific loan recommendations if paying down is better for the loan
+    if (bestLoanToPayDown) {
+      recommendations.push({
+        title: `Prioritize paying down your ${bestLoanToPayDown.loanName}`,
+        description: `Based on your ${bestLoanToPayDown.loanName}'s ${bestLoanToPayDown.interestRate.toFixed(2)}% interest rate, paying it down early saves you more than investing would earn over the same time period. You'll be ${bestLoanToPayDown.netAdvantage.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} better off.`,
+        priority: 'high',
+      })
+    }
+
+    // Add recommendation for low interest loans if investing is better
+    if (bestLoanToInvest) {
+      recommendations.push({
+        title: `Pay only minimum on your ${bestLoanToInvest.loanName}`,
+        description: `With its low ${bestLoanToInvest.interestRate.toFixed(2)}% interest rate, you're better off making minimum payments on your ${bestLoanToInvest.loanName} and investing the difference. You could be ${bestLoanToInvest.netAdvantage.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} ahead by investing.`,
+        priority: 'medium',
+      })
+    }
+  }
 
   // Specific loan-related recommendations
   if (hasHighInterestLoans) {
@@ -98,17 +136,15 @@ export function generateRecommendations(
     })
   }
 
-  // Goal-setting recommendation
-  if (optimalStrategy.name === '5-Year Aggressive Paydown') {
-    recommendations.push({
-      title: 'Set a 5-year debt freedom goal',
-      description:
-        'Your optimal strategy involves aggressively paying down debt for 5 years. Create a specific goal with a deadline to stay motivated and track your progress regularly.',
-      priority: 'medium',
-    })
-  }
+  // Risk tolerance recommendation
+  recommendations.push({
+    title: 'Consider your personal risk tolerance',
+    description:
+      'While our analysis uses risk-adjusted returns to account for market volatility, your personal risk tolerance should influence your decision. If market fluctuations would cause you significant stress, prioritizing guaranteed debt reduction might be better for your peace of mind.',
+    priority: 'medium',
+  })
 
-  // Low interest rate loan recommendation
+  // Very low interest rate loan recommendation
   const veryLowInterestLoans = loans.filter((loan) => loan.interestRate < 3)
   if (
     veryLowInterestLoans.length > 0 &&
@@ -138,16 +174,6 @@ export function generateRecommendations(
     })
   }
 
-  // Relationship between debt and investments recommendation
-  if (optimalStrategy.name === 'Hybrid Approach') {
-    recommendations.push({
-      title: 'Balance psychological and mathematical factors',
-      description:
-        'While the hybrid approach mathematically optimizes your wealth, some people prefer the psychological benefit of being debt-free. Consider both factors in your decision.',
-      priority: 'low',
-    })
-  }
-
   // Recommendation for very high monthly available amount
   if (monthlyAvailable > totalMinimumPayment * 3) {
     recommendations.push({
@@ -157,6 +183,14 @@ export function generateRecommendations(
       priority: 'medium',
     })
   }
+
+  // Add fair comparison note
+  recommendations.push({
+    title: 'Make fair, time-based comparisons',
+    description:
+      'When comparing debt payoff versus investing, always compare over the same time period. Our analysis compares what happens if you invest for the same time it would take to pay off the loan with extra payments, giving you an apples-to-apples comparison.',
+    priority: 'low',
+  })
 
   return recommendations
 }

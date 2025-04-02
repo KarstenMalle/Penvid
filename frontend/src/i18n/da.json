@@ -62,6 +62,18 @@
     "update": "Opdater profil"
   },
   "wealthOptimizer": {
+    "riskAdjustmentFactor": "Risikojusteringsfaktor",
+    "lowerRiskConservative": "Lavere risiko (Konservativ)",
+    "higherRiskAggressive": "Højere risiko (Aggressiv)",
+    "riskAdjustmentTitle": "Tag højde for investeringsrisiko",
+    "riskAdjustmentDescription": "Vi bruger en {factor}% risikojusteringsfaktor til at tage højde for markedsvolatilitet. Dette betyder, at et forventet markedsafkast på {expectedReturn}% justeres til {adjustedReturn}% ved sammenligning med det garanterede afkast fra gældsnedbringelse.",
+    "fairComparisonTitle": "Forstå fair sammenligninger: Investér vs. Betal gæld ned",
+    "fairComparisonExplanation": "For at lave en fair sammenligning mellem at betale ekstra på et lån versus at investere, skal vi sammenligne over samme tidsperiode. Mange online-beregnere og artikler begår den fejl at sammenligne uforenelige tidsrammer.",
+    "commonMistakeTitle": "Almindelig fejl",
+    "commonMistakeDescription": "At sammenligne investering i 30 år med at betale et lån af på 8 år. Dette er ikke fair, fordi tidsrammerne er forskellige.",
+    "ourApproachTitle": "Vores tilgang",
+    "ourApprochDescription": "Vi sammenligner, hvad der sker, hvis du investerer i præcis samme tid, som det ville tage at betale lånet af med ekstra betalinger.",
+    "fairComparisonConclusion": "Vores analyse viser dig præcis, hvor meget du vil spare eller tjene over samme tidsperiode, hvilket gør det til en virkelig fair, æbler-til-æbler-sammenligning.",
     "title": "Optimér Dine Ekstra Penge: Lånafbetaling vs. Investering",
     "description": "Dette premiumværktøj hjælper dig med at beslutte, om du skal bruge ekstra penge på at betale gæld eller investere på aktiemarkedet.",
     "selectLoans": "Vælg lån at inkludere i analysen",

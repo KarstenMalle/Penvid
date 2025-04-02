@@ -62,6 +62,18 @@
     "update": "Update Profile"
   },
   "wealthOptimizer": {
+    "riskAdjustmentFactor": "Risk Adjustment Factor",
+    "lowerRiskConservative": "Lower risk (Conservative)",
+    "higherRiskAggressive": "Higher risk (Aggressive)",
+    "riskAdjustmentTitle": "Account for investment risk",
+    "riskAdjustmentDescription": "We use a {factor}% risk adjustment factor to account for market volatility. This means an expected market return of {expectedReturn}% is adjusted to {adjustedReturn}% when comparing with the guaranteed return from debt paydown.",
+    "fairComparisonTitle": "Understanding fair comparisons: Invest vs. Pay Down Debt",
+    "fairComparisonExplanation": "To make a fair comparison between paying extra on a loan versus investing, we need to compare over the same time period. Many online calculators and articles make the mistake of comparing incompatible timeframes.",
+    "commonMistakeTitle": "Common Mistake",
+    "commonMistakeDescription": "Comparing investing for 30 years with paying off a loan in 8 years. This isn't fair because the timeframes are different.",
+    "ourApproachTitle": "Our Approach",
+    "ourApprochDescription": "We compare what happens if you invest for the exact same time it would take to pay off the loan with extra payments.",
+    "fairComparisonConclusion": "Our analysis shows you exactly how much you'll save or earn over the same time period, making it a truly fair, apples-to-apples comparison.",
     "selectLoans": "Select Loans to Include in Analysis",
     "monthlyMoneyAvailable": "Monthly money available for extra payments & investing",
     "totalBudgetHelp": "This is your total monthly budget for debt payments and investing, including minimum payments.",

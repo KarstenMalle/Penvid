@@ -1,5 +1,4 @@
 // frontend/src/components/features/wealth-optimizer/calculations.ts
-// Fixed to provide fair time-based comparison and ensure proper currency handling
 
 import {
   Loan,
@@ -703,6 +702,7 @@ export const calculateLoanPayoffTime = (
   monthlyPayment: number
 ): { months: number; years: number } => {
   // If loan amount is 0 or payment is 0
+  // If loan amount is 0 or payment is 0
   if (principal <= 0 || monthlyPayment <= 0) {
     return { months: 0, years: 0 }
   }
@@ -721,8 +721,15 @@ export const calculateLoanPayoffTime = (
   // For interest-bearing loans, use the formula:
   // n = -log(1 - P*r/PMT) / log(1 + r)
   // where n is number of payments, P is principal, r is monthly rate, PMT is payment
+  const monthlyRateTimesLoan = principal * monthlyRate
+
+  // Check if payment covers interest
+  if (monthlyPayment <= monthlyRateTimesLoan) {
+    return { months: Infinity, years: Infinity }
+  }
+
   const n =
-    -Math.log(1 - (principal * monthlyRate) / monthlyPayment) /
+    -Math.log(1 - monthlyRateTimesLoan / monthlyPayment) /
     Math.log(1 + monthlyRate)
   const months = Math.ceil(n)
 
@@ -757,6 +764,10 @@ export const calculateTotalInterestPaid = (
     annualRate,
     monthlyPayment
   )
+
+  if (!isFinite(months)) {
+    return Infinity
+  }
 
   // Total amount paid
   const totalPaid = monthlyPayment * months
@@ -915,6 +926,7 @@ export const calculateLoanStrategyComparison = (
     loanId: loan.id,
     loanName: loan.name,
     interestRate: loan.interestRate,
+    effectiveInterestRate: loan.effectiveInterestRate,
     originalBalance: loan.balance,
     minimumPayment: loan.minimumPayment,
     baselinePayoff,

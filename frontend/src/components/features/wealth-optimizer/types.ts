@@ -183,12 +183,20 @@ export interface LoanStrategyComparison {
   acceleratedPayoff: PayoffDetail
   extraMonthlyPayment: number
   interestSaved: number
-  potentialInvestmentGrowth: number
+  potentialInvestmentGrowth: number // Short-term for fair comparison
+  longTermInvestmentGrowth: number // Full term growth
+  acceleratedStrategyTotalValue: number // Total growth if investing after loan paid off
   payingDownIsBetter: boolean
   netAdvantage: number
   betterStrategy: string
   totalCostWithInvestments?: number
   totalCostWithAcceleratedPayments?: number
+  // Added for full term comparison
+  fullTermComparison: {
+    investingOnlyNetWorth: number
+    acceleratedStrategyNetWorth: number
+    isBetter: boolean
+  }
 }
 
 /**
