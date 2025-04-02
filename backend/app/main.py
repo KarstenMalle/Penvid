@@ -36,14 +36,14 @@ app.add_middleware(
 )
 
 # Include all API routers
-app.include_router(loans.router)
-app.include_router(investments.router)
-app.include_router(financial_strategy.router)
-app.include_router(currency.router)
-app.include_router(user_settings.router)
-app.include_router(translations.router)
-app.include_router(loan_calculations.router)
-app.include_router(recommendations.router)
+app.include_router(loans)
+app.include_router(investments)
+app.include_router(financial_strategy)
+app.include_router(currency)
+app.include_router(user_settings)
+app.include_router(translations)
+app.include_router(loan_calculations)
+app.include_router(recommendations)
 
 @app.get("/api/health")
 async def health_check():

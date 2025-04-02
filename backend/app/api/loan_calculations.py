@@ -5,8 +5,6 @@ from enum import Enum
 from ..utils.auth import verify_token
 from ..calculations import (
     calculate_monthly_payment,
-    calculate_loan_term,
-    calculate_total_interest_paid,
     generate_amortization_schedule,
     convert_currency
 )
@@ -150,7 +148,7 @@ async def calculate_loan_details(
             error=f"Error calculating loan details: {str(e)}"
         )
 
-    @router.post("/loans/amortization", response_model=Dict[str, Any])
+@router.post("/loans/amortization", response_model=Dict[str, Any])
 @handle_exceptions
 async def get_amortization_schedule(
         request: dict,

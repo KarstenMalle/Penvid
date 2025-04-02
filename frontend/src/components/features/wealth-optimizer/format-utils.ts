@@ -1,8 +1,10 @@
 // frontend/src/components/features/wealth-optimizer/format-utils.ts
-// Replacement for formatting functions from the deleted calculations.ts
+// This file contains only formatting utilities, with calculations moved to backend
 
 /**
- * Format percentage for display
+ * Format a percentage value for display
+ * @param percent Percentage value (e.g., 5.8 for 5.8%)
+ * @returns Formatted percentage string (e.g., "5.80%")
  */
 export const formatPercent = (percent: number): string => {
   return new Intl.NumberFormat('en-US', {
@@ -13,7 +15,10 @@ export const formatPercent = (percent: number): string => {
 }
 
 /**
- * Format years and months for display
+ * Format a timespan in months to a readable string
+ * @param months Number of months
+ * @param locale Locale for formatting (e.g., 'en', 'da')
+ * @returns Formatted timespan (e.g., "2 years and 3 months")
  */
 export const formatTimeSpan = (
   months: number,
@@ -43,28 +48,56 @@ export const formatTimeSpan = (
 }
 
 /**
- * Format currency for display
- * This is a fallback method for when CurrencyFormatter component can't be used
+ * Format a date string to a readable date format
+ * @param dateString ISO date string
+ * @param locale Locale for formatting
+ * @returns Formatted date string
  */
-export const formatCurrency = (amount: number): string => {
-  if (!isFinite(amount)) {
-    return 'N/A'
-  }
+export const formatDate = (
+  dateString: string,
+  locale: string = 'en'
+): string => {
+  try {
+    const date = new Date(dateString)
 
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(amount)
+    const options: Intl.DateTimeFormatOptions = {
+      year: 'numeric',
+      month: locale === 'da' ? 'long' : 'short',
+      day: 'numeric',
+    }
+
+    return new Intl.DateTimeFormatter(
+      locale === 'da' ? 'da-DK' : 'en-US',
+      options
+    ).format(date)
+  } catch (error) {
+    // Fallback to simpler formatting if Intl API fails
+    const date = new Date(dateString)
+    return date.toLocaleDateString()
+  }
 }
 
 /**
- * Format date for display
+ * Format a currency value for display - this is a fallback
+ * that should only be used when CurrencyFormatter component can't be used
+ * @param amount Amount to format
+ * @param currencyCode Currency code (default: USD)
+ * @returns Formatted currency string
  */
-export const formatDate = (dateString: string): string => {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-  })
+export const formatCurrency = (
+  amount: number,
+  currencyCode: string = 'USD'
+): string => {
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currencyCode,
+      maximumFractionDigits: 0,
+    }).format(amount)
+  } catch (error) {
+    // Super simple fallback
+    return currencyCode === 'USD'
+      ? `$${Math.round(amount).toLocaleString()}`
+      : `${Math.round(amount).toLocaleString()} ${currencyCode}`
+  }
 }

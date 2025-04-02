@@ -25,10 +25,7 @@ import {
   countryConfig,
 } from '@/i18n/config'
 import toast from 'react-hot-toast'
-import {
-  fetchExchangeRates,
-  convertCurrencySync,
-} from '@/lib/currency-converter'
+import { CurrencyService } from '@/services/CurrencyService'
 import { TranslationService } from '@/services/TranslationService'
 
 interface FormatCurrencyOptions extends Intl.NumberFormatOptions {
@@ -73,11 +70,6 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     useState<Record<string, any>>(initialTranslations)
   const [isLoadingTranslations, setIsLoadingTranslations] = useState(true)
   const supabase = createClient()
-
-  // Load exchange rates when component mounts
-  useEffect(() => {
-    fetchExchangeRates().catch(console.error)
-  }, [])
 
   // Load translations when locale changes
   const loadTranslations = useCallback(async (currentLocale: Locale) => {
@@ -362,12 +354,12 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
   }
 
   // Convert amount between currencies
-  const convertAmount = (
+  const convertAmount = async (
     amount: number,
     from: Currency = 'USD',
     to: Currency = currency
-  ): number => {
-    return convertCurrencySync(amount, from, to)
+  ): Promise<number> => {
+    return await CurrencyService.convertCurrency(amount, from, to)
   }
 
   // Format currency function

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from typing import List, Dict, Any
 from ..models import FinancialStrategyRequest, FinancialStrategyResponse, Loan
+from ..utils.api_util import handle_exceptions
 from ..utils.auth import verify_token
 from ..calculations import calculate_financial_strategy_comparison, convert_currency
 

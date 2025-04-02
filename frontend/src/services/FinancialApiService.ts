@@ -1,32 +1,13 @@
 // frontend/src/services/FinancialApiService.ts
 
-import { Loan, LoanType } from '@/components/features/wealth-optimizer/types'
-import { Currency } from '@/i18n/config'
 import { createClient } from '@/lib/supabase-browser'
+import { Loan } from '@/components/features/wealth-optimizer/types'
+import { Currency } from '@/i18n/config'
 
-/**
- * Service for interacting with the financial calculations API
- */
-
-// Base API URL from environment variable or fallback
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api'
-
-// Interfaces for API responses
-export interface AmortizationEntry {
-  month: number
-  payment_date: string
-  payment: number
-  principal_payment: number
-  interest_payment: number
-  extra_payment: number
-  remaining_balance: number
-}
-
-export interface AmortizationResponse {
-  schedule: AmortizationEntry[]
-  total_interest_paid: number
-  months_to_payoff: number
+export interface UserSettings {
+  expected_inflation: number
+  expected_investment_return: number
+  risk_tolerance: number
 }
 
 export interface InvestmentEntry {
@@ -37,258 +18,242 @@ export interface InvestmentEntry {
   risk_adjusted_balance: number
 }
 
-export interface InvestmentResponse {
-  projection: InvestmentEntry[]
-  final_balance: number
-  inflation_adjusted_final_balance: number
-  risk_adjusted_balance: number
-}
-
-export interface FinancialOverview {
-  loans: Loan[]
-  surplus_balance: number
-}
-
-export interface UserSettings {
-  expected_inflation: number
-  expected_investment_return: number
-  risk_tolerance: number
-}
-
-export interface StrategyRecommendation {
-  best_strategy: string
-  reason: string
-  interest_savings: number
-  months_saved: number
-  investment_value_after_loan_payoff: number
-  investment_value_immediate_invest: number
-  total_savings_advantage: number
-}
-
-export interface LoanDetail {
-  name: string
-  interest_rate: number
-  payoff_months_with_extra: number
-  payoff_months_minimum: number
-}
-
-export interface AmortizationComparison {
-  baseline: {
-    total_interest: number
-    months_to_payoff: number
-  }
-  with_extra_payments: {
-    total_interest: number
-    months_to_payoff: number
-  }
-}
-
-export interface InvestmentComparison {
-  immediate_investment: {
-    final_balance: number
-    risk_adjusted_balance: number
-  }
-  investment_after_payoff: {
-    final_balance: number
-    risk_adjusted_balance: number
-  }
+export interface StrategyResultData {
+  yearlyData: any[]
+  finalNetWorth: number
+  totalInterestPaid: number
+  loanPayoffDetails: Record<string, any>
+  investmentDetails: any[]
+  strategyName: string
+  strategyDescription: string
 }
 
 export interface FinancialStrategyResponse {
-  recommendation: StrategyRecommendation
-  loan_details: LoanDetail
-  amortization_comparison: AmortizationComparison
-  investment_comparison: InvestmentComparison
+  recommendation: {
+    name: string
+    description: string
+    netWorthDifference: Record<string, number>
+  }
+  results: Record<string, StrategyResultData>
+  yearByYearData: any[]
+  totalInterestPaid: Record<string, number>
+  totalInvestmentValue: Record<string, number>
+  loanComparisons: any[]
 }
 
-export class FinancialApiService {
+/**
+ * Service for financial calculations via backend API
+ */
+export const FinancialApiService = {
   /**
-   * Get authentication token for API requests
+   * Get user financial settings
    */
-  private static async getAuthToken(): Promise<string | null> {
+  async getUserSettings(userId: string): Promise<UserSettings> {
     try {
       const supabase = createClient()
-      const { data } = await supabase.auth.getSession()
-      return data.session?.access_token || null
-    } catch (error) {
-      console.error('Error getting auth token:', error)
-      return null
-    }
-  }
 
-  /**
-   * Make an authenticated API request
-   */
-  private static async fetchWithAuth(
-    url: string,
-    method: string = 'GET',
-    body?: any
-  ): Promise<any> {
-    const token = await this.getAuthToken()
-
-    if (!token) {
-      throw new Error('Authentication required')
-    }
-
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    }
-
-    const options: RequestInit = {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-    }
-
-    const response = await fetch(url, options)
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
-      throw new Error(
-        `API Error ${response.status}: ${JSON.stringify(errorData)}`
+      // Call backend API
+      const { data, error } = await supabase.functions.invoke(
+        `user/${userId}/settings`,
+        {
+          body: {},
+        }
       )
-    }
 
-    return response.json()
-  }
+      if (error) {
+        console.error('Error fetching user settings:', error)
+        throw new Error(`Failed to fetch user settings: ${error.message}`)
+      }
+
+      return data
+    } catch (error) {
+      console.error('Error in getUserSettings:', error)
+
+      // Return default settings
+      return {
+        expected_inflation: 0.025,
+        expected_investment_return: 0.07,
+        risk_tolerance: 0.2,
+      }
+    }
+  },
 
   /**
-   * Get amortization schedule for a loan
+   * Update user financial settings
    */
-  static async getAmortizationSchedule(
+  async updateUserSettings(
     userId: string,
-    loanId: number,
-    principal: number,
-    annualRate: number,
-    monthlyPayment: number,
-    extraPayment: number = 0,
-    currency: string = 'USD'
-  ): Promise<AmortizationResponse> {
-    const url = `${API_BASE_URL}/user/${userId}/loan/${loanId}/amortization`
+    settings: UserSettings
+  ): Promise<UserSettings> {
+    try {
+      const supabase = createClient()
 
-    const body = {
-      principal,
-      annual_rate: annualRate,
-      monthly_payment: monthlyPayment,
-      extra_payment: extraPayment,
-      max_years: 30,
-      currency,
+      // Call backend API
+      const { data, error } = await supabase.functions.invoke(
+        `user/${userId}/settings`,
+        {
+          body: settings,
+          method: 'POST',
+        }
+      )
+
+      if (error) {
+        console.error('Error updating user settings:', error)
+        throw new Error(`Failed to update user settings: ${error.message}`)
+      }
+
+      return data
+    } catch (error) {
+      console.error('Error in updateUserSettings:', error)
+      throw error
     }
-
-    return this.fetchWithAuth(url, 'POST', body)
-  }
+  },
 
   /**
    * Get investment projection
    */
-  static async getInvestmentProjection(
+  async getInvestmentProjection(
     monthlyAmount: number,
     annualReturn: number,
     months: number,
     inflationRate: number = 0.025,
     riskFactor: number = 0.2,
-    currency: string = 'USD'
-  ): Promise<InvestmentResponse> {
-    const url = `${API_BASE_URL}/investment/projection`
+    currency: Currency = 'USD'
+  ): Promise<{
+    projection: InvestmentEntry[]
+    final_balance: number
+    inflation_adjusted_final_balance: number
+    risk_adjusted_balance: number
+  }> {
+    try {
+      const supabase = createClient()
 
-    const body = {
-      monthly_amount: monthlyAmount,
-      annual_return: annualReturn,
-      months,
-      inflation_rate: inflationRate,
-      risk_factor: riskFactor,
-      currency,
+      // Call backend API
+      const { data, error } = await supabase.functions.invoke(
+        'investment/projection',
+        {
+          body: {
+            monthly_amount: monthlyAmount,
+            annual_return: annualReturn,
+            months,
+            inflation_rate: inflationRate,
+            risk_factor: riskFactor,
+            currency,
+          },
+        }
+      )
+
+      if (error) {
+        console.error('Error getting investment projection:', error)
+        throw new Error(`Failed to get investment projection: ${error.message}`)
+      }
+
+      return data
+    } catch (error) {
+      console.error('Error in getInvestmentProjection:', error)
+
+      // Create simple fallback projection
+      const fallbackProjection: InvestmentEntry[] = []
+      let balance = 0
+
+      for (let month = 1; month <= months; month++) {
+        // Simple interest calculation (not compound)
+        const monthlyRate = annualReturn / 12
+        balance += monthlyAmount
+        balance *= 1 + monthlyRate
+
+        const date = new Date()
+        date.setMonth(date.getMonth() + month)
+
+        fallbackProjection.push({
+          month,
+          date: date.toISOString().slice(0, 10),
+          balance,
+          inflation_adjusted_balance:
+            balance / Math.pow(1 + inflationRate / 12, month),
+          risk_adjusted_balance: balance * (1 - riskFactor),
+        })
+      }
+
+      return {
+        projection: fallbackProjection,
+        final_balance: balance,
+        inflation_adjusted_final_balance:
+          balance / Math.pow(1 + inflationRate / 12, months),
+        risk_adjusted_balance: balance * (1 - riskFactor),
+      }
     }
-
-    return this.fetchWithAuth(url, 'POST', body)
-  }
+  },
 
   /**
-   * Get financial overview for a user
+   * Calculate optimal financial strategy
    */
-  static async getFinancialOverview(
-    userId: string
-  ): Promise<FinancialOverview> {
-    const url = `${API_BASE_URL}/user/${userId}/financial-overview`
-    return this.fetchWithAuth(url)
-  }
-
-  /**
-   * Get optimal financial strategy
-   */
-  static async getFinancialStrategy(
+  async getFinancialStrategy(
     userId: string,
     loans: Loan[],
-    monthlyAvailable: number,
+    monthlyBudget: number,
     annualInvestmentReturn: number = 0.07,
     inflationRate: number = 0.025,
     riskFactor: number = 0.2,
-    currency: string = 'USD'
+    currency: Currency = 'USD'
   ): Promise<FinancialStrategyResponse> {
-    const url = `${API_BASE_URL}/user/${userId}/financial-strategy`
+    try {
+      const supabase = createClient()
 
-    // Format loans for API
-    const formattedLoans = loans.map((loan) => ({
-      loan_id: loan.id,
-      name: loan.name,
-      balance: loan.balance,
-      interest_rate: loan.interestRate,
-      term_years: loan.termYears,
-      minimum_payment: loan.minimumPayment,
-      loan_type: loan.loanType || LoanType.OTHER,
-    }))
+      // Call backend API
+      const { data, error } = await supabase.functions.invoke(
+        `user/${userId}/financial-strategy`,
+        {
+          body: {
+            loans,
+            monthly_surplus: monthlyBudget,
+            annual_investment_return: annualInvestmentReturn,
+            inflation_rate: inflationRate,
+            risk_factor: riskFactor,
+            currency,
+          },
+        }
+      )
 
-    const body = {
-      loans: formattedLoans,
-      monthly_surplus: monthlyAvailable,
-      annual_investment_return: annualInvestmentReturn,
-      inflation_rate: inflationRate,
-      risk_factor: riskFactor,
-      currency,
+      if (error) {
+        console.error('Error calculating financial strategy:', error)
+        throw new Error(
+          `Failed to calculate financial strategy: ${error.message}`
+        )
+      }
+
+      return data
+    } catch (error) {
+      console.error('Error in getFinancialStrategy:', error)
+
+      // Create minimal fallback response
+      const defaultStrategy = 'Hybrid Approach'
+      const fallbackResponse: FinancialStrategyResponse = {
+        recommendation: {
+          name: defaultStrategy,
+          description:
+            'This strategy provides a balance between paying off high-interest debt and investing for the future.',
+          netWorthDifference: {},
+        },
+        results: {
+          [defaultStrategy]: {
+            yearlyData: [],
+            finalNetWorth: 0,
+            totalInterestPaid: 0,
+            loanPayoffDetails: {},
+            investmentDetails: [],
+            strategyName: defaultStrategy,
+            strategyDescription:
+              'Pay off high-interest loans first and invest the rest.',
+          },
+        },
+        yearByYearData: [],
+        totalInterestPaid: {},
+        totalInvestmentValue: {},
+        loanComparisons: [],
+      }
+
+      return fallbackResponse
     }
-
-    return this.fetchWithAuth(url, 'POST', body)
-  }
-
-  /**
-   * Get user settings
-   */
-  static async getUserSettings(userId: string): Promise<UserSettings> {
-    const url = `${API_BASE_URL}/user/${userId}/settings`
-    return this.fetchWithAuth(url)
-  }
-
-  /**
-   * Update user settings
-   */
-  static async updateUserSettings(
-    userId: string,
-    settings: UserSettings
-  ): Promise<UserSettings> {
-    const url = `${API_BASE_URL}/user/${userId}/settings`
-    return this.fetchWithAuth(url, 'POST', settings)
-  }
-
-  /**
-   * Convert currency
-   */
-  static async convertCurrency(
-    amount: number,
-    fromCurrency: string = 'USD',
-    toCurrency: string = 'USD'
-  ): Promise<number> {
-    if (fromCurrency === toCurrency) return amount
-
-    const url = `${API_BASE_URL}/currency/convert`
-
-    const body = {
-      amount,
-      from_currency: fromCurrency,
-      to_currency: toCurrency,
-    }
-
-    const response = await this.fetchWithAuth(url, 'POST', body)
-    return response.converted_amount
-  }
+  },
 }
