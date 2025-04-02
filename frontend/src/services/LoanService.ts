@@ -1,384 +1,211 @@
-// src/services/LoanService.ts
+// frontend/src/services/LoanService.ts
 
 import { createClient } from '@/lib/supabase-browser'
-import {
-  Loan,
-  LoanType,
-  LoanPriority,
-} from '@/components/features/wealth-optimizer/types'
+import { Loan, LoanType } from '@/components/features/wealth-optimizer/types'
 import { Currency } from '@/i18n/config'
-import { convertCurrencySync } from '@/lib/currency-converter'
+import { FinancialApiService } from './FinancialApiService'
 
-// Define the shape of the loan data in Supabase
-interface SupabaseLoan {
-  id?: string
-  user_id: string
-  loan_id: number
-  name: string
-  balance: number
-  interest_rate: number
-  term_years: number
-  minimum_payment: number
-  loan_type?: string
-  priority?: string
-  created_at?: string
-  updated_at?: string
-}
-
-// Convert from Supabase format to application format
-const mapFromSupabase = (loan: SupabaseLoan): Loan => ({
-  id: loan.loan_id,
-  name: loan.name,
-  balance: loan.balance,
-  interestRate: loan.interest_rate,
-  termYears: loan.term_years,
-  minimumPayment: loan.minimum_payment,
-  loanType: (loan.loan_type as LoanType) || LoanType.PERSONAL,
-  priority: (loan.priority as LoanPriority) || 'medium',
-})
-
-// Convert from application format to Supabase format
-const mapToSupabase = (loan: Loan, userId: string): SupabaseLoan => ({
-  user_id: userId,
-  loan_id: loan.id,
-  name: loan.name,
-  balance: loan.balance,
-  interest_rate: loan.interestRate,
-  term_years: loan.termYears,
-  minimum_payment: loan.minimumPayment,
-  loan_type: loan.loanType || LoanType.PERSONAL,
-  priority: loan.priority || 'medium',
-  updated_at: new Date().toISOString(),
-})
-
-// Convert a loan from display currency to USD for storage
-const convertLoanToUSD = (loan: Loan, fromCurrency: Currency): Loan => {
-  if (fromCurrency === 'USD') return loan
-
-  return {
-    ...loan,
-    balance: convertCurrencySync(loan.balance, fromCurrency, 'USD'),
-    minimumPayment: convertCurrencySync(
-      loan.minimumPayment,
-      fromCurrency,
-      'USD'
-    ),
-  }
-}
-
-// Convert a loan from USD to display currency
-const convertLoanFromUSD = (loan: Loan, toCurrency: Currency): Loan => {
-  if (toCurrency === 'USD') return loan
-
-  return {
-    ...loan,
-    balance: convertCurrencySync(loan.balance, 'USD', toCurrency),
-    minimumPayment: convertCurrencySync(loan.minimumPayment, 'USD', toCurrency),
-  }
-}
-
-/**
- * Service for managing loans in Supabase
- */
-export const LoanService = {
-  /**
-   * Get all loans for a user
-   */
-  async getUserLoans(
+export class LoanService {
+  static async getUserLoans(
     userId: string,
-    displayCurrency: Currency = 'USD'
+    currency: Currency = 'USD'
   ): Promise<Loan[]> {
+    const supabase = createClient()
+
     try {
-      const supabase = createClient()
+      // Try to get loans from our new backend first
+      try {
+        console.log('Attempting to fetch loans from API...')
+        const financialOverview =
+          await FinancialApiService.getFinancialOverview(userId)
+
+        if (financialOverview.loans && financialOverview.loans.length > 0) {
+          console.log(
+            'Successfully fetched loans from API:',
+            financialOverview.loans
+          )
+          return financialOverview.loans.map((loan) => ({
+            id: loan.loan_id,
+            name: loan.name,
+            balance: loan.balance,
+            interestRate: loan.interest_rate * 100, // Convert decimal to percentage
+            termYears: loan.term_years,
+            minimumPayment: loan.minimum_payment,
+            loanType: (loan.loan_type as LoanType) || LoanType.OTHER,
+          }))
+        } else {
+          console.warn(
+            'API returned empty loans array, falling back to Supabase'
+          )
+        }
+      } catch (apiError) {
+        console.warn(
+          'Could not fetch loans from API, falling back to Supabase',
+          apiError
+        )
+      }
+
+      // Fall back to direct Supabase query if API is unavailable
+      console.log('Fetching loans directly from Supabase...')
       const { data, error } = await supabase
         .from('loans')
         .select('*')
         .eq('user_id', userId)
-        .order('loan_id', { ascending: true })
+        .order('id', { ascending: true })
 
       if (error) {
-        console.error('Error fetching loans:', error)
+        console.error('Supabase error:', error)
+        throw error
+      }
+
+      if (!data || data.length === 0) {
+        console.log('No loans found in Supabase')
         return []
       }
 
-      // Map from Supabase format and convert to display currency if needed
-      const loans = data ? data.map(mapFromSupabase) : []
-
-      if (displayCurrency === 'USD') {
-        return loans
-      }
-
-      // Convert loans from USD (storage) to display currency
-      return loans.map((loan) => convertLoanFromUSD(loan, displayCurrency))
+      console.log('Successfully fetched loans from Supabase:', data)
+      return data.map((loan) => ({
+        id: loan.loan_id,
+        name: loan.name,
+        balance: loan.balance,
+        interestRate: loan.interest_rate,
+        termYears: loan.term_years,
+        minimumPayment: loan.minimum_payment,
+        loanType: loan.loan_type || LoanType.OTHER,
+      }))
     } catch (error) {
-      console.error('Unexpected error fetching loans:', error)
+      console.error('Error fetching user loans:', error)
+      // Return an empty array rather than throwing
       return []
     }
-  },
+  }
 
-  /**
-   * Save all loans for a user (create, update, or delete as needed)
-   */
-  async saveUserLoans(
+  static async saveUserLoans(
     userId: string,
     loans: Loan[],
-    fromCurrency: Currency = 'USD'
+    currency: Currency = 'USD'
   ): Promise<boolean> {
+    const supabase = createClient()
+
     try {
-      const supabase = createClient()
-
-      // Convert loans to USD for storage if needed
-      const loansForStorage =
-        fromCurrency === 'USD'
-          ? loans
-          : loans.map((loan) => convertLoanToUSD(loan, fromCurrency))
-
-      // Get existing loans to determine which to update/delete
-      const { data: existingLoans, error: fetchError } = await supabase
+      // First delete all loans for this user to prepare for the new set
+      const { error: deleteError } = await supabase
         .from('loans')
-        .select('*')
+        .delete()
         .eq('user_id', userId)
 
-      if (fetchError) {
-        console.error('Error fetching existing loans:', fetchError)
-        return false
-      }
+      if (deleteError) throw deleteError
 
-      // Map existing loans by their id for easy lookup
-      const existingLoanMap = new Map<number, SupabaseLoan>()
-      existingLoans?.forEach((loan) => {
-        existingLoanMap.set(loan.loan_id, loan)
-      })
+      // Insert the new loans
+      const loanInserts = loans.map((loan) => ({
+        user_id: userId,
+        loan_id: loan.id,
+        name: loan.name,
+        balance: loan.balance,
+        interest_rate: loan.interestRate,
+        term_years: loan.termYears,
+        minimum_payment: loan.minimumPayment,
+        loan_type: loan.loanType || LoanType.OTHER,
+      }))
 
-      // Prepare operations
-      const loansToCreate: SupabaseLoan[] = []
-      const loansToUpdate: SupabaseLoan[] = []
-      const loanIdsToKeep = new Set<number>()
+      const { error: insertError } = await supabase
+        .from('loans')
+        .insert(loanInserts)
 
-      // Determine which loans to create or update
-      loansForStorage.forEach((loan) => {
-        loanIdsToKeep.add(loan.id)
-        const existingLoan = existingLoanMap.get(loan.id)
+      if (insertError) throw insertError
 
-        if (existingLoan) {
-          // Update existing loan
-          loansToUpdate.push({
-            ...mapToSupabase(loan, userId),
-            id: existingLoan.id, // Use the Supabase record ID
-          })
-        } else {
-          // Create new loan
-          loansToCreate.push(mapToSupabase(loan, userId))
-        }
-      })
-
-      // Determine which loans to delete (those that exist in DB but not in current list)
-      const loanIdsToDelete =
-        existingLoans
-          ?.filter((loan) => !loanIdsToKeep.has(loan.loan_id))
-          .map((loan) => loan.id) || []
-
-      // Execute operations in sequential order to avoid race conditions
-      try {
-        // Create new loans
-        if (loansToCreate.length > 0) {
-          const { error } = await supabase.from('loans').insert(loansToCreate)
-          if (error) throw error
-        }
-
-        // Update existing loans one by one to avoid conflicts
-        for (const loan of loansToUpdate) {
-          const { error } = await supabase
-            .from('loans')
-            .update(loan)
-            .eq('id', loan.id)
-          if (error) throw error
-        }
-
-        // Delete removed loans
-        if (loanIdsToDelete.length > 0) {
-          const { error } = await supabase
-            .from('loans')
-            .delete()
-            .in('id', loanIdsToDelete)
-          if (error) throw error
-        }
-
-        return true
-      } catch (error) {
-        console.error('Error during loan operations:', error)
-        return false
-      }
+      return true
     } catch (error) {
-      console.error('Unexpected error saving loans:', error)
+      console.error('Error saving user loans:', error)
       return false
     }
-  },
+  }
 
-  /**
-   * Get a single loan by ID
-   */
-  async getLoanById(
-    userId: string,
-    loanId: number,
-    displayCurrency: Currency = 'USD'
-  ): Promise<Loan | null> {
-    try {
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from('loans')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('loan_id', loanId)
-        .single()
-
-      if (error) {
-        console.error('Error fetching loan:', error)
-        return null
-      }
-
-      if (!data) return null
-
-      // Convert loan from USD (storage) to display currency if needed
-      const loan = mapFromSupabase(data)
-      return displayCurrency === 'USD'
-        ? loan
-        : convertLoanFromUSD(loan, displayCurrency)
-    } catch (error) {
-      console.error('Unexpected error fetching loan:', error)
-      return null
-    }
-  },
-
-  /**
-   * Update a single loan
-   */
-  async updateLoan(
+  static async updateLoan(
     userId: string,
     loan: Loan,
-    fromCurrency: Currency = 'USD'
+    currency: Currency = 'USD'
   ): Promise<boolean> {
+    const supabase = createClient()
+
     try {
-      const supabase = createClient()
-
-      // Convert to USD for storage if necessary
-      const loanForStorage =
-        fromCurrency === 'USD' ? loan : convertLoanToUSD(loan, fromCurrency)
-
-      // Get the Supabase ID for this loan
-      const { data: existingLoan, error: fetchError } = await supabase
-        .from('loans')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('loan_id', loan.id)
-        .single()
-
-      if (fetchError) {
-        console.error('Error fetching existing loan:', fetchError)
-        return false
-      }
-
-      if (!existingLoan) {
-        console.error('Loan not found:', loan.id)
-        return false
-      }
-
-      // Update the loan
       const { error } = await supabase
         .from('loans')
         .update({
-          ...mapToSupabase(loanForStorage, userId),
-          id: existingLoan.id, // Use the Supabase record ID
+          name: loan.name,
+          balance: loan.balance,
+          interest_rate: loan.interestRate,
+          term_years: loan.termYears,
+          minimum_payment: loan.minimumPayment,
+          loan_type: loan.loanType || LoanType.OTHER,
         })
-        .eq('id', existingLoan.id)
+        .eq('user_id', userId)
+        .eq('loan_id', loan.id)
 
-      if (error) {
-        console.error('Error updating loan:', error)
-        return false
-      }
+      if (error) throw error
 
       return true
     } catch (error) {
-      console.error('Unexpected error updating loan:', error)
+      console.error('Error updating loan:', error)
       return false
     }
-  },
+  }
 
-  /**
-   * Delete a single loan
-   */
-  async deleteLoan(userId: string, loanId: number): Promise<boolean> {
+  static async deleteLoan(userId: string, loanId: number): Promise<boolean> {
+    const supabase = createClient()
+
     try {
-      const supabase = createClient()
-
-      // Find the Supabase ID for this loan
-      const { data: existingLoan, error: fetchError } = await supabase
-        .from('loans')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('loan_id', loanId)
-        .single()
-
-      if (fetchError) {
-        console.error('Error fetching existing loan:', fetchError)
-        return false
-      }
-
-      if (!existingLoan) {
-        console.error('Loan not found:', loanId)
-        return false
-      }
-
-      // Delete the loan
       const { error } = await supabase
         .from('loans')
         .delete()
-        .eq('id', existingLoan.id)
+        .eq('user_id', userId)
+        .eq('loan_id', loanId)
 
-      if (error) {
-        console.error('Error deleting loan:', error)
-        return false
-      }
+      if (error) throw error
 
       return true
     } catch (error) {
-      console.error('Unexpected error deleting loan:', error)
+      console.error('Error deleting loan:', error)
       return false
     }
-  },
+  }
 
-  /**
-   * Create a default loan for new users
-   */
-  async createDefaultLoan(userId: string): Promise<Loan | null> {
+  static async createDefaultLoan(
+    userId: string,
+    currency: Currency = 'USD'
+  ): Promise<Loan | null> {
+    const supabase = createClient()
+
+    // Create a default loan for new users
+    const defaultLoan = {
+      user_id: userId,
+      loan_id: 1,
+      name: 'Student Loan',
+      balance: 25000,
+      interest_rate: 5.8,
+      term_years: 10,
+      minimum_payment: 275,
+      loan_type: LoanType.STUDENT,
+    }
+
     try {
-      const defaultLoan: Loan = {
-        id: 1,
-        name: 'Student Loan',
-        balance: 25000,
-        interestRate: 5.8,
-        termYears: 10,
-        minimumPayment: 275,
-        loanType: LoanType.STUDENT,
-        priority: 'medium',
+      const { error } = await supabase.from('loans').insert(defaultLoan)
+
+      if (error) throw error
+
+      // Return the created loan
+      return {
+        id: defaultLoan.loan_id,
+        name: defaultLoan.name,
+        balance: defaultLoan.balance,
+        interestRate: defaultLoan.interest_rate,
+        termYears: defaultLoan.term_years,
+        minimumPayment: defaultLoan.minimum_payment,
+        loanType: defaultLoan.loan_type,
       }
-
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from('loans')
-        .insert(mapToSupabase(defaultLoan, userId))
-        .select()
-        .single()
-
-      if (error) {
-        console.error('Error creating default loan:', error)
-        return null
-      }
-
-      return mapFromSupabase(data)
     } catch (error) {
-      console.error('Unexpected error creating default loan:', error)
+      console.error('Error creating default loan:', error)
       return null
     }
-  },
+  }
 }

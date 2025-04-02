@@ -15,44 +15,31 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
 import StrategyResultsComponent from './StrategyResults'
-import { calculateAllStrategies, formatPercent } from './calculations'
-import {
-  Loan,
-  YearlyData,
-  StrategyResults,
-  OptimalStrategy,
-  Recommendation,
-  FINANCIAL_CONSTANTS,
-  LoanStrategyComparison,
-  LoanType,
-  LoanPriority,
-} from './types'
-import { generateRecommendations } from './recommendation-utils'
+import { Loan, LoanType } from './types'
 import { Icons } from '@/components/ui/icons'
 import { useAuth } from '@/context/AuthContext'
 import { LoanService } from '@/services/LoanService'
+import {
+  FinancialApiService,
+  FinancialStrategyResponse,
+} from '@/services/FinancialApiService'
 import toast from 'react-hot-toast'
-import _ from 'lodash'
 import {
   HelpCircle,
   AlertTriangle,
   Shield,
   TrendingUp,
   BarChart3,
-  ChevronDown,
-  ChevronUp,
 } from 'lucide-react'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useLocalization } from '@/context/LocalizationContext'
-import { Currency } from '@/i18n/config'
-import Link from 'next/link'
-import { CurrencyFormatter } from '@/components/ui/currency-formatter'
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion'
+import { useLocalization } from '@/context/LocalizationContext'
+import Link from 'next/link'
+import { CurrencyFormatter } from '@/components/ui/currency-formatter'
 
 // Component that displays a list of loans with checkboxes for selection
 const LoanSelectList = ({
@@ -64,7 +51,7 @@ const LoanSelectList = ({
   selectedLoanIds: number[]
   onToggleLoan: (id: number) => void
 }) => {
-  const { t, currency, currencies } = useLocalization()
+  const { t } = useLocalization()
 
   if (loans.length === 0) {
     return (
@@ -116,7 +103,7 @@ const LoanSelectList = ({
                 <CurrencyFormatter value={loan.balance} />
               </div>
               <div className="text-sm text-gray-500 dark:text-gray-400">
-                {formatPercent(loan.interestRate)}
+                {loan.interestRate}%
               </div>
             </div>
           </label>
@@ -141,32 +128,13 @@ const WealthOptimizer: React.FC = () => {
   // Risk adjustment factor (0.3-1.0, where 0.7 is default)
   const [riskFactor, setRiskFactor] = useState<number>(0.7) // 70% confidence in market returns
 
-  const { t, formatCurrency, currency, currencies, convertAmount } =
-    useLocalization()
+  const { t, currency } = useLocalization()
 
   // Results
-  const [results, setResults] = useState<StrategyResults | null>(null)
-  const [optimalStrategy, setOptimalStrategy] =
-    useState<OptimalStrategy | null>(null)
-  const [yearByYearData, setYearByYearData] = useState<any[]>([])
-  const [totalInterestPaid, setTotalInterestPaid] = useState<{
-    [key: string]: number
-  }>({})
-  const [totalInvestmentValue, setTotalInvestmentValue] = useState<{
-    [key: string]: number
-  }>({})
-  const [recommendations, setRecommendations] = useState<Recommendation[]>([])
-  const [loanComparisons, setLoanComparisons] = useState<
-    LoanStrategyComparison[]
-  >([])
+  const [strategyResults, setStrategyResults] =
+    useState<FinancialStrategyResponse | null>(null)
 
-  // Constants
-  const { SP500_INFLATION_ADJUSTED_RETURN } = FINANCIAL_CONSTANTS
-
-  // Adjusted return rate based on risk factor
-  const adjustedReturnRate = SP500_INFLATION_ADJUSTED_RETURN * riskFactor
-
-  // Load all loans from Supabase
+  // Load all loans from the database
   useEffect(() => {
     const loadUserLoans = async () => {
       if (!isAuthenticated || !user) {
@@ -177,7 +145,7 @@ const WealthOptimizer: React.FC = () => {
       setIsLoading(true)
       try {
         // Fetch user's loans
-        const userLoans = await LoanService.getUserLoans(user.id)
+        const userLoans = await LoanService.getUserLoans(user.id, currency)
 
         if (userLoans.length > 0) {
           setAllLoans(userLoans)
@@ -194,7 +162,7 @@ const WealthOptimizer: React.FC = () => {
     }
 
     loadUserLoans()
-  }, [user, isAuthenticated, t])
+  }, [user, isAuthenticated, currency, t])
 
   // Toggle a loan selection
   const toggleLoanSelection = (loanId: number) => {
@@ -239,8 +207,8 @@ const WealthOptimizer: React.FC = () => {
     }
   }
 
-  // Calculate all strategies and determine the optimal one
-  const calculateResults = () => {
+  // Calculate the optimal financial strategy using our backend API
+  const calculateResults = async () => {
     const selectedLoans = getSelectedLoans()
 
     if (selectedLoans.length === 0) {
@@ -250,97 +218,33 @@ const WealthOptimizer: React.FC = () => {
 
     setIsCalculating(true)
 
-    // Small delay to allow UI to update and show loading state
-    setTimeout(() => {
-      try {
-        // Calculate total minimum payment
-        const totalMinimumPayment = selectedLoans.reduce(
-          (sum, loan) => sum + loan.minimumPayment,
-          0
-        )
+    try {
+      // Calculate based on overall budget setting
+      const actualAvailable = isOverallBudget
+        ? monthlyAvailable // User's input already in their currency
+        : monthlyAvailable + calculateTotalMinimumPayment()
 
-        // Calculate based on overall budget setting
-        const actualAvailable = isOverallBudget
-          ? monthlyAvailable // User's input already in their currency
-          : monthlyAvailable + totalMinimumPayment
+      // Call the backend API to get the optimal strategy
+      const results = await FinancialApiService.getFinancialStrategy(
+        user!.id,
+        selectedLoans,
+        actualAvailable,
+        0.07, // Default annual investment return
+        0.025, // Default inflation rate
+        riskFactor,
+        currency
+      )
 
-        // Run calculations
-        const calculationResults = calculateAllStrategies(
-          selectedLoans,
-          actualAvailable
-        )
-        const { strategies, optimal, loanComparisons } = calculationResults
+      // Update state with results
+      setStrategyResults(results)
 
-        // Apply risk adjustment to loan comparisons
-        const adjustedLoanComparisons = loanComparisons.map((comparison) => {
-          const riskAdjustedGrowth =
-            comparison.potentialInvestmentGrowth * riskFactor
-          return {
-            ...comparison,
-            potentialInvestmentGrowth: comparison.potentialInvestmentGrowth, // Keep original for reference
-            riskAdjustedGrowth, // Add risk-adjusted value
-            payingDownIsBetter: comparison.interestSaved > riskAdjustedGrowth, // Recalculate based on risk
-            netAdvantage:
-              comparison.interestSaved > riskAdjustedGrowth
-                ? comparison.interestSaved - riskAdjustedGrowth
-                : riskAdjustedGrowth - comparison.interestSaved,
-            betterStrategy:
-              comparison.interestSaved > riskAdjustedGrowth
-                ? 'Pay Down Loan'
-                : 'Minimum Payment + Invest',
-          }
-        })
-
-        // Prepare data for the chart
-        const combinedYearlyData: { [year: number]: any } = {}
-        Object.keys(strategies).forEach((strategyName) => {
-          strategies[strategyName].yearlyData.forEach((yearData) => {
-            if (!combinedYearlyData[yearData.year]) {
-              combinedYearlyData[yearData.year] = { year: yearData.year }
-            }
-            combinedYearlyData[yearData.year][strategyName] = yearData.netWorth
-          })
-        })
-
-        const chartData = Object.values(combinedYearlyData)
-
-        // Prepare totals for display
-        const totalInterest: { [key: string]: number } = {}
-        const totalInvestment: { [key: string]: number } = {}
-
-        Object.keys(strategies).forEach((strategyName) => {
-          totalInterest[strategyName] =
-            strategies[strategyName].totalInterestPaid
-          totalInvestment[strategyName] =
-            strategies[strategyName].yearlyData[
-              FINANCIAL_CONSTANTS.COMPARISON_YEARS
-            ].investmentValue
-        })
-
-        // Generate personalized recommendations
-        const personalRecommendations = generateRecommendations(
-          selectedLoans,
-          actualAvailable,
-          strategies,
-          optimal,
-          adjustedLoanComparisons
-        )
-
-        // Update state with results
-        setResults(strategies)
-        setOptimalStrategy(optimal)
-        setYearByYearData(chartData)
-        setTotalInterestPaid(totalInterest)
-        setTotalInvestmentValue(totalInvestment)
-        setRecommendations(personalRecommendations)
-        setLoanComparisons(adjustedLoanComparisons)
-      } catch (error) {
-        console.error('Error calculating results:', error)
-        toast.error(t('wealthOptimizer.errorCalculatingResults'))
-      } finally {
-        setIsCalculating(false)
-      }
-    }, 100)
+      toast.success(t('wealthOptimizer.calculationComplete'))
+    } catch (error) {
+      console.error('Error calculating results:', error)
+      toast.error(t('wealthOptimizer.errorCalculatingResults'))
+    } finally {
+      setIsCalculating(false)
+    }
   }
 
   if (isLoading) {
@@ -439,7 +343,11 @@ const WealthOptimizer: React.FC = () => {
             </div>
             <div className="relative">
               <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500">
-                {currencies[currency].symbol}
+                {currency === 'USD'
+                  ? '$'
+                  : currency === 'DKK'
+                    ? 'kr'
+                    : currency}
               </span>
               <Input
                 id="monthlyAvailable"
@@ -453,8 +361,10 @@ const WealthOptimizer: React.FC = () => {
             <p className="text-sm text-gray-500 dark:text-gray-400">
               {isOverallBudget
                 ? t('wealthOptimizer.totalBudgetDescription', {
-                    minimumPayment: formatCurrency(
-                      calculateTotalMinimumPayment()
+                    minimumPayment: (
+                      <CurrencyFormatter
+                        value={calculateTotalMinimumPayment()}
+                      />
                     ),
                   })
                 : t('wealthOptimizer.extraMoneyDescription')}
@@ -462,7 +372,7 @@ const WealthOptimizer: React.FC = () => {
             {isOverallBudget && (
               <div className="text-sm text-blue-600 dark:text-blue-400 mt-1">
                 {t('wealthOptimizer.extraAvailableAfterMinimumPayments')}{' '}
-                {formatCurrency(calculateRemainingMoney())}
+                <CurrencyFormatter value={calculateRemainingMoney()} />
                 {t('wealthOptimizer.perMonth')}
               </div>
             )}
@@ -508,9 +418,8 @@ const WealthOptimizer: React.FC = () => {
                   <p>
                     {t('wealthOptimizer.riskAdjustmentDescription', {
                       factor: Math.round(riskFactor * 100),
-                      expectedReturn:
-                        SP500_INFLATION_ADJUSTED_RETURN.toFixed(1),
-                      adjustedReturn: adjustedReturnRate.toFixed(1),
+                      expectedReturn: 6.8,
+                      adjustedReturn: (6.8 * riskFactor).toFixed(1),
                     })}
                   </p>
                 </div>
@@ -545,15 +454,15 @@ const WealthOptimizer: React.FC = () => {
             {isOverallBudget ? (
               <p>
                 {t('wealthOptimizer.totalBudgetInfo', {
-                  totalBudget: `${currencies[currency].symbol}${monthlyAvailable.toLocaleString()}`,
+                  totalBudget: <CurrencyFormatter value={monthlyAvailable} />,
                 })}
               </p>
             ) : (
               <p>
                 {t('wealthOptimizer.extraBudgetInfo', {
-                  extraMoney: `${currencies[currency].symbol}${monthlyAvailable.toLocaleString()}`,
-                  minimumPayments: formatCurrency(
-                    calculateTotalMinimumPayment()
+                  extraMoney: <CurrencyFormatter value={monthlyAvailable} />,
+                  minimumPayments: (
+                    <CurrencyFormatter value={calculateTotalMinimumPayment()} />
                   ),
                 })}
               </p>
@@ -614,27 +523,320 @@ const WealthOptimizer: React.FC = () => {
       </Accordion>
 
       {/* Results Section */}
-      {results && !isCalculating && (
+      {strategyResults && !isCalculating && (
         <Card>
           <CardHeader>
             <CardTitle>{t('wealthOptimizer.personalizedWealthPlan')}</CardTitle>
             <CardDescription>
               {t('wealthOptimizer.basedOnInputs', {
-                years: FINANCIAL_CONSTANTS.COMPARISON_YEARS,
+                years: 30,
               })}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <StrategyResultsComponent
-              results={results}
-              optimalStrategy={optimalStrategy!}
-              yearByYearData={yearByYearData}
-              totalInterestPaid={totalInterestPaid}
-              totalInvestmentValue={totalInvestmentValue}
-              recommendations={recommendations}
-              loanComparisons={loanComparisons}
-              riskFactor={riskFactor}
-            />
+            <div className="space-y-6">
+              {/* Recommendation Card */}
+              <Card className="bg-blue-50 dark:bg-blue-900/20">
+                <CardHeader>
+                  <CardTitle className="text-blue-700 dark:text-blue-400">
+                    {t('wealthOptimizer.recommendedStrategy')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div>
+                      <h4 className="text-xl font-bold">
+                        {t(
+                          `strategyNames.${strategyResults.recommendation.best_strategy}`
+                        )}
+                      </h4>
+                      <p className="text-gray-600 dark:text-gray-400 mt-1">
+                        {strategyResults.recommendation.reason}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="font-medium">
+                        {t('strategyResults.projected30YearOutcome')}
+                      </p>
+                      <p className="text-2xl font-bold text-blue-700 dark:text-blue-400">
+                        <CurrencyFormatter
+                          value={
+                            strategyResults.recommendation
+                              .investment_value_after_loan_payoff +
+                            strategyResults.recommendation.interest_savings
+                          }
+                        />
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="font-medium">
+                        {t('strategyResults.whyThisIsBetter')}
+                      </p>
+                      <div className="mt-2 p-4 bg-white dark:bg-gray-800 rounded-lg">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <h5 className="font-medium">
+                              {t('strategyResults.keyMetrics')}
+                            </h5>
+                            <ul className="mt-2 space-y-2">
+                              <li className="flex justify-between">
+                                <span>
+                                  {t('strategyResults.interestSaved')}
+                                </span>
+                                <span className="font-medium text-green-600">
+                                  <CurrencyFormatter
+                                    value={
+                                      strategyResults.recommendation
+                                        .interest_savings
+                                    }
+                                  />
+                                </span>
+                              </li>
+                              <li className="flex justify-between">
+                                <span>
+                                  {t('strategyResults.timeShortened')}
+                                </span>
+                                <span className="font-medium">
+                                  {strategyResults.recommendation.months_saved}{' '}
+                                  {t('strategyResults.months')}
+                                </span>
+                              </li>
+                              <li className="flex justify-between">
+                                <span>
+                                  {t('strategyResults.advantageAmount')}
+                                </span>
+                                <span className="font-medium text-blue-600">
+                                  <CurrencyFormatter
+                                    value={
+                                      strategyResults.recommendation
+                                        .total_savings_advantage
+                                    }
+                                  />
+                                </span>
+                              </li>
+                            </ul>
+                          </div>
+                          <div>
+                            <h5 className="font-medium">
+                              {t('strategyResults.comparisonSummary')}
+                            </h5>
+                            <div className="mt-2 space-y-2">
+                              <p className="text-sm">
+                                {strategyResults.recommendation
+                                  .best_strategy === 'Extra Payments First'
+                                  ? t(
+                                      'strategyResults.extraPaymentsExplanation'
+                                    )
+                                  : t('strategyResults.investFirstExplanation')}
+                              </p>
+                              <p className="text-sm font-medium mt-2">
+                                {t('strategyResults.loanDetails', {
+                                  name: strategyResults.loan_details.name,
+                                  rate: (
+                                    strategyResults.loan_details.interest_rate *
+                                    100
+                                  ).toFixed(2),
+                                })}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Comparison Charts */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>
+                      {t('strategyResults.amortizationComparison')}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="h-60">
+                        {/* Here we would add a chart component */}
+                        <div className="flex items-center justify-center h-full bg-gray-50 dark:bg-gray-800 rounded-lg">
+                          <p>{t('strategyResults.chartPlaceholder')}</p>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4 mt-4">
+                        <div className="p-3 bg-blue-50 dark:bg-blue-900/10 rounded-lg">
+                          <p className="text-sm font-medium">
+                            {t('strategyResults.withMinimumPayments')}
+                          </p>
+                          <p className="text-lg font-bold">
+                            {
+                              strategyResults.amortization_comparison.baseline
+                                .months_to_payoff
+                            }{' '}
+                            {t('strategyResults.months')}
+                          </p>
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                            {t('strategyResults.totalInterest')}:{' '}
+                            <CurrencyFormatter
+                              value={
+                                strategyResults.amortization_comparison.baseline
+                                  .total_interest
+                              }
+                            />
+                          </p>
+                        </div>
+                        <div className="p-3 bg-green-50 dark:bg-green-900/10 rounded-lg">
+                          <p className="text-sm font-medium">
+                            {t('strategyResults.withExtraPayments')}
+                          </p>
+                          <p className="text-lg font-bold">
+                            {
+                              strategyResults.amortization_comparison
+                                .with_extra_payments.months_to_payoff
+                            }{' '}
+                            {t('strategyResults.months')}
+                          </p>
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                            {t('strategyResults.totalInterest')}:{' '}
+                            <CurrencyFormatter
+                              value={
+                                strategyResults.amortization_comparison
+                                  .with_extra_payments.total_interest
+                              }
+                            />
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>
+                      {t('strategyResults.investmentComparison')}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="h-60">
+                        {/* Here we would add a chart component */}
+                        <div className="flex items-center justify-center h-full bg-gray-50 dark:bg-gray-800 rounded-lg">
+                          <p>{t('strategyResults.chartPlaceholder')}</p>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4 mt-4">
+                        <div className="p-3 bg-blue-50 dark:bg-blue-900/10 rounded-lg">
+                          <p className="text-sm font-medium">
+                            {t('strategyResults.investImmediately')}
+                          </p>
+                          <p className="text-lg font-bold">
+                            <CurrencyFormatter
+                              value={
+                                strategyResults.investment_comparison
+                                  .immediate_investment.risk_adjusted_balance
+                              }
+                            />
+                          </p>
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                            {t('strategyResults.withoutRiskAdjustment')}:{' '}
+                            <CurrencyFormatter
+                              value={
+                                strategyResults.investment_comparison
+                                  .immediate_investment.final_balance
+                              }
+                            />
+                          </p>
+                        </div>
+                        <div className="p-3 bg-green-50 dark:bg-green-900/10 rounded-lg">
+                          <p className="text-sm font-medium">
+                            {t('strategyResults.investAfterPayoff')}
+                          </p>
+                          <p className="text-lg font-bold">
+                            <CurrencyFormatter
+                              value={
+                                strategyResults.investment_comparison
+                                  .investment_after_payoff.risk_adjusted_balance
+                              }
+                            />
+                          </p>
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                            {t('strategyResults.withoutRiskAdjustment')}:{' '}
+                            <CurrencyFormatter
+                              value={
+                                strategyResults.investment_comparison
+                                  .investment_after_payoff.final_balance
+                              }
+                            />
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Additional Recommendations */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>
+                    {t('strategyResults.additionalRecommendations')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="p-4 border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/10 rounded-lg">
+                      <h4 className="font-medium">
+                        {t('strategyResults.emergencyFundFirst')}
+                      </h4>
+                      <p className="mt-1 text-sm">
+                        {t('strategyResults.emergencyFundDescription')}
+                      </p>
+                    </div>
+
+                    {strategyResults.loan_details.interest_rate > 0.08 && (
+                      <div className="p-4 border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/10 rounded-lg">
+                        <h4 className="font-medium">
+                          {t('strategyResults.considerRefinancing')}
+                        </h4>
+                        <p className="mt-1 text-sm">
+                          {t('strategyResults.refinancingDescription', {
+                            rate: (
+                              strategyResults.loan_details.interest_rate * 100
+                            ).toFixed(2),
+                          })}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="p-4 border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/10 rounded-lg">
+                      <h4 className="font-medium">
+                        {t('strategyResults.consistentPayments')}
+                      </h4>
+                      <p className="mt-1 text-sm">
+                        {t('strategyResults.consistentPaymentsDescription')}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Important Notes */}
+              <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg text-sm space-y-2">
+                <h3 className="font-medium">
+                  {t('strategyResults.importantNotes')}
+                </h3>
+                <ul className="list-disc list-inside space-y-1">
+                  <li>{t('strategyResults.projectionNote', { rate: 6.8 })}</li>
+                  <li>{t('strategyResults.marketReturnsNote')}</li>
+                  <li>{t('strategyResults.consistentContributionsNote')}</li>
+                  <li>{t('strategyResults.customizedApproachNote')}</li>
+                  <li>{t('strategyResults.riskConsiderationNote')}</li>
+                </ul>
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}
