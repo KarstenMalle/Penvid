@@ -2,7 +2,7 @@
 
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import {
   Card,
   CardContent,
@@ -179,20 +179,19 @@ const WealthOptimizer: React.FC = () => {
   }
 
   // Calculate total minimum monthly payment for all selected loans
-  const calculateTotalMinimumPayment = () => {
+  const calculateTotalMinimumPayment = useMemo(() => {
     return getSelectedLoans().reduce(
       (total, loan) => total + loan.minimumPayment,
       0
     )
-  }
+  }, [selectedLoanIds, allLoans])
 
   // Calculate remaining money after paying minimums
-  const calculateRemainingMoney = () => {
-    const totalMinimumPayment = calculateTotalMinimumPayment()
+  const calculateRemainingMoney = useMemo(() => {
     return isOverallBudget
-      ? Math.max(0, monthlyAvailable - totalMinimumPayment)
+      ? Math.max(0, monthlyAvailable - calculateTotalMinimumPayment)
       : monthlyAvailable
-  }
+  }, [isOverallBudget, monthlyAvailable, calculateTotalMinimumPayment])
 
   // Handle monthly available input change
   const handleMonthlyAvailableChange = (
@@ -222,7 +221,7 @@ const WealthOptimizer: React.FC = () => {
       // Calculate based on overall budget setting
       const actualAvailable = isOverallBudget
         ? monthlyAvailable // User's input already in their currency
-        : monthlyAvailable + calculateTotalMinimumPayment()
+        : monthlyAvailable + calculateTotalMinimumPayment
 
       // Call the backend API to get the optimal strategy
       const results = await FinancialApiService.getFinancialStrategy(
@@ -255,6 +254,10 @@ const WealthOptimizer: React.FC = () => {
       </div>
     )
   }
+
+  // Pre-calculate values for rendering to avoid state updates during render
+  const totalMinimumPayment = calculateTotalMinimumPayment
+  const remainingMoney = calculateRemainingMoney
 
   return (
     <div className="max-w-5xl mx-auto space-y-8">
@@ -358,21 +361,28 @@ const WealthOptimizer: React.FC = () => {
                 onChange={handleMonthlyAvailableChange}
               />
             </div>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              {isOverallBudget
-                ? t('wealthOptimizer.totalBudgetDescription', {
+            <div>
+              {isOverallBudget ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {t('wealthOptimizer.totalBudgetDescription', {
                     minimumPayment: (
                       <CurrencyFormatter
-                        value={calculateTotalMinimumPayment()}
+                        key="min-payment"
+                        value={totalMinimumPayment}
                       />
                     ),
-                  })
-                : t('wealthOptimizer.extraMoneyDescription')}
-            </p>
+                  })}
+                </p>
+              ) : (
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {t('wealthOptimizer.extraMoneyDescription')}
+                </p>
+              )}
+            </div>
             {isOverallBudget && (
               <div className="text-sm text-blue-600 dark:text-blue-400 mt-1">
                 {t('wealthOptimizer.extraAvailableAfterMinimumPayments')}{' '}
-                <CurrencyFormatter value={calculateRemainingMoney()} />
+                <CurrencyFormatter value={remainingMoney} />
                 {t('wealthOptimizer.perMonth')}
               </div>
             )}
@@ -452,17 +462,30 @@ const WealthOptimizer: React.FC = () => {
           {/* Information about budget calculation */}
           <div className="mt-2 text-sm text-center text-gray-500 dark:text-gray-400">
             {isOverallBudget ? (
-              <p>
-                {t('wealthOptimizer.totalBudgetInfo', {
-                  totalBudget: <CurrencyFormatter value={monthlyAvailable} />,
+              <p key="budget-info-1">
+                {t('wealthOptimizer.analysisTotalBudget', {
+                  totalBudget: (
+                    <CurrencyFormatter
+                      key="total-budget"
+                      value={monthlyAvailable}
+                    />
+                  ),
                 })}
               </p>
             ) : (
-              <p>
+              <p key="budget-info-2">
                 {t('wealthOptimizer.extraBudgetInfo', {
-                  extraMoney: <CurrencyFormatter value={monthlyAvailable} />,
+                  extraMoney: (
+                    <CurrencyFormatter
+                      key="extra-money"
+                      value={monthlyAvailable}
+                    />
+                  ),
                   minimumPayments: (
-                    <CurrencyFormatter value={calculateTotalMinimumPayment()} />
+                    <CurrencyFormatter
+                      key="min-payments"
+                      value={totalMinimumPayment}
+                    />
                   ),
                 })}
               </p>
@@ -534,309 +557,15 @@ const WealthOptimizer: React.FC = () => {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-6">
-              {/* Recommendation Card */}
-              <Card className="bg-blue-50 dark:bg-blue-900/20">
-                <CardHeader>
-                  <CardTitle className="text-blue-700 dark:text-blue-400">
-                    {t('wealthOptimizer.recommendedStrategy')}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div>
-                      <h4 className="text-xl font-bold">
-                        {t(
-                          `strategyNames.${strategyResults.recommendation.best_strategy}`
-                        )}
-                      </h4>
-                      <p className="text-gray-600 dark:text-gray-400 mt-1">
-                        {strategyResults.recommendation.reason}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="font-medium">
-                        {t('strategyResults.projected30YearOutcome')}
-                      </p>
-                      <p className="text-2xl font-bold text-blue-700 dark:text-blue-400">
-                        <CurrencyFormatter
-                          value={
-                            strategyResults.recommendation
-                              .investment_value_after_loan_payoff +
-                            strategyResults.recommendation.interest_savings
-                          }
-                        />
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="font-medium">
-                        {t('strategyResults.whyThisIsBetter')}
-                      </p>
-                      <div className="mt-2 p-4 bg-white dark:bg-gray-800 rounded-lg">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <h5 className="font-medium">
-                              {t('strategyResults.keyMetrics')}
-                            </h5>
-                            <ul className="mt-2 space-y-2">
-                              <li className="flex justify-between">
-                                <span>
-                                  {t('strategyResults.interestSaved')}
-                                </span>
-                                <span className="font-medium text-green-600">
-                                  <CurrencyFormatter
-                                    value={
-                                      strategyResults.recommendation
-                                        .interest_savings
-                                    }
-                                  />
-                                </span>
-                              </li>
-                              <li className="flex justify-between">
-                                <span>
-                                  {t('strategyResults.timeShortened')}
-                                </span>
-                                <span className="font-medium">
-                                  {strategyResults.recommendation.months_saved}{' '}
-                                  {t('strategyResults.months')}
-                                </span>
-                              </li>
-                              <li className="flex justify-between">
-                                <span>
-                                  {t('strategyResults.advantageAmount')}
-                                </span>
-                                <span className="font-medium text-blue-600">
-                                  <CurrencyFormatter
-                                    value={
-                                      strategyResults.recommendation
-                                        .total_savings_advantage
-                                    }
-                                  />
-                                </span>
-                              </li>
-                            </ul>
-                          </div>
-                          <div>
-                            <h5 className="font-medium">
-                              {t('strategyResults.comparisonSummary')}
-                            </h5>
-                            <div className="mt-2 space-y-2">
-                              <p className="text-sm">
-                                {strategyResults.recommendation
-                                  .best_strategy === 'Extra Payments First'
-                                  ? t(
-                                      'strategyResults.extraPaymentsExplanation'
-                                    )
-                                  : t('strategyResults.investFirstExplanation')}
-                              </p>
-                              <p className="text-sm font-medium mt-2">
-                                {t('strategyResults.loanDetails', {
-                                  name: strategyResults.loan_details.name,
-                                  rate: (
-                                    strategyResults.loan_details.interest_rate *
-                                    100
-                                  ).toFixed(2),
-                                })}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Comparison Charts */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>
-                      {t('strategyResults.amortizationComparison')}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      <div className="h-60">
-                        {/* Here we would add a chart component */}
-                        <div className="flex items-center justify-center h-full bg-gray-50 dark:bg-gray-800 rounded-lg">
-                          <p>{t('strategyResults.chartPlaceholder')}</p>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4 mt-4">
-                        <div className="p-3 bg-blue-50 dark:bg-blue-900/10 rounded-lg">
-                          <p className="text-sm font-medium">
-                            {t('strategyResults.withMinimumPayments')}
-                          </p>
-                          <p className="text-lg font-bold">
-                            {
-                              strategyResults.amortization_comparison.baseline
-                                .months_to_payoff
-                            }{' '}
-                            {t('strategyResults.months')}
-                          </p>
-                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                            {t('strategyResults.totalInterest')}:{' '}
-                            <CurrencyFormatter
-                              value={
-                                strategyResults.amortization_comparison.baseline
-                                  .total_interest
-                              }
-                            />
-                          </p>
-                        </div>
-                        <div className="p-3 bg-green-50 dark:bg-green-900/10 rounded-lg">
-                          <p className="text-sm font-medium">
-                            {t('strategyResults.withExtraPayments')}
-                          </p>
-                          <p className="text-lg font-bold">
-                            {
-                              strategyResults.amortization_comparison
-                                .with_extra_payments.months_to_payoff
-                            }{' '}
-                            {t('strategyResults.months')}
-                          </p>
-                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                            {t('strategyResults.totalInterest')}:{' '}
-                            <CurrencyFormatter
-                              value={
-                                strategyResults.amortization_comparison
-                                  .with_extra_payments.total_interest
-                              }
-                            />
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>
-                      {t('strategyResults.investmentComparison')}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      <div className="h-60">
-                        {/* Here we would add a chart component */}
-                        <div className="flex items-center justify-center h-full bg-gray-50 dark:bg-gray-800 rounded-lg">
-                          <p>{t('strategyResults.chartPlaceholder')}</p>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4 mt-4">
-                        <div className="p-3 bg-blue-50 dark:bg-blue-900/10 rounded-lg">
-                          <p className="text-sm font-medium">
-                            {t('strategyResults.investImmediately')}
-                          </p>
-                          <p className="text-lg font-bold">
-                            <CurrencyFormatter
-                              value={
-                                strategyResults.investment_comparison
-                                  .immediate_investment.risk_adjusted_balance
-                              }
-                            />
-                          </p>
-                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                            {t('strategyResults.withoutRiskAdjustment')}:{' '}
-                            <CurrencyFormatter
-                              value={
-                                strategyResults.investment_comparison
-                                  .immediate_investment.final_balance
-                              }
-                            />
-                          </p>
-                        </div>
-                        <div className="p-3 bg-green-50 dark:bg-green-900/10 rounded-lg">
-                          <p className="text-sm font-medium">
-                            {t('strategyResults.investAfterPayoff')}
-                          </p>
-                          <p className="text-lg font-bold">
-                            <CurrencyFormatter
-                              value={
-                                strategyResults.investment_comparison
-                                  .investment_after_payoff.risk_adjusted_balance
-                              }
-                            />
-                          </p>
-                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                            {t('strategyResults.withoutRiskAdjustment')}:{' '}
-                            <CurrencyFormatter
-                              value={
-                                strategyResults.investment_comparison
-                                  .investment_after_payoff.final_balance
-                              }
-                            />
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Additional Recommendations */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>
-                    {t('strategyResults.additionalRecommendations')}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="p-4 border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/10 rounded-lg">
-                      <h4 className="font-medium">
-                        {t('strategyResults.emergencyFundFirst')}
-                      </h4>
-                      <p className="mt-1 text-sm">
-                        {t('strategyResults.emergencyFundDescription')}
-                      </p>
-                    </div>
-
-                    {strategyResults.loan_details.interest_rate > 0.08 && (
-                      <div className="p-4 border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/10 rounded-lg">
-                        <h4 className="font-medium">
-                          {t('strategyResults.considerRefinancing')}
-                        </h4>
-                        <p className="mt-1 text-sm">
-                          {t('strategyResults.refinancingDescription', {
-                            rate: (
-                              strategyResults.loan_details.interest_rate * 100
-                            ).toFixed(2),
-                          })}
-                        </p>
-                      </div>
-                    )}
-
-                    <div className="p-4 border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/10 rounded-lg">
-                      <h4 className="font-medium">
-                        {t('strategyResults.consistentPayments')}
-                      </h4>
-                      <p className="mt-1 text-sm">
-                        {t('strategyResults.consistentPaymentsDescription')}
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Important Notes */}
-              <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg text-sm space-y-2">
-                <h3 className="font-medium">
-                  {t('strategyResults.importantNotes')}
-                </h3>
-                <ul className="list-disc list-inside space-y-1">
-                  <li>{t('strategyResults.projectionNote', { rate: 6.8 })}</li>
-                  <li>{t('strategyResults.marketReturnsNote')}</li>
-                  <li>{t('strategyResults.consistentContributionsNote')}</li>
-                  <li>{t('strategyResults.customizedApproachNote')}</li>
-                  <li>{t('strategyResults.riskConsiderationNote')}</li>
-                </ul>
-              </div>
-            </div>
+            <StrategyResultsComponent
+              results={strategyResults.results}
+              optimalStrategy={strategyResults.recommendation}
+              yearByYearData={strategyResults.yearByYearData}
+              totalInterestPaid={strategyResults.totalInterestPaid}
+              totalInvestmentValue={strategyResults.totalInvestmentValue}
+              recommendations={strategyResults.recommendations}
+              loanComparisons={strategyResults.loanComparisons}
+            />
           </CardContent>
         </Card>
       )}

@@ -14,8 +14,8 @@ import { languages, Locale, defaultLocale } from '@/i18n/config'
 import toast from 'react-hot-toast'
 
 // Import translations
-import enTranslations from '@/i18n/en.json'
-import daTranslations from '@/i18n/da.json'
+import enTranslations from '../../../backend/translations/en.json'
+import daTranslations from '../../../backend/translations/da.json'
 
 const translations = {
   en: enTranslations,

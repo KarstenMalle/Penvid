@@ -1,27 +1,18 @@
-// src/services/FinancialApiService.ts
+// frontend/src/services/FinancialApiService.ts
 
-import { Currency } from '@/i18n/config'
 import { Loan, LoanType } from '@/components/features/wealth-optimizer/types'
+import { Currency } from '@/i18n/config'
 import { createClient } from '@/lib/supabase-browser'
 
+/**
+ * Service for interacting with the financial calculations API
+ */
+
+// Base API URL from environment variable or fallback
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
+  process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api'
 
-export interface ApiLoan {
-  loan_id: number
-  name: string
-  balance: number
-  interest_rate: number
-  term_years: number
-  minimum_payment: number
-  loan_type?: string
-}
-
-export interface FinancialOverview {
-  loans: ApiLoan[]
-  surplus_balance: number
-}
-
+// Interfaces for API responses
 export interface AmortizationEntry {
   month: number
   payment_date: string
@@ -53,7 +44,18 @@ export interface InvestmentResponse {
   risk_adjusted_balance: number
 }
 
-export interface FinancialRecommendation {
+export interface FinancialOverview {
+  loans: Loan[]
+  surplus_balance: number
+}
+
+export interface UserSettings {
+  expected_inflation: number
+  expected_investment_return: number
+  risk_tolerance: number
+}
+
+export interface StrategyRecommendation {
   best_strategy: string
   reason: string
   interest_savings: number
@@ -63,94 +65,97 @@ export interface FinancialRecommendation {
   total_savings_advantage: number
 }
 
-export interface FinancialStrategyResponse {
-  recommendation: FinancialRecommendation
-  loan_details: {
-    name: string
-    interest_rate: number
-    payoff_months_with_extra: number
-    payoff_months_minimum: number
+export interface LoanDetail {
+  name: string
+  interest_rate: number
+  payoff_months_with_extra: number
+  payoff_months_minimum: number
+}
+
+export interface AmortizationComparison {
+  baseline: {
+    total_interest: number
+    months_to_payoff: number
   }
-  amortization_comparison: {
-    baseline: {
-      total_interest: number
-      months_to_payoff: number
-    }
-    with_extra_payments: {
-      total_interest: number
-      months_to_payoff: number
-    }
-  }
-  investment_comparison: {
-    immediate_investment: {
-      final_balance: number
-      risk_adjusted_balance: number
-    }
-    investment_after_payoff: {
-      final_balance: number
-      risk_adjusted_balance: number
-    }
+  with_extra_payments: {
+    total_interest: number
+    months_to_payoff: number
   }
 }
 
-export interface UserSettings {
-  expected_inflation: number
-  expected_investment_return: number
-  risk_tolerance: number
+export interface InvestmentComparison {
+  immediate_investment: {
+    final_balance: number
+    risk_adjusted_balance: number
+  }
+  investment_after_payoff: {
+    final_balance: number
+    risk_adjusted_balance: number
+  }
+}
+
+export interface FinancialStrategyResponse {
+  recommendation: StrategyRecommendation
+  loan_details: LoanDetail
+  amortization_comparison: AmortizationComparison
+  investment_comparison: InvestmentComparison
 }
 
 export class FinancialApiService {
-  private static async getAuthToken(): Promise<string> {
-    const supabase = createClient()
-    const { data } = await supabase.auth.getSession()
-    if (!data.session) {
-      throw new Error('No active session found')
-    }
-    return data.session.access_token
-  }
-
-  private static async getAuthHeaders(): Promise<HeadersInit> {
-    const token = await this.getAuthToken()
-    return {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    }
-  }
-
-  static async getFinancialOverview(
-    userId: string
-  ): Promise<FinancialOverview> {
+  /**
+   * Get authentication token for API requests
+   */
+  private static async getAuthToken(): Promise<string | null> {
     try {
-      const headers = await this.getAuthHeaders()
-      const response = await fetch(
-        `${API_BASE_URL}/api/user/${userId}/financial-overview`,
-        {
-          headers,
-        }
-      )
-
-      if (!response.ok) {
-        // Get more detailed error information
-        let errorDetail = ''
-        try {
-          const errorData = await response.json()
-          errorDetail = JSON.stringify(errorData)
-        } catch (parseError) {
-          errorDetail = response.statusText
-        }
-
-        console.error(`API Error ${response.status}: ${errorDetail}`)
-        throw new Error(`Error ${response.status}: ${errorDetail}`)
-      }
-
-      return await response.json()
+      const supabase = createClient()
+      const { data } = await supabase.auth.getSession()
+      return data.session?.access_token || null
     } catch (error) {
-      console.error('Error fetching financial overview:', error)
-      // For now, return an empty response to prevent cascading failures
-      return { loans: [], surplus_balance: 0 }
+      console.error('Error getting auth token:', error)
+      return null
     }
   }
 
+  /**
+   * Make an authenticated API request
+   */
+  private static async fetchWithAuth(
+    url: string,
+    method: string = 'GET',
+    body?: any
+  ): Promise<any> {
+    const token = await this.getAuthToken()
+
+    if (!token) {
+      throw new Error('Authentication required')
+    }
+
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    }
+
+    const options: RequestInit = {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    }
+
+    const response = await fetch(url, options)
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(
+        `API Error ${response.status}: ${JSON.stringify(errorData)}`
+      )
+    }
+
+    return response.json()
+  }
+
+  /**
+   * Get amortization schedule for a loan
+   */
   static async getAmortizationSchedule(
     userId: string,
     loanId: number,
@@ -158,192 +163,132 @@ export class FinancialApiService {
     annualRate: number,
     monthlyPayment: number,
     extraPayment: number = 0,
-    currency: Currency = 'USD'
+    currency: string = 'USD'
   ): Promise<AmortizationResponse> {
-    try {
-      const headers = await this.getAuthHeaders()
-      const response = await fetch(
-        `${API_BASE_URL}/api/user/${userId}/loan/${loanId}/amortization`,
-        {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            principal,
-            annual_rate: annualRate,
-            monthly_payment: monthlyPayment,
-            extra_payment: extraPayment,
-            currency,
-          }),
-        }
-      )
+    const url = `${API_BASE_URL}/user/${userId}/loan/${loanId}/amortization`
 
-      if (!response.ok) {
-        throw new Error(`Error ${response.status}: ${response.statusText}`)
-      }
-
-      return await response.json()
-    } catch (error) {
-      console.error('Error fetching amortization schedule:', error)
-      throw error
+    const body = {
+      principal,
+      annual_rate: annualRate,
+      monthly_payment: monthlyPayment,
+      extra_payment: extraPayment,
+      max_years: 30,
+      currency,
     }
+
+    return this.fetchWithAuth(url, 'POST', body)
   }
 
+  /**
+   * Get investment projection
+   */
   static async getInvestmentProjection(
     monthlyAmount: number,
     annualReturn: number,
     months: number,
     inflationRate: number = 0.025,
     riskFactor: number = 0.2,
-    currency: Currency = 'USD'
+    currency: string = 'USD'
   ): Promise<InvestmentResponse> {
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/investment/projection`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            monthly_amount: monthlyAmount,
-            annual_return: annualReturn,
-            months,
-            inflation_rate: inflationRate,
-            risk_factor: riskFactor,
-            currency,
-          }),
-        }
-      )
+    const url = `${API_BASE_URL}/investment/projection`
 
-      if (!response.ok) {
-        throw new Error(`Error ${response.status}: ${response.statusText}`)
-      }
-
-      return await response.json()
-    } catch (error) {
-      console.error('Error fetching investment projection:', error)
-      throw error
+    const body = {
+      monthly_amount: monthlyAmount,
+      annual_return: annualReturn,
+      months,
+      inflation_rate: inflationRate,
+      risk_factor: riskFactor,
+      currency,
     }
+
+    return this.fetchWithAuth(url, 'POST', body)
   }
 
+  /**
+   * Get financial overview for a user
+   */
+  static async getFinancialOverview(
+    userId: string
+  ): Promise<FinancialOverview> {
+    const url = `${API_BASE_URL}/user/${userId}/financial-overview`
+    return this.fetchWithAuth(url)
+  }
+
+  /**
+   * Get optimal financial strategy
+   */
   static async getFinancialStrategy(
     userId: string,
     loans: Loan[],
-    monthlySurplus: number,
+    monthlyAvailable: number,
     annualInvestmentReturn: number = 0.07,
     inflationRate: number = 0.025,
     riskFactor: number = 0.2,
-    currency: Currency = 'USD'
+    currency: string = 'USD'
   ): Promise<FinancialStrategyResponse> {
-    try {
-      const headers = await this.getAuthHeaders()
+    const url = `${API_BASE_URL}/user/${userId}/financial-strategy`
 
-      // Convert our frontend loan objects to the format expected by the API
-      const apiLoans = loans.map((loan) => ({
-        name: loan.name,
-        balance: loan.balance,
-        interest_rate: loan.interestRate / 100, // Convert percentage to decimal
-        term_years: loan.termYears,
-        minimum_payment: loan.minimumPayment,
-        loan_type: loan.loanType || LoanType.OTHER,
-      }))
+    // Format loans for API
+    const formattedLoans = loans.map((loan) => ({
+      loan_id: loan.id,
+      name: loan.name,
+      balance: loan.balance,
+      interest_rate: loan.interestRate,
+      term_years: loan.termYears,
+      minimum_payment: loan.minimumPayment,
+      loan_type: loan.loanType || LoanType.OTHER,
+    }))
 
-      const response = await fetch(
-        `${API_BASE_URL}/api/user/${userId}/financial-strategy`,
-        {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            loans: apiLoans,
-            monthly_surplus: monthlySurplus,
-            annual_investment_return: annualInvestmentReturn,
-            inflation_rate: inflationRate,
-            risk_factor: riskFactor,
-            currency,
-          }),
-        }
-      )
-
-      if (!response.ok) {
-        throw new Error(`Error ${response.status}: ${response.statusText}`)
-      }
-
-      return await response.json()
-    } catch (error) {
-      console.error('Error fetching financial strategy:', error)
-      throw error
+    const body = {
+      loans: formattedLoans,
+      monthly_surplus: monthlyAvailable,
+      annual_investment_return: annualInvestmentReturn,
+      inflation_rate: inflationRate,
+      risk_factor: riskFactor,
+      currency,
     }
+
+    return this.fetchWithAuth(url, 'POST', body)
   }
 
-  static async convertCurrency(
-    amount: number,
-    fromCurrency: Currency,
-    toCurrency: Currency
-  ): Promise<{ converted_amount: number }> {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/currency/convert`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          amount,
-          from_currency: fromCurrency,
-          to_currency: toCurrency,
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error(`Error ${response.status}: ${response.statusText}`)
-      }
-
-      return await response.json()
-    } catch (error) {
-      console.error('Error converting currency:', error)
-      throw error
-    }
-  }
-
+  /**
+   * Get user settings
+   */
   static async getUserSettings(userId: string): Promise<UserSettings> {
-    try {
-      const headers = await this.getAuthHeaders()
-      const response = await fetch(
-        `${API_BASE_URL}/api/user/${userId}/settings`,
-        {
-          headers,
-        }
-      )
-
-      if (!response.ok) {
-        throw new Error(`Error ${response.status}: ${response.statusText}`)
-      }
-
-      return await response.json()
-    } catch (error) {
-      console.error('Error fetching user settings:', error)
-      throw error
-    }
+    const url = `${API_BASE_URL}/user/${userId}/settings`
+    return this.fetchWithAuth(url)
   }
 
+  /**
+   * Update user settings
+   */
   static async updateUserSettings(
     userId: string,
     settings: UserSettings
   ): Promise<UserSettings> {
-    try {
-      const headers = await this.getAuthHeaders()
-      const response = await fetch(
-        `${API_BASE_URL}/api/user/${userId}/settings`,
-        {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(settings),
-        }
-      )
+    const url = `${API_BASE_URL}/user/${userId}/settings`
+    return this.fetchWithAuth(url, 'POST', settings)
+  }
 
-      if (!response.ok) {
-        throw new Error(`Error ${response.status}: ${response.statusText}`)
-      }
+  /**
+   * Convert currency
+   */
+  static async convertCurrency(
+    amount: number,
+    fromCurrency: string = 'USD',
+    toCurrency: string = 'USD'
+  ): Promise<number> {
+    if (fromCurrency === toCurrency) return amount
 
-      return await response.json()
-    } catch (error) {
-      console.error('Error updating user settings:', error)
-      throw error
+    const url = `${API_BASE_URL}/currency/convert`
+
+    const body = {
+      amount,
+      from_currency: fromCurrency,
+      to_currency: toCurrency,
     }
+
+    const response = await this.fetchWithAuth(url, 'POST', body)
+    return response.converted_amount
   }
 }

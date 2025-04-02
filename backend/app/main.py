@@ -2,7 +2,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from app.api import loans, investments, financial_strategy, currency, user_settings
+from app.api import loans, investments, financial_strategy, currency, user_settings, translations
 
 # Load environment variables
 load_dotenv()
@@ -32,6 +32,7 @@ app.include_router(investments)
 app.include_router(financial_strategy)
 app.include_router(currency)
 app.include_router(user_settings)
+app.include_router(translations)
 
 @app.get("/api/health")
 async def health_check():

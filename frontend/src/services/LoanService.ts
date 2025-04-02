@@ -2,68 +2,31 @@
 
 import { createClient } from '@/lib/supabase-browser'
 import { Loan, LoanType } from '@/components/features/wealth-optimizer/types'
-import { Currency } from '@/i18n/config'
 import { FinancialApiService } from './FinancialApiService'
 
+/**
+ * Service for managing loans in Supabase
+ */
 export class LoanService {
+  /**
+   * Get all loans for a user
+   */
   static async getUserLoans(
     userId: string,
-    currency: Currency = 'USD'
+    currency: string = 'USD'
   ): Promise<Loan[]> {
-    const supabase = createClient()
-
     try {
-      // Try to get loans from our new backend first
-      try {
-        console.log('Attempting to fetch loans from API...')
-        const financialOverview =
-          await FinancialApiService.getFinancialOverview(userId)
+      const supabase = createClient()
 
-        if (financialOverview.loans && financialOverview.loans.length > 0) {
-          console.log(
-            'Successfully fetched loans from API:',
-            financialOverview.loans
-          )
-          return financialOverview.loans.map((loan) => ({
-            id: loan.loan_id,
-            name: loan.name,
-            balance: loan.balance,
-            interestRate: loan.interest_rate * 100, // Convert decimal to percentage
-            termYears: loan.term_years,
-            minimumPayment: loan.minimum_payment,
-            loanType: (loan.loan_type as LoanType) || LoanType.OTHER,
-          }))
-        } else {
-          console.warn(
-            'API returned empty loans array, falling back to Supabase'
-          )
-        }
-      } catch (apiError) {
-        console.warn(
-          'Could not fetch loans from API, falling back to Supabase',
-          apiError
-        )
-      }
-
-      // Fall back to direct Supabase query if API is unavailable
-      console.log('Fetching loans directly from Supabase...')
       const { data, error } = await supabase
         .from('loans')
         .select('*')
         .eq('user_id', userId)
-        .order('id', { ascending: true })
+        .order('name')
 
-      if (error) {
-        console.error('Supabase error:', error)
-        throw error
-      }
+      if (error) throw error
 
-      if (!data || data.length === 0) {
-        console.log('No loans found in Supabase')
-        return []
-      }
-
-      console.log('Successfully fetched loans from Supabase:', data)
+      // Convert loan data format
       return data.map((loan) => ({
         id: loan.loan_id,
         name: loan.name,
@@ -74,30 +37,20 @@ export class LoanService {
         loanType: loan.loan_type || LoanType.OTHER,
       }))
     } catch (error) {
-      console.error('Error fetching user loans:', error)
-      // Return an empty array rather than throwing
-      return []
+      console.error('Error getting user loans:', error)
+      throw error
     }
   }
 
-  static async saveUserLoans(
-    userId: string,
-    loans: Loan[],
-    currency: Currency = 'USD'
-  ): Promise<boolean> {
-    const supabase = createClient()
-
+  /**
+   * Save user loans (create or update multiple loans)
+   */
+  static async saveUserLoans(userId: string, loans: Loan[]): Promise<void> {
     try {
-      // First delete all loans for this user to prepare for the new set
-      const { error: deleteError } = await supabase
-        .from('loans')
-        .delete()
-        .eq('user_id', userId)
+      const supabase = createClient()
 
-      if (deleteError) throw deleteError
-
-      // Insert the new loans
-      const loanInserts = loans.map((loan) => ({
+      // Format loans for database
+      const formattedLoans = loans.map((loan) => ({
         user_id: userId,
         loan_id: loan.id,
         name: loan.name,
@@ -106,55 +59,107 @@ export class LoanService {
         term_years: loan.termYears,
         minimum_payment: loan.minimumPayment,
         loan_type: loan.loanType || LoanType.OTHER,
+        updated_at: new Date().toISOString(),
       }))
 
-      const { error: insertError } = await supabase
+      // Get existing loan IDs
+      const { data: existingLoans, error: fetchError } = await supabase
         .from('loans')
-        .insert(loanInserts)
+        .select('loan_id')
+        .eq('user_id', userId)
 
-      if (insertError) throw insertError
+      if (fetchError) throw fetchError
 
-      return true
+      const existingLoanIds = existingLoans.map((loan) => loan.loan_id)
+
+      // Determine which loans to insert and which to update
+      const loansToInsert = formattedLoans.filter(
+        (loan) => !existingLoanIds.includes(loan.loan_id)
+      )
+      const loansToUpdate = formattedLoans.filter((loan) =>
+        existingLoanIds.includes(loan.loan_id)
+      )
+
+      // Insert new loans
+      if (loansToInsert.length > 0) {
+        const { error: insertError } = await supabase
+          .from('loans')
+          .insert(loansToInsert)
+
+        if (insertError) throw insertError
+      }
+
+      // Update existing loans
+      for (const loan of loansToUpdate) {
+        const { error: updateError } = await supabase
+          .from('loans')
+          .update(loan)
+          .eq('user_id', userId)
+          .eq('loan_id', loan.loan_id)
+
+        if (updateError) throw updateError
+      }
+
+      // Delete loans that are no longer in the list
+      const currentLoanIds = formattedLoans.map((loan) => loan.loan_id)
+      const loanIdsToDelete = existingLoanIds.filter(
+        (id) => !currentLoanIds.includes(id)
+      )
+
+      if (loanIdsToDelete.length > 0) {
+        const { error: deleteError } = await supabase
+          .from('loans')
+          .delete()
+          .eq('user_id', userId)
+          .in('loan_id', loanIdsToDelete)
+
+        if (deleteError) throw deleteError
+      }
     } catch (error) {
       console.error('Error saving user loans:', error)
-      return false
+      throw error
     }
   }
 
-  static async updateLoan(
-    userId: string,
-    loan: Loan,
-    currency: Currency = 'USD'
-  ): Promise<boolean> {
-    const supabase = createClient()
-
+  /**
+   * Update a single loan
+   */
+  static async updateLoan(userId: string, loan: Loan): Promise<void> {
     try {
+      const supabase = createClient()
+
+      const formattedLoan = {
+        user_id: userId,
+        loan_id: loan.id,
+        name: loan.name,
+        balance: loan.balance,
+        interest_rate: loan.interestRate,
+        term_years: loan.termYears,
+        minimum_payment: loan.minimumPayment,
+        loan_type: loan.loanType || LoanType.OTHER,
+        updated_at: new Date().toISOString(),
+      }
+
       const { error } = await supabase
         .from('loans')
-        .update({
-          name: loan.name,
-          balance: loan.balance,
-          interest_rate: loan.interestRate,
-          term_years: loan.termYears,
-          minimum_payment: loan.minimumPayment,
-          loan_type: loan.loanType || LoanType.OTHER,
-        })
+        .upsert(formattedLoan)
         .eq('user_id', userId)
         .eq('loan_id', loan.id)
 
       if (error) throw error
-
-      return true
     } catch (error) {
       console.error('Error updating loan:', error)
-      return false
+      throw error
     }
   }
 
-  static async deleteLoan(userId: string, loanId: number): Promise<boolean> {
-    const supabase = createClient()
-
+  /**
+   * Delete a loan
+   */
+  static async deleteLoan(userId: string, loanId: number): Promise<void> {
     try {
+      const supabase = createClient()
+
       const { error } = await supabase
         .from('loans')
         .delete()
@@ -162,38 +167,54 @@ export class LoanService {
         .eq('loan_id', loanId)
 
       if (error) throw error
-
-      return true
     } catch (error) {
       console.error('Error deleting loan:', error)
-      return false
+      throw error
     }
   }
 
-  static async createDefaultLoan(
-    userId: string,
-    currency: Currency = 'USD'
-  ): Promise<Loan | null> {
-    const supabase = createClient()
-
-    // Create a default loan for new users
-    const defaultLoan = {
-      user_id: userId,
-      loan_id: 1,
-      name: 'Student Loan',
-      balance: 25000,
-      interest_rate: 5.8,
-      term_years: 10,
-      minimum_payment: 275,
-      loan_type: LoanType.STUDENT,
-    }
-
+  /**
+   * Create a default loan if the user has none
+   */
+  static async createDefaultLoan(userId: string): Promise<Loan | null> {
     try {
-      const { error } = await supabase.from('loans').insert(defaultLoan)
+      const supabase = createClient()
 
-      if (error) throw error
+      // First check if user already has loans
+      const { data: existingLoans, error: fetchError } = await supabase
+        .from('loans')
+        .select('loan_id')
+        .eq('user_id', userId)
+        .limit(1)
 
-      // Return the created loan
+      if (fetchError) throw fetchError
+
+      // If user already has loans, don't create a default
+      if (existingLoans && existingLoans.length > 0) {
+        return null
+      }
+
+      // Default loan
+      const defaultLoan = {
+        user_id: userId,
+        loan_id: 1,
+        name: 'Student Loan',
+        balance: 25000,
+        interest_rate: 5.8,
+        term_years: 10,
+        minimum_payment: 275,
+        loan_type: LoanType.STUDENT,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }
+
+      const { error: insertError } = await supabase
+        .from('loans')
+        .insert(defaultLoan)
+
+      if (insertError) throw insertError
+
+      // Return formatted loan for frontend
       return {
         id: defaultLoan.loan_id,
         name: defaultLoan.name,
@@ -206,6 +227,45 @@ export class LoanService {
     } catch (error) {
       console.error('Error creating default loan:', error)
       return null
+    }
+  }
+
+  /**
+   * Calculate tax savings for a loan
+   */
+  static async calculateTaxSavings(
+    userId: string,
+    loan: Loan,
+    countryCode: string = 'US'
+  ): Promise<any> {
+    // This would call an API endpoint to calculate tax savings
+    // For now, return mock data based on loan type and country code
+
+    // This is a temporary implementation that would be replaced with an API call
+    const isDeductible = [
+      'MORTGAGE',
+      'MORTGAGE_BOND',
+      'HOME_LOAN',
+      'STUDENT',
+    ].includes(loan.loanType || 'OTHER')
+    const deductionRate = countryCode === 'DK' ? 0.33 : 0.25
+    const annualInterest = loan.balance * (loan.interestRate / 100)
+    const estimatedSavings = isDeductible ? annualInterest * deductionRate : 0
+
+    return {
+      tax_deductible: isDeductible,
+      deduction_rate: deductionRate,
+      deduction_cap:
+        countryCode === 'US' && loan.loanType === 'MORTGAGE' ? 750000 : null,
+      annual_interest: annualInterest,
+      estimated_tax_savings: estimatedSavings,
+      recommendations: isDeductible
+        ? [
+            'Remember to include loan interest in your tax return',
+            'Keep detailed records of all interest payments',
+            'Consider consulting a tax professional for optimal tax strategies',
+          ]
+        : null,
     }
   }
 }

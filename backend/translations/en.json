@@ -40,6 +40,7 @@
   },
   "settings": {
     "country": "Country",
+    "language": "Language",
     "selectCountry": "Select your country of residence",
     "countryFinancialRules": "Financial Rules & Regulations",
     "ruleDescription": "Financial regulations for your selected country",
@@ -62,6 +63,7 @@
     "update": "Update Profile"
   },
   "wealthOptimizer": {
+    "ourApproachDescription": "We compare what happens if you invest for the exact same time it would take to pay off the loan with extra payments.",
     "riskAdjustmentFactor": "Risk Adjustment Factor",
     "lowerRiskConservative": "Lower risk (Conservative)",
     "higherRiskAggressive": "Higher risk (Aggressive)",
@@ -333,6 +335,7 @@
     "balanceExplanation": "Remember that paying down debt offers a guaranteed return equal to the interest rate, while investing provides a potentially higher but uncertain return. Your decision should reflect your personal comfort with financial risk."
   },
   "loans": {
+    "loadingLoanData": "Loading loan data...",
     "countries": {
       "US": {
         "description": "United States tax and financial rules"
