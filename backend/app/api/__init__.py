@@ -5,6 +5,8 @@ from ..api.financial_strategy import router as financial_strategy_router
 from ..api.currency import router as currency_router
 from ..api.user_settings import router as user_settings_router
 from ..api.translations import router as translations_router
+from ..api.loan_calculations import router as loan_calculations_router
+from ..api.recommendations import router as recommendations_router
 
 # Export the routers
 loans = loans_router
@@ -13,3 +15,5 @@ financial_strategy = financial_strategy_router
 currency = currency_router
 user_settings = user_settings_router
 translations = translations_router
+loan_calculations = loan_calculations_router
+recommendations = recommendations_router

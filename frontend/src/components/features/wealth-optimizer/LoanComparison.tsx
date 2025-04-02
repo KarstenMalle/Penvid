@@ -9,7 +9,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { LoanStrategyComparison } from './types'
-import { formatPercent, formatTimeSpan } from './calculations'
+import { formatPercent, formatTimeSpan } from './format-utils'
 import { useLocalization } from '@/context/LocalizationContext'
 import { CurrencyFormatter } from '@/components/ui/currency-formatter'
 import {

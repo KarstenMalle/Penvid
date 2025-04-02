@@ -18,6 +18,7 @@ import {
 } from '@/services/FinancialApiService'
 import { CurrencyFormatter } from '@/components/ui/currency-formatter'
 import { useLocalization } from '@/context/LocalizationContext'
+import { LoanCalculationService } from '@/services/LoanCalculationService'
 import toast from 'react-hot-toast'
 
 interface AmortizationTableProps {
@@ -56,21 +57,21 @@ const AmortizationTable: React.FC<AmortizationTableProps> = ({
 
       setIsLoading(true)
       try {
-        const result = await FinancialApiService.getAmortizationSchedule(
-          user.id,
-          loanId,
+        // Use the new service instead of direct API call
+        const result = await LoanCalculationService.calculateLoanDetails({
           principal,
-          annualRate / 100, // Convert percentage to decimal
-          monthlyPayment,
-          extraPayment,
-          currency
-        )
-
-        setAmortizationData(result.schedule || [])
-        setSummary({
-          total_interest_paid: result.total_interest_paid,
-          months_to_payoff: result.months_to_payoff,
+          annual_rate: annualRate / 100, // Convert to decimal
+          monthly_payment: monthlyPayment,
+          extra_payment: extraPayment,
         })
+
+        if (result.amortization) {
+          setAmortizationData(result.amortization)
+          setSummary({
+            total_interest_paid: result.total_interest,
+            months_to_payoff: result.loan_term.months,
+          })
+        }
       } catch (error) {
         console.error('Error fetching amortization schedule:', error)
         toast.error(t('loans.failedToLoadAmortizationSchedule'))

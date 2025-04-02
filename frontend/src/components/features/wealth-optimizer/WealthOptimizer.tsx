@@ -13,7 +13,6 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Slider } from '@/components/ui/slider'
 import StrategyResultsComponent from './StrategyResults'
 import { Loan, LoanType } from './types'
 import { Icons } from '@/components/ui/icons'
@@ -23,6 +22,10 @@ import {
   FinancialApiService,
   FinancialStrategyResponse,
 } from '@/services/FinancialApiService'
+import {
+  LoanCalculationService,
+  Recommendation,
+} from '@/services/LoanCalculationService'
 import toast from 'react-hot-toast'
 import {
   HelpCircle,
@@ -134,6 +137,11 @@ const WealthOptimizer: React.FC = () => {
   const [strategyResults, setStrategyResults] =
     useState<FinancialStrategyResponse | null>(null)
 
+  // Recommendations
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([])
+  const [isLoadingRecommendations, setIsLoadingRecommendations] =
+    useState(false)
+
   // Load all loans from the database
   useEffect(() => {
     const loadUserLoans = async () => {
@@ -236,6 +244,35 @@ const WealthOptimizer: React.FC = () => {
 
       // Update state with results
       setStrategyResults(results)
+
+      // After receiving results, get personalized recommendations
+      setIsLoadingRecommendations(true)
+      try {
+        // Get personalized recommendations from the backend
+        const personalizedRecommendations =
+          await LoanCalculationService.generateRecommendations({
+            loans: selectedLoans,
+            monthly_available: actualAvailable,
+            results: results.results,
+            optimal_strategy: results.recommendation,
+            loan_comparisons: results.loanComparisons,
+          })
+
+        setRecommendations(personalizedRecommendations)
+      } catch (error) {
+        console.error('Error generating recommendations:', error)
+        // Use default recommendations if API fails
+        setRecommendations([
+          {
+            title: 'Follow the recommended strategy',
+            description:
+              'This strategy provides the best financial outcome based on your specific situation.',
+            priority: 'high',
+          },
+        ])
+      } finally {
+        setIsLoadingRecommendations(false)
+      }
 
       toast.success(t('wealthOptimizer.calculationComplete'))
     } catch (error) {
@@ -557,15 +594,22 @@ const WealthOptimizer: React.FC = () => {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <StrategyResultsComponent
-              results={strategyResults.results}
-              optimalStrategy={strategyResults.recommendation}
-              yearByYearData={strategyResults.yearByYearData}
-              totalInterestPaid={strategyResults.totalInterestPaid}
-              totalInvestmentValue={strategyResults.totalInvestmentValue}
-              recommendations={strategyResults.recommendations}
-              loanComparisons={strategyResults.loanComparisons}
-            />
+            {isLoadingRecommendations ? (
+              <div className="flex justify-center items-center py-4">
+                <Icons.spinner className="h-6 w-6 animate-spin text-blue-600 mr-2" />
+                <span>{t('common.loading')}</span>
+              </div>
+            ) : (
+              <StrategyResultsComponent
+                results={strategyResults.results}
+                optimalStrategy={strategyResults.recommendation}
+                yearByYearData={strategyResults.yearByYearData}
+                totalInterestPaid={strategyResults.totalInterestPaid}
+                totalInvestmentValue={strategyResults.totalInvestmentValue}
+                recommendations={recommendations} // Use recommendations from backend API
+                loanComparisons={strategyResults.loanComparisons}
+              />
+            )}
           </CardContent>
         </Card>
       )}

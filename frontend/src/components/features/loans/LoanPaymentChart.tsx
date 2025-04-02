@@ -1,342 +1,478 @@
-// src/components/features/loans/LoanPaymentChart.tsx
+// frontend/src/components/features/loans/LoanPaymentChart.tsx
 
 import React, { useState, useEffect } from 'react'
 import { Loan } from '@/components/features/wealth-optimizer/types'
-import { generateAmortizationSchedule } from '@/lib/loan-calculations'
-import { Card, CardContent } from '@/components/ui/card'
 import {
-  PieChart,
-  Pie,
-  LineChart,
-  Line,
+  LoanCalculationService,
+  AmortizationEntry,
+} from '@/services/LoanCalculationService'
+import { useAuth } from '@/context/AuthContext'
+import { useLocalization } from '@/context/LocalizationContext'
+import { Icons } from '@/components/ui/icons'
+import {
   BarChart,
   Bar,
+  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   Legend,
   ResponsiveContainer,
-  Cell,
+  PieChart,
+  Pie,
+  LineChart,
+  Line,
 } from 'recharts'
-import { Button } from '@/components/ui/button'
-import { CurrencyFormatter } from '@/components/ui/currency-formatter'
-import { useLocalization } from '@/context/LocalizationContext'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import toast from 'react-hot-toast'
 
 interface LoanPaymentChartProps {
   loan: Loan
 }
 
+// Custom colors for charts
+const colors = {
+  principal: '#4f46e5', // indigo
+  interest: '#ef4444', // red
+  balance: '#10b981', // emerald
+  payment: '#3b82f6', // blue
+}
+
 const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
-  const { t, formatCurrency, currency, convertAmount } = useLocalization()
-  const [chartType, setChartType] = useState<
-    'balance' | 'payment' | 'interest'
-  >('balance')
-  const [amortizationData, setAmortizationData] = useState<any[]>([])
+  const { user } = useAuth()
+  const { t, currency, formatCurrency } = useLocalization()
 
-  // Generate chart data when loan changes
-  useEffect(() => {
-    if (loan) {
-      const schedule = generateAmortizationSchedule(
-        loan.balance,
-        loan.interestRate,
-        loan.minimumPayment
-      )
-
-      // Group data by year for better readability
-      const yearlyData = schedule.reduce(
-        (acc, entry) => {
-          const entryDate = new Date(entry.date)
-          const year = entryDate.getFullYear()
-          const month = entryDate.getMonth()
-
-          // Create a key for the year and quarter
-          const yearKey = year
-
-          if (!acc[yearKey]) {
-            acc[yearKey] = {
-              date: `${year}`,
-              balance: 0,
-              principalPaid: 0,
-              interestPaid: 0,
-              totalPaid: 0,
-              yearlyPrincipal: 0,
-              yearlyInterest: 0,
-            }
-          }
-
-          // Update the last balance (which will be the final balance for the year)
-          acc[yearKey].balance = entry.balance
-
-          // Accumulate the payments for the year
-          acc[yearKey].principalPaid += entry.principal
-          acc[yearKey].interestPaid += entry.interest
-          acc[yearKey].totalPaid += entry.payment
-
-          // For the current year, track monthly data
-          if (year === new Date().getFullYear()) {
-            acc[yearKey][`month${month + 1}Principal`] = entry.principal
-            acc[yearKey][`month${month + 1}Interest`] = entry.interest
-          }
-
-          // If this is the first entry of the year, record yearlyPrincipal and yearlyInterest
-          if (!acc[yearKey].yearlyPrincipal && !acc[yearKey].yearlyInterest) {
-            acc[yearKey].yearlyPrincipal = entry.principal
-            acc[yearKey].yearlyInterest = entry.interest
-          }
-
-          return acc
-        },
-        {} as Record<string, any>
-      )
-
-      // Convert to array and sort by year
-      const chartData = Object.values(yearlyData).sort((a, b) =>
-        a.date.localeCompare(b.date)
-      )
-
-      setAmortizationData(chartData)
-    }
-  }, [loan])
-
-  // Calculate summary data
-  const totalInterest = amortizationData.reduce(
-    (sum, entry) => sum + entry.interestPaid,
-    0
+  const [amortizationData, setAmortizationData] = useState<AmortizationEntry[]>(
+    []
   )
-  const totalPrincipal = loan.balance
+  const [isLoading, setIsLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState('balance')
+  const [summaryData, setSummaryData] = useState<{
+    totalPrincipal: number
+    totalInterest: number
+    totalPayments: number
+    monthsToPayoff: number
+  }>({
+    totalPrincipal: 0,
+    totalInterest: 0,
+    totalPayments: 0,
+    monthsToPayoff: 0,
+  })
 
-  // Data for pie chart
-  const pieData = [
-    { name: t('loans.principal'), value: totalPrincipal, color: '#3b82f6' },
-    { name: t('loans.interest'), value: totalInterest, color: '#ef4444' },
-  ]
+  // Load amortization schedule from the API
+  useEffect(() => {
+    const fetchAmortizationSchedule = async () => {
+      if (!user) return
 
-  // Custom formatters for charts
-  const currencyTickFormatter = (value: number) => {
-    return formatCurrency(value, {
-      maximumFractionDigits: 0,
-      notation: 'compact',
+      setIsLoading(true)
+      try {
+        // Use service to get amortization data from the backend
+        const result = await LoanCalculationService.getAmortizationSchedule(
+          loan.id,
+          loan.balance,
+          loan.interestRate / 100, // Convert to decimal
+          loan.minimumPayment,
+          0, // No extra payment
+          currency
+        )
+
+        setAmortizationData(result.schedule || [])
+        setSummaryData({
+          totalPrincipal: loan.balance,
+          totalInterest: result.total_interest_paid,
+          totalPayments: loan.balance + result.total_interest_paid,
+          monthsToPayoff: result.months_to_payoff,
+        })
+      } catch (error) {
+        console.error('Error fetching amortization schedule:', error)
+        toast.error(t('loans.failedToLoadAmortizationSchedule'))
+        createFallbackAmortizationData()
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchAmortizationSchedule()
+  }, [user, loan, currency, t])
+
+  // Create a fallback amortization data if API fails
+  const createFallbackAmortizationData = () => {
+    const schedule: AmortizationEntry[] = []
+    let balance = loan.balance
+    let totalInterestPaid = 0
+    let month = 1
+    const now = new Date()
+
+    // Simple amortization calculation
+    while (balance > 0 && month <= 360) {
+      // Cap at 30 years
+      const interestPayment = balance * (loan.interestRate / 100 / 12)
+      totalInterestPaid += interestPayment
+
+      const principalPayment = Math.min(
+        loan.minimumPayment - interestPayment,
+        balance
+      )
+      balance = Math.max(0, balance - principalPayment)
+
+      // Calculate date for this payment
+      const paymentDate = new Date(now)
+      paymentDate.setMonth(paymentDate.getMonth() + month - 1)
+
+      schedule.push({
+        month,
+        payment_date: paymentDate.toISOString().split('T')[0],
+        payment: loan.minimumPayment,
+        principal_payment: principalPayment,
+        interest_payment: interestPayment,
+        extra_payment: 0,
+        remaining_balance: balance,
+      })
+
+      month++
+
+      // Break if balance is very small
+      if (balance < 0.01) {
+        balance = 0
+      }
+    }
+
+    setAmortizationData(schedule)
+    setSummaryData({
+      totalPrincipal: loan.balance,
+      totalInterest: totalInterestPaid,
+      totalPayments: loan.balance + totalInterestPaid,
+      monthsToPayoff: month - 1,
     })
   }
 
-  const percentFormatter = (value: number) => {
-    return `${(value * 100).toFixed(1)}%`
+  // Prepare data for balance over time chart
+  const prepareBalanceChartData = () => {
+    // Sample data at regular intervals to avoid too many points
+    const interval = Math.max(1, Math.floor(amortizationData.length / 24))
+
+    return amortizationData
+      .filter(
+        (_, index) =>
+          index % interval === 0 || index === amortizationData.length - 1
+      )
+      .map((entry) => ({
+        month: entry.month,
+        balance: entry.remaining_balance,
+      }))
   }
 
-  const currencyTooltipFormatter = (value: any, name: string) => {
-    return [formatCurrency(value), name]
+  // Prepare data for payment breakdown chart
+  const preparePaymentChartData = () => {
+    // Group by year to avoid too many bars
+    const yearlyData: {
+      [key: string]: { principal: number; interest: number; year: string }
+    } = {}
+
+    amortizationData.forEach((entry) => {
+      const paymentDate = new Date(entry.payment_date)
+      const year = paymentDate.getFullYear().toString()
+
+      if (!yearlyData[year]) {
+        yearlyData[year] = { principal: 0, interest: 0, year }
+      }
+
+      yearlyData[year].principal += entry.principal_payment
+      yearlyData[year].interest += entry.interest_payment
+    })
+
+    return Object.values(yearlyData)
   }
 
-  // Render the appropriate chart based on selected type
-  const renderChart = () => {
-    switch (chartType) {
-      case 'balance':
-        return (
-          <ResponsiveContainer width="100%" height={400}>
-            <LineChart
-              data={amortizationData}
-              margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" />
-              <YAxis tickFormatter={currencyTickFormatter} />
-              <Tooltip formatter={currencyTooltipFormatter} />
-              <Legend />
-              <Line
-                type="monotone"
-                dataKey="balance"
-                name={t('loans.remainingBalance')}
-                stroke="#3b82f6"
-                activeDot={{ r: 8 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        )
+  // Prepare data for pie chart
+  const preparePieChartData = () => {
+    return [
+      {
+        name: t('loans.principal'),
+        value: summaryData.totalPrincipal,
+        color: colors.principal,
+      },
+      {
+        name: t('loans.interest'),
+        value: summaryData.totalInterest,
+        color: colors.interest,
+      },
+    ]
+  }
 
-      case 'payment':
-        return (
-          <ResponsiveContainer width="100%" height={400}>
-            <BarChart
-              data={amortizationData}
-              margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" />
-              <YAxis tickFormatter={currencyTickFormatter} />
-              <Tooltip formatter={currencyTooltipFormatter} />
-              <Legend />
-              <Bar
-                dataKey="principalPaid"
-                name={t('loans.principal')}
-                stackId="a"
-                fill="#3b82f6"
-              />
-              <Bar
-                dataKey="interestPaid"
-                name={t('loans.interest')}
-                stackId="a"
-                fill="#ef4444"
-              />
-            </BarChart>
-          </ResponsiveContainer>
-        )
+  // Prepare data for interest analysis chart (interest to principal ratio by year)
+  const prepareInterestAnalysisData = () => {
+    // Group by year
+    const yearlyData: {
+      [key: string]: {
+        principal: number
+        interest: number
+        year: string
+        ratio: number
+      }
+    } = {}
 
-      case 'interest':
-        return (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Card>
-              <CardContent className="p-4">
-                <div className="text-center mb-2">
-                  <h3 className="text-lg font-semibold">
-                    {t('loans.totalPaymentBreakdown')}
-                  </h3>
-                  <p className="text-sm text-gray-500">
-                    {t('loans.principalVsInterest')}
-                  </p>
-                </div>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={pieData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={80}
-                        fill="#8884d8"
-                        paddingAngle={5}
-                        dataKey="value"
-                        label={({ name, percent }) =>
-                          `${name}: ${(percent * 100).toFixed(0)}%`
-                        }
-                        labelLine={false}
-                      >
-                        {pieData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={currencyTooltipFormatter} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
+    amortizationData.forEach((entry) => {
+      const paymentDate = new Date(entry.payment_date)
+      const year = paymentDate.getFullYear().toString()
 
-            <Card>
-              <CardContent className="p-4">
-                <div className="text-center mb-2">
-                  <h3 className="text-lg font-semibold">
-                    {t('loans.interestToPrincipalRatio')}
-                  </h3>
-                  <p className="text-sm text-gray-500">
-                    {t('loans.byPaymentYear')}
-                  </p>
-                </div>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={amortizationData}
-                      margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" />
-                      <YAxis tickFormatter={percentFormatter} />
-                      <Tooltip
-                        formatter={(value: any) => [
-                          `${(value * 100).toFixed(1)}%`,
-                          t('loans.interestRatio'),
-                        ]}
-                      />
-                      <Legend />
-                      <Bar
-                        dataKey={(entry) =>
-                          entry.interestPaid /
-                          (entry.principalPaid + entry.interestPaid)
-                        }
-                        name={t('loans.interestRatio')}
-                        fill="#ef4444"
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )
-    }
+      if (!yearlyData[year]) {
+        yearlyData[year] = { principal: 0, interest: 0, year, ratio: 0 }
+      }
+
+      yearlyData[year].principal += entry.principal_payment
+      yearlyData[year].interest += entry.interest_payment
+    })
+
+    // Calculate ratio for each year
+    Object.values(yearlyData).forEach((yearData) => {
+      const totalPayment = yearData.principal + yearData.interest
+      yearData.ratio =
+        totalPayment > 0 ? (yearData.interest / totalPayment) * 100 : 0
+    })
+
+    return Object.values(yearlyData)
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <Icons.spinner className="h-8 w-8 animate-spin text-blue-600" />
+      </div>
+    )
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-center">
-        <div className="inline-flex rounded-md shadow-sm">
-          <Button
-            variant={chartType === 'balance' ? 'default' : 'outline'}
-            onClick={() => setChartType('balance')}
-            className="rounded-l-md rounded-r-none"
-          >
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="grid grid-cols-4">
+          <TabsTrigger value="balance">
             {t('loans.balanceOverTime')}
-          </Button>
-          <Button
-            variant={chartType === 'payment' ? 'default' : 'outline'}
-            onClick={() => setChartType('payment')}
-            className="rounded-none border-l-0 border-r-0"
-          >
+          </TabsTrigger>
+          <TabsTrigger value="payments">
             {t('loans.paymentBreakdown')}
-          </Button>
-          <Button
-            variant={chartType === 'interest' ? 'default' : 'outline'}
-            onClick={() => setChartType('interest')}
-            className="rounded-r-md rounded-l-none"
-          >
+          </TabsTrigger>
+          <TabsTrigger value="interest">
             {t('loans.interestAnalysis')}
-          </Button>
-        </div>
-      </div>
+          </TabsTrigger>
+          <TabsTrigger value="total">
+            {t('loans.totalPaymentBreakdown')}
+          </TabsTrigger>
+        </TabsList>
 
-      {renderChart()}
+        {/* Balance Over Time Chart */}
+        <TabsContent value="balance" className="pt-4">
+          <h3 className="text-lg font-medium mb-4">
+            {t('loans.balanceOverTime')}
+          </h3>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={prepareBalanceChartData()}
+                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="month"
+                  label={{
+                    value: t('loans.month'),
+                    position: 'insideBottomRight',
+                    offset: -10,
+                  }}
+                />
+                <YAxis
+                  tickFormatter={(value) =>
+                    formatCurrency(value, {
+                      style: 'currency',
+                      maximumFractionDigits: 0,
+                      minimumFractionDigits: 0,
+                    })
+                  }
+                />
+                <Tooltip
+                  formatter={(value: number) => [
+                    formatCurrency(value, {
+                      style: 'currency',
+                      maximumFractionDigits: 2,
+                      minimumFractionDigits: 2,
+                    }),
+                    t('loans.balance'),
+                  ]}
+                  labelFormatter={(label) => `${t('loans.month')} ${label}`}
+                />
+                <Legend />
+                <Line
+                  type="monotone"
+                  dataKey="balance"
+                  stroke={colors.balance}
+                  activeDot={{ r: 8 }}
+                  name={t('loans.balance')}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </TabsContent>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-center">
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+        {/* Payment Breakdown Chart */}
+        <TabsContent value="payments" className="pt-4">
+          <h3 className="text-lg font-medium mb-4">
+            {t('loans.paymentBreakdown')}
+          </h3>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={preparePaymentChartData()}
+                margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="year" />
+                <YAxis
+                  tickFormatter={(value) =>
+                    formatCurrency(value, {
+                      style: 'currency',
+                      maximumFractionDigits: 0,
+                    })
+                  }
+                />
+                <Tooltip
+                  formatter={(value: number) => [
+                    formatCurrency(value, { style: 'currency' }),
+                    null,
+                  ]}
+                />
+                <Legend />
+                <Bar
+                  dataKey="principal"
+                  fill={colors.principal}
+                  name={t('loans.principal')}
+                />
+                <Bar
+                  dataKey="interest"
+                  fill={colors.interest}
+                  name={t('loans.interest')}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </TabsContent>
+
+        {/* Interest Analysis Chart */}
+        <TabsContent value="interest" className="pt-4">
+          <h3 className="text-lg font-medium mb-4">
+            {t('loans.interestAnalysis')}
+          </h3>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={prepareInterestAnalysisData()}
+                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="year" />
+                <YAxis
+                  tickFormatter={(value) => `${value.toFixed(0)}%`}
+                  domain={[0, 100]}
+                />
+                <Tooltip
+                  formatter={(value: number) => [
+                    `${value.toFixed(2)}%`,
+                    t('loans.interestRatio'),
+                  ]}
+                />
+                <Legend />
+                <Line
+                  type="monotone"
+                  dataKey="ratio"
+                  stroke={colors.interest}
+                  name={t('loans.interestToPrincipalRatio')}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </TabsContent>
+
+        {/* Total Payment Breakdown Pie Chart */}
+        <TabsContent value="total" className="pt-4">
+          <h3 className="text-lg font-medium mb-4">
+            {t('loans.principalVsInterest')}
+          </h3>
+          <div className="h-64 flex items-center justify-center">
+            <ResponsiveContainer width="80%" height="100%">
+              <PieChart>
+                <Pie
+                  data={preparePieChartData()}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={true}
+                  outerRadius={80}
+                  fill="#8884d8"
+                  dataKey="value"
+                  nameKey="name"
+                  label={(entry) =>
+                    `${entry.name}: ${Math.round((entry.percent || 0) * 100) / 100}%`
+                  }
+                >
+                  {preparePieChartData().map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  formatter={(value: number) => [
+                    formatCurrency(value, { style: 'currency' }),
+                    null,
+                  ]}
+                />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Summary information */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+            <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+              <p className="text-sm text-gray-500">
                 {t('loans.totalPrincipal')}
               </p>
-              <p className="text-xl font-semibold text-blue-600">
-                <CurrencyFormatter value={loan.balance} />
+              <p className="text-lg font-semibold">
+                <span style={{ color: colors.principal }}>
+                  {formatCurrency(summaryData.totalPrincipal, {
+                    style: 'currency',
+                  })}
+                </span>
               </p>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-center">
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+            <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+              <p className="text-sm text-gray-500">
                 {t('loans.totalInterest')}
               </p>
-              <p className="text-xl font-semibold text-red-600">
-                <CurrencyFormatter value={totalInterest} />
+              <p className="text-lg font-semibold">
+                <span style={{ color: colors.interest }}>
+                  {formatCurrency(summaryData.totalInterest, {
+                    style: 'currency',
+                  })}
+                </span>
               </p>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-center">
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                {t('loans.interestToPrincipalRatio')}
-              </p>
-              <p className="text-xl font-semibold text-purple-600">
-                {((totalInterest / loan.balance) * 100).toFixed(1)}%
+            <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+              <p className="text-sm text-gray-500">{t('loans.totalCost')}</p>
+              <p className="text-lg font-semibold">
+                {formatCurrency(summaryData.totalPayments, {
+                  style: 'currency',
+                })}
               </p>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+            <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+              <p className="text-sm text-gray-500">
+                {t('loans.monthsToPayoff')}
+              </p>
+              <p className="text-lg font-semibold">
+                {summaryData.monthsToPayoff}
+              </p>
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

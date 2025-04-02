@@ -22,7 +22,7 @@ import {
   Area,
   AreaChart,
 } from 'recharts'
-import { formatPercent } from './calculations'
+import { formatPercent } from './format-utils'
 import {
   StrategyResults,
   OptimalStrategy,

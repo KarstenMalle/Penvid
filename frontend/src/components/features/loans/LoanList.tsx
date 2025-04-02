@@ -28,7 +28,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { formatPercent } from '@/components/features/wealth-optimizer/calculations'
+import { formatPercent } from '@/components/features/wealth-optimizer/format-utils'
 import { Badge } from '@/components/ui/badge'
 import LoanEditDialog from './LoanEditDialog'
 import { CurrencyFormatter } from '@/components/ui/currency-formatter'
