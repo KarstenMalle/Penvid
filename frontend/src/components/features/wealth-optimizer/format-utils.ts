@@ -1,5 +1,5 @@
 // frontend/src/components/features/wealth-optimizer/format-utils.ts
-// This file contains only formatting utilities, with calculations moved to backend
+// Formatting utilities only - all calculation logic has been moved to the backend
 
 /**
  * Format a percentage value for display
@@ -66,7 +66,7 @@ export const formatDate = (
       day: 'numeric',
     }
 
-    return new Intl.DateTimeFormatter(
+    return new Intl.DateTimeFormat(
       locale === 'da' ? 'da-DK' : 'en-US',
       options
     ).format(date)
@@ -78,26 +78,90 @@ export const formatDate = (
 }
 
 /**
- * Format a currency value for display - this is a fallback
- * that should only be used when CurrencyFormatter component can't be used
+ * Format a currency value for display - fallback if CurrencyFormatter component can't be used
  * @param amount Amount to format
- * @param currencyCode Currency code (default: USD)
+ * @param options Formatting options
  * @returns Formatted currency string
  */
 export const formatCurrency = (
   amount: number,
-  currencyCode: string = 'USD'
+  options: {
+    originalCurrency?: string
+    minimumFractionDigits?: number
+    maximumFractionDigits?: number
+  } = {}
 ): string => {
+  const {
+    originalCurrency = 'USD',
+    minimumFractionDigits = 0,
+    maximumFractionDigits = 0,
+  } = options
+
   try {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: currencyCode,
-      maximumFractionDigits: 0,
+      currency: originalCurrency,
+      minimumFractionDigits,
+      maximumFractionDigits,
     }).format(amount)
   } catch (error) {
     // Super simple fallback
-    return currencyCode === 'USD'
+    return originalCurrency === 'USD'
       ? `$${Math.round(amount).toLocaleString()}`
-      : `${Math.round(amount).toLocaleString()} ${currencyCode}`
+      : `${Math.round(amount).toLocaleString()} ${originalCurrency}`
   }
+}
+
+/**
+ * Format a numeric value with appropriate thousands separators
+ * @param value Numeric value
+ * @param locale Locale for formatting
+ * @returns Formatted string
+ */
+export const formatNumber = (
+  value: number,
+  locale: string = 'en-US'
+): string => {
+  return new Intl.NumberFormat(locale).format(value)
+}
+
+/**
+ * Format a large numeric value with K, M, B suffixes (e.g., 1.2M)
+ * @param value Numeric value
+ * @param decimals Number of decimal places
+ * @returns Formatted string with appropriate suffix
+ */
+export const formatCompactNumber = (
+  value: number,
+  decimals: number = 1
+): string => {
+  if (Math.abs(value) >= 1_000_000_000) {
+    return `${(value / 1_000_000_000).toFixed(decimals)}B`
+  } else if (Math.abs(value) >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(decimals)}M`
+  } else if (Math.abs(value) >= 1_000) {
+    return `${(value / 1_000).toFixed(decimals)}K`
+  } else {
+    return value.toFixed(decimals)
+  }
+}
+
+/**
+ * Format a number as readable dollars and cents
+ * @param value Dollar amount
+ * @param includeCents Whether to include cents in the output
+ * @returns Formatted dollar string
+ */
+export const formatDollars = (
+  value: number,
+  includeCents: boolean = true
+): string => {
+  const formatter = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: includeCents ? 2 : 0,
+    maximumFractionDigits: includeCents ? 2 : 0,
+  })
+
+  return formatter.format(value)
 }

@@ -1,5 +1,3 @@
-// frontend/src/components/features/wealth-optimizer/WealthOptimizer.tsx
-
 'use client'
 
 import React, { useState, useEffect, useMemo } from 'react'
@@ -22,10 +20,7 @@ import {
   FinancialApiService,
   FinancialStrategyResponse,
 } from '@/services/FinancialApiService'
-import {
-  LoanCalculationService,
-  Recommendation,
-} from '@/services/LoanCalculationService'
+import { LoanCalculationService } from '@/services/LoanCalculationService'
 import toast from 'react-hot-toast'
 import {
   HelpCircle,
@@ -138,7 +133,7 @@ const WealthOptimizer: React.FC = () => {
     useState<FinancialStrategyResponse | null>(null)
 
   // Recommendations
-  const [recommendations, setRecommendations] = useState<Recommendation[]>([])
+  const [recommendations, setRecommendations] = useState<any[]>([])
   const [isLoadingRecommendations, setIsLoadingRecommendations] =
     useState(false)
 
@@ -261,15 +256,8 @@ const WealthOptimizer: React.FC = () => {
         setRecommendations(personalizedRecommendations)
       } catch (error) {
         console.error('Error generating recommendations:', error)
-        // Use default recommendations if API fails
-        setRecommendations([
-          {
-            title: 'Follow the recommended strategy',
-            description:
-              'This strategy provides the best financial outcome based on your specific situation.',
-            priority: 'high',
-          },
-        ])
+        // Default recommendations are handled by the backend service
+        setRecommendations([])
       } finally {
         setIsLoadingRecommendations(false)
       }
@@ -501,7 +489,7 @@ const WealthOptimizer: React.FC = () => {
             {isOverallBudget ? (
               <p key="budget-info-1">
                 {t('wealthOptimizer.analysisTotalBudget', {
-                  totalBudget: (
+                  amount: (
                     <CurrencyFormatter
                       key="total-budget"
                       value={monthlyAvailable}
@@ -511,14 +499,14 @@ const WealthOptimizer: React.FC = () => {
               </p>
             ) : (
               <p key="budget-info-2">
-                {t('wealthOptimizer.extraBudgetInfo', {
-                  extraMoney: (
+                {t('wealthOptimizer.analysisExtraMoney', {
+                  extra: (
                     <CurrencyFormatter
                       key="extra-money"
                       value={monthlyAvailable}
                     />
                   ),
-                  minimumPayments: (
+                  minimum: (
                     <CurrencyFormatter
                       key="min-payments"
                       value={totalMinimumPayment}
@@ -606,7 +594,7 @@ const WealthOptimizer: React.FC = () => {
                 yearByYearData={strategyResults.yearByYearData}
                 totalInterestPaid={strategyResults.totalInterestPaid}
                 totalInvestmentValue={strategyResults.totalInvestmentValue}
-                recommendations={recommendations} // Use recommendations from backend API
+                recommendations={recommendations}
                 loanComparisons={strategyResults.loanComparisons}
               />
             )}

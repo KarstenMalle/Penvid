@@ -1,6 +1,5 @@
 // frontend/src/services/CurrencyService.ts
 
-import { createClient } from '@/lib/supabase-browser'
 import { Currency } from '@/i18n/config'
 
 interface ConversionResponse {
@@ -18,6 +17,8 @@ interface ExchangeRates {
 let cachedRates: ExchangeRates | null = null
 let cacheTimestamp: number = 0
 const CACHE_DURATION = 24 * 60 * 60 * 1000 // 24 hours in milliseconds
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
 
 /**
  * Service for currency conversion via backend API
@@ -37,27 +38,25 @@ export const CurrencyService = {
     }
 
     try {
-      const supabase = createClient()
+      // Call backend API directly
+      const response = await fetch(`${API_BASE_URL}/api/currency/convert`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          amount,
+          from_currency: fromCurrency,
+          to_currency: toCurrency,
+        }),
+      })
 
-      // Call backend API
-      const { data, error } = await supabase.functions.invoke(
-        'currency/convert',
-        {
-          body: {
-            amount,
-            from_currency: fromCurrency,
-            to_currency: toCurrency,
-          },
-        }
-      )
-
-      if (error) {
-        console.error('Error converting currency:', error)
-        throw new Error(`Failed to convert currency: ${error.message}`)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
       }
 
-      const response = data as ConversionResponse
-      return response.converted_amount
+      const data = await response.json()
+      return data.converted_amount
     } catch (error) {
       console.error('Error in convertCurrency:', error)
 
@@ -67,7 +66,7 @@ export const CurrencyService = {
   },
 
   /**
-   * Get exchange rates
+   * Get exchange rates - we'll use a simple endpoint to get all rates
    */
   async getExchangeRates(): Promise<ExchangeRates> {
     // Return cached rates if still valid
@@ -77,20 +76,14 @@ export const CurrencyService = {
     }
 
     try {
-      const supabase = createClient()
+      // This endpoint doesn't exist yet, but would be a good addition
+      const response = await fetch(`${API_BASE_URL}/api/currency/rates`)
 
-      // Call backend API
-      const { data, error } = await supabase.functions.invoke(
-        'currency/rates',
-        {
-          body: {},
-        }
-      )
-
-      if (error) {
-        console.error('Error fetching exchange rates:', error)
-        throw new Error(`Failed to fetch exchange rates: ${error.message}`)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
       }
+
+      const data = await response.json()
 
       // Update cache
       cachedRates = data.rates

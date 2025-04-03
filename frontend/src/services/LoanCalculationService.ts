@@ -1,7 +1,7 @@
 // frontend/src/services/LoanCalculationService.ts
 
-import { createClient } from '@/lib/supabase-browser'
 import { Loan } from '@/components/features/wealth-optimizer/types'
+import { createClient } from '@/lib/supabase-browser'
 
 /**
  * Interfaces for loan calculation API
@@ -51,6 +51,23 @@ export interface Recommendation {
   priority: 'high' | 'medium' | 'low'
 }
 
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
+
+/**
+ * Get auth token from Supabase
+ */
+const getAuthToken = async (): Promise<string | null> => {
+  try {
+    const supabase = createClient()
+    const { data } = await supabase.auth.getSession()
+    return data.session?.access_token || null
+  } catch (error) {
+    console.error('Error getting auth token:', error)
+    return null
+  }
+}
+
 /**
  * Service for loan calculations via backend API
  */
@@ -62,22 +79,23 @@ export const LoanCalculationService = {
     request: LoanCalculationRequest
   ): Promise<LoanCalculationResponse> {
     try {
-      const supabase = createClient()
+      const token = await getAuthToken()
+      // Call backend API directly
+      const response = await fetch(`${API_BASE_URL}/api/loans/calculate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(request),
+      })
 
-      // Call backend API
-      const { data, error } = await supabase.functions.invoke(
-        'loans/calculate',
-        {
-          body: request,
-        }
-      )
-
-      if (error) {
-        console.error('Error calculating loan details:', error)
-        throw new Error(`Failed to calculate loan details: ${error.message}`)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
       }
 
-      return data
+      const result = await response.json()
+      return result.data
     } catch (error) {
       console.error('Error in calculateLoanDetails:', error)
 
@@ -128,22 +146,26 @@ export const LoanCalculationService = {
     request: LoanCalculationRequest
   ): Promise<AmortizationEntry[]> {
     try {
-      const supabase = createClient()
+      const token = await getAuthToken()
+      // Call backend API directly
+      const response = await fetch(`${API_BASE_URL}/api/loans/amortization`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          loan_id: loanId,
+          ...request,
+        }),
+      })
 
-      // Call backend API
-      const { data, error } = await supabase.functions.invoke(
-        `loans/${loanId}/amortization`,
-        {
-          body: request,
-        }
-      )
-
-      if (error) {
-        console.error('Error getting amortization schedule:', error)
-        throw new Error(`Failed to get amortization schedule: ${error.message}`)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
       }
 
-      return data.schedule || []
+      const result = await response.json()
+      return result.data.schedule || []
     } catch (error) {
       console.error('Error in getAmortizationSchedule:', error)
       return [] // Return empty array on error
@@ -153,32 +175,49 @@ export const LoanCalculationService = {
   /**
    * Generate personalized financial recommendations
    */
-  async generateRecommendations(
-    loans: Loan[],
-    monthlyAvailable: number,
-    analysisResults?: any
-  ): Promise<Recommendation[]> {
+  async generateRecommendations(params: {
+    loans: Loan[]
+    monthly_available: number
+    results?: any
+    optimal_strategy?: any
+    loan_comparisons?: any[]
+  }): Promise<Recommendation[]> {
     try {
-      const supabase = createClient()
+      const token = await getAuthToken()
 
-      // Call backend API
-      const { data, error } = await supabase.functions.invoke(
-        'recommendations',
-        {
-          body: {
-            loans: loans,
-            monthly_available: monthlyAvailable,
-            results: analysisResults,
-          },
-        }
-      )
-
-      if (error) {
-        console.error('Error generating recommendations:', error)
-        throw new Error(`Failed to generate recommendations: ${error.message}`)
+      // Format parameters for the API
+      const apiParams = {
+        loans: params.loans.map((loan) => ({
+          id: loan.id,
+          name: loan.name,
+          balance: loan.balance,
+          interestRate: loan.interestRate,
+          minimumPayment: loan.minimumPayment,
+          loanType: loan.loanType || 'OTHER',
+        })),
+        monthly_available: params.monthly_available,
+        results: params.results,
+        optimal_strategy: params.optimal_strategy,
+        loan_comparisons: params.loan_comparisons,
       }
 
-      return data || []
+      // Call backend API directly
+      const response = await fetch(`${API_BASE_URL}/api/recommendations`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(apiParams),
+      })
+
+      if (!response.ok) {
+        console.error('API error details:', await response.text())
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const result = await response.json()
+      return result.data || []
     } catch (error) {
       console.error('Error in generateRecommendations:', error)
 

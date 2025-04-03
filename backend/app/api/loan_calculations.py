@@ -45,6 +45,76 @@ class LoanCalculationResponse(BaseModel):
 
 @router.post("/loans/calculate", response_model=Dict[str, Any])
 @handle_exceptions
+
+def calculate_loan_term(principal: float, annual_rate: float, monthly_payment: float) -> dict:
+    """
+    Calculate the time it will take to pay off a loan
+
+    Args:
+        principal: Loan principal amount
+        annual_rate: Annual interest rate (as decimal, e.g., 0.05 for 5%)
+        monthly_payment: Monthly payment amount
+
+    Returns:
+        Dictionary with months and years to payoff
+    """
+    if principal <= 0 or monthly_payment <= 0:
+        return {"months": 0, "years": 0}
+
+    monthly_rate = annual_rate / 12
+
+    # If interest rate is 0, simple division
+    if monthly_rate == 0:
+        months = principal / monthly_payment
+        return {"months": int(months), "years": round(months / 12, 2)}
+
+    # If monthly payment is too small to cover interest
+    if monthly_payment <= principal * monthly_rate:
+        return {"months": float('inf'), "years": float('inf')}
+
+    # Calculate using standard formula
+    # n = -log(1 - (P*r)/PMT) / log(1+r)
+    # where: n = number of payments, P = principal, r = monthly rate, PMT = payment
+    import math
+    n = -math.log(1 - (principal * monthly_rate) / monthly_payment) / math.log(1 + monthly_rate)
+
+    # Round up to nearest month
+    months = math.ceil(n)
+    years = round(n / 12, 2)
+
+    return {"months": months, "years": years}
+
+def calculate_total_interest_paid(principal: float, annual_rate: float, monthly_payment: float) -> float:
+    """
+    Calculate the total interest paid over the life of a loan
+
+    Args:
+        principal: Loan principal amount
+        annual_rate: Annual interest rate (as decimal, e.g., 0.05 for 5%)
+        monthly_payment: Monthly payment amount
+
+    Returns:
+        Total interest paid
+    """
+    if principal <= 0 or monthly_payment <= 0:
+        return 0
+
+    monthly_rate = annual_rate / 12
+
+    # If monthly payment is too small to cover interest
+    if monthly_payment <= principal * monthly_rate:
+        return float('inf')  # Will never be paid off
+
+    # Get term in months
+    loan_term = calculate_loan_term(principal, annual_rate, monthly_payment)
+    months = loan_term["months"]
+
+    # Calculate total interest (total payments - principal)
+    total_payments = monthly_payment * months
+    total_interest = total_payments - principal
+
+    return max(0, total_interest)  # Ensure non-negative
+
 async def calculate_loan_details(
         request: LoanCalculationRequest,
         authenticated_user_id: str = Depends(verify_token)

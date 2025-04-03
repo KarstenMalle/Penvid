@@ -1,6 +1,7 @@
+# backend/app/api/currency.py
 from fastapi import APIRouter, HTTPException
 from ..models import CurrencyConversionRequest, CurrencyConversionResponse
-from ..calculations import convert_currency
+from ..calculations import convert_currency, get_exchange_rates
 
 router = APIRouter(prefix="/api", tags=["currency"])
 
@@ -25,3 +26,14 @@ async def convert_currency_endpoint(request: CurrencyConversionRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error converting currency: {str(e)}")
+
+@router.get("/currency/rates")
+async def get_exchange_rates_endpoint():
+    """
+    Get current exchange rates with USD as base
+    """
+    try:
+        rates = get_exchange_rates(base_currency="USD")
+        return {"rates": rates}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching exchange rates: {str(e)}")

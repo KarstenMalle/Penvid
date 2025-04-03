@@ -1,8 +1,8 @@
 // frontend/src/services/FinancialApiService.ts
 
-import { createClient } from '@/lib/supabase-browser'
 import { Loan } from '@/components/features/wealth-optimizer/types'
 import { Currency } from '@/i18n/config'
+import { createClient } from '@/lib/supabase-browser'
 
 export interface UserSettings {
   expected_inflation: number
@@ -41,6 +41,23 @@ export interface FinancialStrategyResponse {
   loanComparisons: any[]
 }
 
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
+
+/**
+ * Get auth token from Supabase
+ */
+const getAuthToken = async (): Promise<string | null> => {
+  try {
+    const supabase = createClient()
+    const { data } = await supabase.auth.getSession()
+    return data.session?.access_token || null
+  } catch (error) {
+    console.error('Error getting auth token:', error)
+    return null
+  }
+}
+
 /**
  * Service for financial calculations via backend API
  */
@@ -50,22 +67,23 @@ export const FinancialApiService = {
    */
   async getUserSettings(userId: string): Promise<UserSettings> {
     try {
-      const supabase = createClient()
-
-      // Call backend API
-      const { data, error } = await supabase.functions.invoke(
-        `user/${userId}/settings`,
+      const token = await getAuthToken()
+      // Call backend API directly
+      const response = await fetch(
+        `${API_BASE_URL}/api/user/${userId}/settings`,
         {
-          body: {},
+          headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
         }
       )
 
-      if (error) {
-        console.error('Error fetching user settings:', error)
-        throw new Error(`Failed to fetch user settings: ${error.message}`)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
       }
 
-      return data
+      const result = await response.json()
+      return result.data
     } catch (error) {
       console.error('Error in getUserSettings:', error)
 
@@ -86,23 +104,26 @@ export const FinancialApiService = {
     settings: UserSettings
   ): Promise<UserSettings> {
     try {
-      const supabase = createClient()
-
-      // Call backend API
-      const { data, error } = await supabase.functions.invoke(
-        `user/${userId}/settings`,
+      const token = await getAuthToken()
+      // Call backend API directly
+      const response = await fetch(
+        `${API_BASE_URL}/api/user/${userId}/settings`,
         {
-          body: settings,
           method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify(settings),
         }
       )
 
-      if (error) {
-        console.error('Error updating user settings:', error)
-        throw new Error(`Failed to update user settings: ${error.message}`)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
       }
 
-      return data
+      const result = await response.json()
+      return result.data
     } catch (error) {
       console.error('Error in updateUserSettings:', error)
       throw error
@@ -126,29 +147,33 @@ export const FinancialApiService = {
     risk_adjusted_balance: number
   }> {
     try {
-      const supabase = createClient()
-
-      // Call backend API
-      const { data, error } = await supabase.functions.invoke(
-        'investment/projection',
+      const token = await getAuthToken()
+      // Call backend API directly
+      const response = await fetch(
+        `${API_BASE_URL}/api/investment/projection`,
         {
-          body: {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
             monthly_amount: monthlyAmount,
             annual_return: annualReturn,
             months,
             inflation_rate: inflationRate,
             risk_factor: riskFactor,
             currency,
-          },
+          }),
         }
       )
 
-      if (error) {
-        console.error('Error getting investment projection:', error)
-        throw new Error(`Failed to get investment projection: ${error.message}`)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
       }
 
-      return data
+      const result = await response.json()
+      return result.data
     } catch (error) {
       console.error('Error in getInvestmentProjection:', error)
 
@@ -198,31 +223,46 @@ export const FinancialApiService = {
     currency: Currency = 'USD'
   ): Promise<FinancialStrategyResponse> {
     try {
-      const supabase = createClient()
+      const token = await getAuthToken()
 
-      // Call backend API
-      const { data, error } = await supabase.functions.invoke(
-        `user/${userId}/financial-strategy`,
+      // Convert loan format for API compatibility
+      const apiFormattedLoans = loans.map((loan) => ({
+        loan_id: loan.id,
+        name: loan.name,
+        balance: loan.balance,
+        interest_rate: loan.interestRate,
+        term_years: loan.termYears,
+        minimum_payment: loan.minimumPayment,
+        loan_type: loan.loanType || 'OTHER',
+      }))
+
+      // Call backend API directly
+      const response = await fetch(
+        `${API_BASE_URL}/api/user/${userId}/financial-strategy`,
         {
-          body: {
-            loans,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            loans: apiFormattedLoans,
             monthly_surplus: monthlyBudget,
             annual_investment_return: annualInvestmentReturn,
             inflation_rate: inflationRate,
             risk_factor: riskFactor,
             currency,
-          },
+          }),
         }
       )
 
-      if (error) {
-        console.error('Error calculating financial strategy:', error)
-        throw new Error(
-          `Failed to calculate financial strategy: ${error.message}`
-        )
+      if (!response.ok) {
+        console.error('API Error:', await response.text())
+        throw new Error(`HTTP error! status: ${response.status}`)
       }
 
-      return data
+      const result = await response.json()
+      return result.data || result // Handle both data wrapper and direct response
     } catch (error) {
       console.error('Error in getFinancialStrategy:', error)
 

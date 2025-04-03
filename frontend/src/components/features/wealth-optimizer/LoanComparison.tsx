@@ -1,6 +1,6 @@
 // frontend/src/components/features/wealth-optimizer/LoanComparison.tsx
 
-import React from 'react'
+import React, { useState } from 'react'
 import {
   Card,
   CardContent,
@@ -8,8 +8,8 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { LoanStrategyComparison } from './types'
 import { formatPercent, formatTimeSpan } from './format-utils'
+import { LoanStrategyComparison } from './types'
 import { useLocalization } from '@/context/LocalizationContext'
 import { CurrencyFormatter } from '@/components/ui/currency-formatter'
 import {
@@ -70,42 +70,10 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
 
   // Determine loan payment strategy considering risk
   const getLoanPaymentStrategy = (comparison: LoanStrategyComparison) => {
-    const { interestRate, interestSaved, potentialInvestmentGrowth } =
-      comparison
-    const riskAdjustedGrowth = potentialInvestmentGrowth * riskFactor
-
-    // Compare interest saved vs risk-adjusted investment growth over the SAME time period
-    const payingDownBetter = interestSaved > riskAdjustedGrowth
+    const { interestRate, payingDownIsBetter } = comparison
 
     // High interest loans - definitely pay off first (above SP return + buffer)
     if (interestRate > spReturn + 1) {
-      return {
-        recommendation: 'definitely-pay',
-        icon: <CheckCircle className="h-5 w-5 text-green-600 mr-2" />,
-        title: t('loanComparison.definitelyPayDown'),
-        description: t('loanComparison.definitelyPayDownDesc', {
-          loanRate: interestRate.toFixed(2),
-          spReturn: spReturn.toFixed(2),
-        }),
-        betterStrategy: 'pay-down',
-      }
-    }
-    // Medium-high interest loans - consider risk (between risk-adjusted and full return)
-    else if (interestRate > riskAdjustedReturn) {
-      return {
-        recommendation: 'probably-pay',
-        icon: <AlertCircle className="h-5 w-5 text-amber-600 mr-2" />,
-        title: t('loanComparison.probablyPayDown'),
-        description: t('loanComparison.probablyPayDownDesc', {
-          loanRate: interestRate.toFixed(2),
-          spReturn: spReturn.toFixed(2),
-          riskAdjustedReturn: riskAdjustedReturn.toFixed(2),
-        }),
-        betterStrategy: payingDownBetter ? 'pay-down' : 'invest',
-      }
-    }
-    // Low interest loans - likely invest instead (below risk-adjusted return)
-    else {
       return {
         recommendation: 'invest-instead',
         icon: <TrendingUp className="h-5 w-5 text-blue-600 mr-2" />,
@@ -114,7 +82,7 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
           loanRate: interestRate.toFixed(2),
           riskAdjustedReturn: riskAdjustedReturn.toFixed(2),
         }),
-        betterStrategy: payingDownBetter ? 'pay-down' : 'invest',
+        betterStrategy: payingDownIsBetter ? 'pay-down' : 'invest',
       }
     }
   }
@@ -212,12 +180,9 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
 
       {sortedComparisons.map((comparison) => {
         const strategy = getLoanPaymentStrategy(comparison)
-        // Calculate risk-adjusted investment growth
-        const riskAdjustedGrowth =
-          comparison.potentialInvestmentGrowth * riskFactor
 
         // Determine the better strategy based on fair comparison (same time period)
-        const payingDownBetter = comparison.interestSaved > riskAdjustedGrowth
+        const payingDownBetter = comparison.payingDownIsBetter
         const betterStrategyClass = payingDownBetter
           ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300'
           : 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300'
@@ -341,7 +306,10 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
                             </span>
                             <span className="font-medium text-blue-600">
                               <CurrencyFormatter
-                                value={riskAdjustedGrowth}
+                                value={
+                                  comparison.potentialInvestmentGrowth *
+                                  riskFactor
+                                }
                                 originalCurrency="USD"
                               />
                             </span>
@@ -433,10 +401,7 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
                           ? t('loanComparison.payDownThisLoanMessage', {
                               amount: (
                                 <CurrencyFormatter
-                                  value={
-                                    comparison.interestSaved -
-                                    riskAdjustedGrowth
-                                  }
+                                  value={comparison.netAdvantage}
                                   originalCurrency="USD"
                                 />
                               ),
@@ -444,10 +409,7 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
                           : t('loanComparison.minimumPaymentsMessage', {
                               amount: (
                                 <CurrencyFormatter
-                                  value={
-                                    riskAdjustedGrowth -
-                                    comparison.interestSaved
-                                  }
+                                  value={comparison.netAdvantage}
                                   originalCurrency="USD"
                                 />
                               ),
@@ -490,7 +452,10 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
                               </span>
                               <span className="font-medium text-blue-600">
                                 <CurrencyFormatter
-                                  value={riskAdjustedGrowth}
+                                  value={
+                                    comparison.potentialInvestmentGrowth *
+                                    riskFactor
+                                  }
                                   originalCurrency="USD"
                                 />
                               </span>
@@ -503,7 +468,9 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
                                 <CurrencyFormatter
                                   value={
                                     comparison.baselinePayoff
-                                      .totalInterestPaid - riskAdjustedGrowth
+                                      .totalInterestPaid -
+                                    comparison.potentialInvestmentGrowth *
+                                      riskFactor
                                   }
                                   originalCurrency="USD"
                                 />
@@ -544,7 +511,10 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
                               <span>{t('loanComparison.opportunityCost')}</span>
                               <span className="font-medium text-amber-600">
                                 <CurrencyFormatter
-                                  value={riskAdjustedGrowth}
+                                  value={
+                                    comparison.potentialInvestmentGrowth *
+                                    riskFactor
+                                  }
                                   originalCurrency="USD"
                                 />
                               </span>
@@ -658,8 +628,8 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
                               <span className="font-medium">
                                 <CurrencyFormatter
                                   value={
-                                    (comparison.longTermInvestmentGrowth || 0) -
-                                    comparison.baselinePayoff.totalInterestPaid
+                                    comparison.fullTermComparison
+                                      .investingOnlyNetWorth
                                   }
                                   originalCurrency="USD"
                                 />
@@ -719,10 +689,8 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
                               <span className="font-medium">
                                 <CurrencyFormatter
                                   value={
-                                    (comparison.acceleratedStrategyTotalValue ||
-                                      0) -
-                                    comparison.acceleratedPayoff
-                                      .totalInterestPaid
+                                    comparison.fullTermComparison
+                                      .acceleratedStrategyNetWorth
                                   }
                                   originalCurrency="USD"
                                 />
