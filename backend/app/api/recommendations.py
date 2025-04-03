@@ -70,7 +70,7 @@ async def generate_recommendations(
                     strategy_name,
                     "This strategy provides the best long-term financial outcome based on your specific situation."
                 ),
-                "priority": Priority.HIGH
+                "priority": "high"
             })
 
         # 2. Add loan-specific recommendations
@@ -95,7 +95,7 @@ async def generate_recommendations(
                 recommendations.append({
                     "title": f"Prioritize paying down your {best_loan_to_pay_down['loanName']}",
                     "description": f"Based on your {best_loan_to_pay_down['loanName']}'s {best_loan_to_pay_down['interestRate']:.2f}% interest rate, paying it down early saves you more than investing would earn over the same time period. You'll be ${best_loan_to_pay_down['netAdvantage']:,.0f} better off.",
-                    "priority": Priority.HIGH
+                    "priority": "high"
                 })
 
             # Add recommendation for best loan to invest instead
@@ -103,7 +103,7 @@ async def generate_recommendations(
                 recommendations.append({
                     "title": f"Pay only minimum on your {best_loan_to_invest['loanName']}",
                     "description": f"With its low {best_loan_to_invest['interestRate']:.2f}% interest rate, you're better off making minimum payments on your {best_loan_to_invest['loanName']} and investing the difference. You could be ${best_loan_to_invest['netAdvantage']:,.0f} ahead by investing.",
-                    "priority": Priority.MEDIUM
+                    "priority": "medium"
                 })
 
         # 3. Check for high-interest loans
@@ -116,14 +116,14 @@ async def generate_recommendations(
             recommendations.append({
                 "title": "Prioritize high-interest debt",
                 "description": f"You have high-interest loans ({loan_names}) with rates above 7%. These should be prioritized for payoff as the guaranteed return from eliminating this interest exceeds typical investment returns.",
-                "priority": Priority.HIGH
+                "priority": "high"
             })
 
         # 4. Emergency fund recommendation (always include this)
         recommendations.append({
             "title": "Build an emergency fund first",
             "description": "Before implementing this strategy, ensure you have 3-6 months of expenses saved in an emergency fund. This provides stability and prevents new debt if unexpected expenses arise.",
-            "priority": Priority.HIGH
+            "priority": "high"
         })
 
         # 5. Cash flow recommendation if applicable
@@ -132,21 +132,21 @@ async def generate_recommendations(
             recommendations.append({
                 "title": "Increase your available cash flow",
                 "description": "You have limited funds available after minimum payments. Consider ways to increase your income or reduce expenses to speed up your wealth-building journey.",
-                "priority": Priority.MEDIUM
+                "priority": "medium"
             })
 
         # 6. Risk tolerance recommendation
         recommendations.append({
             "title": "Consider your personal risk tolerance",
             "description": "While our analysis uses risk-adjusted returns to account for market volatility, your personal risk tolerance should influence your decision. If market fluctuations would cause you significant stress, prioritizing guaranteed debt reduction might be better for your peace of mind.",
-            "priority": Priority.MEDIUM
+            "priority": "medium"
         })
 
         # 7. Tax advantages recommendation
         recommendations.append({
             "title": "Don't forget tax advantages",
             "description": "When deciding between investing and debt payoff, consider tax implications. Mortgage interest may be tax-deductible, and retirement accounts offer tax advantages that could tilt the balance toward investing.",
-            "priority": Priority.MEDIUM
+            "priority": "medium"
         })
 
         # Return the recommendations

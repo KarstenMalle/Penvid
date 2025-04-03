@@ -1,4 +1,5 @@
 # backend/app/utils/api_util.py
+from functools import wraps
 
 from fastapi import HTTPException, Request
 from supabase import Client
@@ -52,6 +53,7 @@ class APIResponse:
 
 def handle_exceptions(func: Callable[..., T]) -> Callable[..., T]:
     """Decorator to handle exceptions in API endpoint functions"""
+    @wraps(func)  # Add this to preserve function metadata
     async def wrapper(*args, **kwargs):
         try:
             return await func(*args, **kwargs)

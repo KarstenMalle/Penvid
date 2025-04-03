@@ -415,6 +415,7 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
                           ? t('loanComparison.payDownThisLoanMessage', {
                               amount: (
                                 <CurrencyFormatter
+                                  key={`pay-down-amount-${comparison.loanId}`}
                                   value={comparison.netAdvantage}
                                   originalCurrency="USD"
                                 />
@@ -423,6 +424,7 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
                           : t('loanComparison.minimumPaymentsMessage', {
                               amount: (
                                 <CurrencyFormatter
+                                  key={`invest-amount-${comparison.loanId}`}
                                   value={comparison.netAdvantage}
                                   originalCurrency="USD"
                                 />

@@ -1,20 +1,16 @@
-# backend/app/api/financial_strategy.py
-
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
 from typing import List, Dict, Any
-from ..models import FinancialStrategyRequest, FinancialStrategyResponse, Loan
-from ..utils.api_util import handle_exceptions, standardize_response
 from ..utils.auth import verify_token
+from ..utils.api_util import standardize_response  # Remove handle_exceptions
 from ..calculations import convert_currency
 from ..services.wealth_optimizer import WealthOptimizerService
 
 router = APIRouter(prefix="/api", tags=["financial_strategy"])
 
-@router.post("/user/{user_id}/financial-strategy", response_model=FinancialStrategyResponse)
-@handle_exceptions
+@router.post("/user/{user_id}/financial-strategy")
 async def get_financial_strategy(
         user_id: str,
-        request: FinancialStrategyRequest,
+        request: Dict[str, Any] = Body(...),  # Use Body for request data
         authenticated_user_id: str = Depends(verify_token)
 ):
     """
@@ -25,34 +21,42 @@ async def get_financial_strategy(
         raise HTTPException(status_code=403, detail="Access denied")
 
     try:
+        # Extract data from the request dictionary
+        loans_data = request.get("loans", [])
+        monthly_surplus = request.get("monthly_surplus", 0)
+        annual_investment_return = request.get("annual_investment_return", 0.07)
+        inflation_rate = request.get("inflation_rate", 0.025)
+        risk_factor = request.get("risk_factor", 0.2)
+        currency = request.get("currency", "USD")
+
         # Validate request data
-        if not request.loans or len(request.loans) == 0:
+        if not loans_data or len(loans_data) == 0:
             raise HTTPException(status_code=422, detail="No loans provided in request")
 
-        if request.monthly_surplus <= 0:
+        if monthly_surplus <= 0:
             raise HTTPException(status_code=422, detail="Monthly surplus must be greater than 0")
 
         # Convert loans to dictionary format and convert currency to USD
         loans_dict = []
-        for loan in request.loans:
+        for loan in loans_data:
             loans_dict.append({
-                "id": loan.loan_id,
-                "name": loan.name,
-                "balance": convert_currency(loan.balance, request.currency, "USD"),
-                "interestRate": loan.interest_rate,
-                "termYears": loan.term_years,
-                "minimumPayment": convert_currency(loan.minimum_payment, request.currency, "USD"),
-                "loanType": loan.loan_type
+                "id": loan.get("loan_id"),
+                "name": loan.get("name", ""),
+                "balance": convert_currency(loan.get("balance", 0), currency, "USD"),
+                "interestRate": loan.get("interest_rate", 0),
+                "termYears": loan.get("term_years", 0),
+                "minimumPayment": convert_currency(loan.get("minimum_payment", 0), currency, "USD"),
+                "loanType": loan.get("loan_type", "OTHER")
             })
 
         # Convert monthly surplus to USD
-        monthly_surplus_usd = convert_currency(request.monthly_surplus, request.currency, "USD")
+        monthly_surplus_usd = convert_currency(monthly_surplus, currency, "USD")
 
         # Calculate loan comparisons
         loan_comparisons = WealthOptimizerService.calculate_loan_comparisons(
             loans=loans_dict,
             monthly_surplus=monthly_surplus_usd,
-            risk_factor=request.risk_factor
+            risk_factor=risk_factor
         )
 
         # Calculate strategy comparisons
@@ -60,9 +64,6 @@ async def get_financial_strategy(
             loans=loans_dict,
             monthly_budget=monthly_surplus_usd
         )
-
-        # Convert monetary values back to user's currency
-        # (This would require detailed implementation)
 
         # Combine results
         result = {
@@ -74,11 +75,12 @@ async def get_financial_strategy(
             "loanComparisons": loan_comparisons
         }
 
-        return result
+        return standardize_response(data=result)
 
     except HTTPException:
         # Re-raise HTTP exceptions to preserve status codes
         raise
     except Exception as e:
-        print(f"Error calculating financial strategy: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error calculating financial strategy: {str(e)}")
+        return standardize_response(
+            error=f"Error calculating financial strategy: {str(e)}"
+        )
