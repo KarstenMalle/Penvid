@@ -1,6 +1,4 @@
-// frontend/src/components/features/wealth-optimizer/LoanComparison.tsx
-
-import React, { useState } from 'react'
+import React from 'react'
 import {
   Card,
   CardContent,
@@ -8,7 +6,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { formatPercent, formatTimeSpan } from './format-utils'
+import { formatTimeSpan } from './format-utils'
 import { LoanStrategyComparison } from './types'
 import { useLocalization } from '@/context/LocalizationContext'
 import { CurrencyFormatter } from '@/components/ui/currency-formatter'
@@ -17,13 +15,10 @@ import {
   AlertCircle,
   CheckCircle,
   TrendingUp,
-  ArrowRight,
   Clock,
   Info,
-  DollarSign,
-  PieChart,
-  BarChart4,
   Shield,
+  BarChart4,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -31,25 +26,26 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 interface LoanComparisonProps {
   comparisons: LoanStrategyComparison[]
   spReturn: number
-  riskFactor?: number // Risk factor for investment (0-1, default 0.7)
+  riskFactor?: number
 }
 
 /**
- * Component to display detailed loan-by-loan comparison to make the decision clearer
- * Now with risk-adjusted analysis, fair timeframe comparisons, and clear recommendations
+ * Component to display loan-by-loan comparison from API data
+ * This component is responsible only for displaying data from the backend;
+ * it does not perform any calculations
  */
 const LoanComparison: React.FC<LoanComparisonProps> = ({
   comparisons,
   spReturn,
-  riskFactor = 0.7, // Default risk factor - 70% confidence in market returns
+  riskFactor = 0.7, // Default risk factor (only for display)
 }) => {
   const { t, locale } = useLocalization()
 
-  // Calculate risk-adjusted return
+  // Calculate risk-adjusted return for display purposes only
   const riskAdjustedReturn = spReturn * riskFactor
 
   // If no comparisons, show empty state
-  if (!comparisons.length) {
+  if (!comparisons || comparisons.length === 0) {
     return (
       <div className="p-6 text-center border rounded-md bg-gray-50 dark:bg-gray-800">
         <AlertCircle className="h-10 w-10 text-gray-400 mx-auto mb-4" />
@@ -64,28 +60,10 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
   }
 
   // Sort comparisons by interest rate (highest first) for better presentation
+  // This is just UI sorting, not calculation
   const sortedComparisons = [...comparisons].sort(
     (a, b) => b.interestRate - a.interestRate
   )
-
-  // Determine loan payment strategy considering risk
-  const getLoanPaymentStrategy = (comparison: LoanStrategyComparison) => {
-    const { interestRate, payingDownIsBetter } = comparison
-
-    // High interest loans - definitely pay off first (above SP return + buffer)
-    if (interestRate > spReturn + 1) {
-      return {
-        recommendation: 'invest-instead',
-        icon: <TrendingUp className="h-5 w-5 text-blue-600 mr-2" />,
-        title: t('loanComparison.investInstead'),
-        description: t('loanComparison.investInsteadDesc', {
-          loanRate: interestRate.toFixed(2),
-          riskAdjustedReturn: riskAdjustedReturn.toFixed(2),
-        }),
-        betterStrategy: payingDownIsBetter ? 'pay-down' : 'invest',
-      }
-    }
-  }
 
   return (
     <div className="space-y-6">
@@ -179,21 +157,56 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
       </div>
 
       {sortedComparisons.map((comparison) => {
-        const strategy = getLoanPaymentStrategy(comparison)
+        // Get recommendation directly from the API, or derive it based on interest rate
+        const recommendationType =
+          comparison.recommendation ||
+          (comparison.interestRate > spReturn + 1
+            ? 'definitely-pay'
+            : comparison.interestRate > riskAdjustedReturn
+              ? 'probably-pay'
+              : 'invest-instead')
 
-        // Determine the better strategy based on fair comparison (same time period)
+        // Is paying down better than investing? (directly from API)
         const payingDownBetter = comparison.payingDownIsBetter
+
+        // Style class based on recommendation
         const betterStrategyClass = payingDownBetter
           ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300'
           : 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300'
 
-        // Determine card border color based on strategy recommendation
+        // Card border color based on recommendation
         const cardBorderClass =
-          strategy.recommendation === 'definitely-pay'
+          recommendationType === 'definitely-pay'
             ? 'border-green-200 dark:border-green-900'
-            : strategy.recommendation === 'probably-pay'
+            : recommendationType === 'probably-pay'
               ? 'border-amber-200 dark:border-amber-900'
               : 'border-blue-200 dark:border-blue-900'
+
+        // Get strategy info based on recommendation type
+        const strategyInfo = {
+          icon:
+            recommendationType === 'definitely-pay' ? (
+              <CheckCircle className="h-5 w-5 text-green-600 mr-2" />
+            ) : recommendationType === 'probably-pay' ? (
+              <AlertCircle className="h-5 w-5 text-amber-600 mr-2" />
+            ) : (
+              <TrendingUp className="h-5 w-5 text-blue-600 mr-2" />
+            ),
+          title: t(`loanComparison.${recommendationType.replace('-', '')}`),
+          description:
+            recommendationType === 'definitely-pay'
+              ? t('loanComparison.definitelyPayDownDesc')
+              : recommendationType === 'probably-pay'
+                ? t('loanComparison.probablyPayDownDesc', {
+                    loanRate: comparison.interestRate.toFixed(2),
+                    spReturn: spReturn.toFixed(2),
+                    riskAdjustedReturn: riskAdjustedReturn.toFixed(2),
+                  })
+                : t('loanComparison.investInsteadDesc', {
+                    loanRate: comparison.interestRate.toFixed(2),
+                    riskAdjustedReturn: riskAdjustedReturn.toFixed(2),
+                  }),
+        }
 
         return (
           <Card key={comparison.loanId} className={cardBorderClass}>
@@ -209,14 +222,14 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
                 </CardTitle>
                 <div
                   className={`text-xs font-medium px-2 py-1 rounded-full ${
-                    strategy.recommendation === 'definitely-pay'
+                    recommendationType === 'definitely-pay'
                       ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300'
-                      : strategy.recommendation === 'probably-pay'
+                      : recommendationType === 'probably-pay'
                         ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/20 dark:text-amber-300'
                         : 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300'
                   }`}
                 >
-                  {t(`loanComparison.${strategy.recommendation}`)}
+                  {t(`loanComparison.${recommendationType}`)}
                 </div>
               </div>
               <CardDescription>
@@ -307,8 +320,9 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
                             <span className="font-medium text-blue-600">
                               <CurrencyFormatter
                                 value={
+                                  comparison.riskAdjustedGrowth ||
                                   comparison.potentialInvestmentGrowth *
-                                  riskFactor
+                                    riskFactor
                                 }
                                 originalCurrency="USD"
                               />
@@ -453,8 +467,9 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
                               <span className="font-medium text-blue-600">
                                 <CurrencyFormatter
                                   value={
+                                    comparison.riskAdjustedGrowth ||
                                     comparison.potentialInvestmentGrowth *
-                                    riskFactor
+                                      riskFactor
                                   }
                                   originalCurrency="USD"
                                 />
@@ -469,8 +484,9 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
                                   value={
                                     comparison.baselinePayoff
                                       .totalInterestPaid -
-                                    comparison.potentialInvestmentGrowth *
-                                      riskFactor
+                                    (comparison.riskAdjustedGrowth ||
+                                      comparison.potentialInvestmentGrowth *
+                                        riskFactor)
                                   }
                                   originalCurrency="USD"
                                 />
@@ -512,8 +528,9 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
                               <span className="font-medium text-amber-600">
                                 <CurrencyFormatter
                                   value={
+                                    comparison.riskAdjustedGrowth ||
                                     comparison.potentialInvestmentGrowth *
-                                    riskFactor
+                                      riskFactor
                                   }
                                   originalCurrency="USD"
                                 />
@@ -541,12 +558,12 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
                         <span className="font-medium">
                           {t('loanComparison.keyInsight')}:
                         </span>{' '}
-                        {strategy.recommendation === 'definitely-pay'
+                        {recommendationType === 'definitely-pay'
                           ? t('loanComparison.highInterestLoanInsight', {
                               loanRate: comparison.interestRate.toFixed(2),
                               spReturn: spReturn.toFixed(2),
                             })
-                          : strategy.recommendation === 'probably-pay'
+                          : recommendationType === 'probably-pay'
                             ? t('loanComparison.mediumInterestLoanInsight', {
                                 loanRate: comparison.interestRate.toFixed(2),
                                 spReturn: spReturn.toFixed(2),
@@ -629,7 +646,7 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
                                 <CurrencyFormatter
                                   value={
                                     comparison.fullTermComparison
-                                      .investingOnlyNetWorth
+                                      ?.investingOnlyNetWorth || 0
                                   }
                                   originalCurrency="USD"
                                 />
@@ -690,7 +707,7 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
                                 <CurrencyFormatter
                                   value={
                                     comparison.fullTermComparison
-                                      .acceleratedStrategyNetWorth
+                                      ?.acceleratedStrategyNetWorth || 0
                                   }
                                   originalCurrency="USD"
                                 />
@@ -730,18 +747,20 @@ const LoanComparison: React.FC<LoanComparisonProps> = ({
                 {/* Strategy explanation */}
                 <div
                   className={`p-4 rounded-lg ${
-                    strategy.recommendation === 'definitely-pay'
+                    recommendationType === 'definitely-pay'
                       ? 'bg-green-50 dark:bg-green-900/10 text-green-800 dark:text-green-300'
-                      : strategy.recommendation === 'probably-pay'
+                      : recommendationType === 'probably-pay'
                         ? 'bg-amber-50 dark:bg-amber-900/10 text-amber-800 dark:text-amber-300'
                         : 'bg-blue-50 dark:bg-blue-900/10 text-blue-800 dark:text-blue-300'
                   }`}
                 >
                   <div className="flex items-start mb-4">
-                    {strategy.icon}
+                    {strategyInfo.icon}
                     <div>
-                      <h5 className="font-bold text-lg">{strategy.title}</h5>
-                      <p className="font-medium">{strategy.description}</p>
+                      <h5 className="font-bold text-lg">
+                        {strategyInfo.title}
+                      </h5>
+                      <p className="font-medium">{strategyInfo.description}</p>
                     </div>
                   </div>
                 </div>

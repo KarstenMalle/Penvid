@@ -596,6 +596,9 @@ const WealthOptimizer: React.FC = () => {
                 totalInvestmentValue={strategyResults.totalInvestmentValue}
                 recommendations={recommendations}
                 loanComparisons={strategyResults.loanComparisons}
+                userId={user.id} // Added for risk scenario API calls
+                loans={getSelectedLoans()} // Added for risk scenario API calls
+                monthlyBudget={monthlyAvailable} // Added for risk scenario API calls
               />
             )}
           </CardContent>

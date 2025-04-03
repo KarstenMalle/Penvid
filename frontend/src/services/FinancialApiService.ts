@@ -18,14 +18,40 @@ export interface InvestmentEntry {
   risk_adjusted_balance: number
 }
 
+export interface YearlyDataPoint {
+  year: number
+  netWorth: number
+  investmentValue: number
+  debtValue: number
+}
+
 export interface StrategyResultData {
-  yearlyData: any[]
+  yearlyData: YearlyDataPoint[]
   finalNetWorth: number
   totalInterestPaid: number
   loanPayoffDetails: Record<string, any>
   investmentDetails: any[]
   strategyName: string
   strategyDescription: string
+}
+
+export interface RiskScenario {
+  name: string // 'pessimistic', 'standard', or 'optimistic'
+  yearlyData: YearlyDataPoint[]
+  finalNetWorth: number
+  finalInvestmentValue: number
+  finalDebtValue: number
+  riskAdjustmentFactor: number
+}
+
+export interface StrategyRiskAnalysis {
+  strategyName: string
+  scenarios: {
+    pessimistic: RiskScenario
+    standard: RiskScenario
+    optimistic: RiskScenario
+  }
+  comparisonData: any[] // Pre-formatted data for charts
 }
 
 export interface FinancialStrategyResponse {
@@ -35,10 +61,11 @@ export interface FinancialStrategyResponse {
     netWorthDifference: Record<string, number>
   }
   results: Record<string, StrategyResultData>
-  yearByYearData: any[]
+  yearByYearData: YearlyDataPoint[]
   totalInterestPaid: Record<string, number>
   totalInvestmentValue: Record<string, number>
   loanComparisons: any[]
+  riskAnalysis?: Record<string, StrategyRiskAnalysis> // Added for risk analysis
 }
 
 const API_BASE_URL =
@@ -252,6 +279,7 @@ export const FinancialApiService = {
             inflation_rate: inflationRate,
             risk_factor: riskFactor,
             currency,
+            include_risk_analysis: true, // Request risk analysis data
           }),
         }
       )
@@ -294,6 +322,96 @@ export const FinancialApiService = {
       }
 
       return fallbackResponse
+    }
+  },
+
+  /**
+   * Get risk-adjusted scenarios for financial strategies
+   * This is a new method to handle the risk scenario calculations that were previously done on the frontend
+   */
+  async getRiskScenarios(
+    userId: string,
+    loans: Loan[],
+    monthlyBudget: number,
+    strategyName: string,
+    baseRiskFactor: number = 0.7, // Standard risk factor (70%)
+    currency: Currency = 'USD'
+  ): Promise<StrategyRiskAnalysis> {
+    try {
+      const token = await getAuthToken()
+
+      // Convert loan format for API compatibility
+      const apiFormattedLoans = loans.map((loan) => ({
+        loan_id: loan.id,
+        name: loan.name,
+        balance: loan.balance,
+        interest_rate: loan.interestRate,
+        term_years: loan.termYears,
+        minimum_payment: loan.minimumPayment,
+        loan_type: loan.loanType || 'OTHER',
+      }))
+
+      // Request risk scenarios from the backend
+      const response = await fetch(
+        `${API_BASE_URL}/api/financial-calculations/risk-scenarios`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            user_id: userId,
+            loans: apiFormattedLoans,
+            monthly_budget: monthlyBudget,
+            strategy_name: strategyName,
+            base_risk_factor: baseRiskFactor,
+            currency,
+          }),
+        }
+      )
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const result = await response.json()
+      return result.data
+    } catch (error) {
+      console.error('Error in getRiskScenarios:', error)
+
+      // Provide fallback data for critical errors
+      // This fallback data is simplified and only meant for UI rendering when API fails
+      return {
+        strategyName: strategyName,
+        scenarios: {
+          pessimistic: {
+            name: 'pessimistic',
+            yearlyData: [],
+            finalNetWorth: 0,
+            finalInvestmentValue: 0,
+            finalDebtValue: 0,
+            riskAdjustmentFactor: 0.5,
+          },
+          standard: {
+            name: 'standard',
+            yearlyData: [],
+            finalNetWorth: 0,
+            finalInvestmentValue: 0,
+            finalDebtValue: 0,
+            riskAdjustmentFactor: 0.7,
+          },
+          optimistic: {
+            name: 'optimistic',
+            yearlyData: [],
+            finalNetWorth: 0,
+            finalInvestmentValue: 0,
+            finalDebtValue: 0,
+            riskAdjustmentFactor: 0.9,
+          },
+        },
+        comparisonData: [],
+      }
     }
   },
 }
