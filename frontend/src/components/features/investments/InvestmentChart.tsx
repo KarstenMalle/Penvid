@@ -111,171 +111,73 @@ const InvestmentChart: React.FC<InvestmentChartProps> = ({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('investments.investmentProjection')}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="h-80 mb-6">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart
-              data={getChartData()}
-              margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis
-                dataKey="month"
-                label={{
-                  value: t('investments.month'),
-                  position: 'insideBottomRight',
-                  offset: -10,
-                }}
-              />
-              <YAxis
-                tickFormatter={(value) => {
-                  return value >= 1000000
-                    ? `${(value / 1000000).toFixed(1)}M`
-                    : value >= 1000
-                      ? `${(value / 1000).toFixed(1)}K`
-                      : value.toFixed(0)
-                }}
-                label={{
-                  value: t('investments.value'),
-                  angle: -90,
-                  position: 'insideLeft',
-                }}
-              />
-              <Tooltip
-                formatter={(value: any) => [
-                  <CurrencyFormatter value={value} />,
-                  null,
-                ]}
-                labelFormatter={(label) => `${t('investments.month')} ${label}`}
-              />
-              <Legend />
-              <Line
-                type="monotone"
-                dataKey="balance"
-                name={t('investments.projectedValue')}
-                stroke="#4f46e5"
-                strokeWidth={2}
-                dot={false}
-                activeDot={{ r: 8 }}
-              />
-              <Line
-                type="monotone"
-                dataKey="inflation_adjusted_balance"
-                name={t('investments.inflationAdjusted')}
-                stroke="#10b981"
-                strokeWidth={2}
-                dot={false}
-                activeDot={{ r: 8 }}
-              />
-              <Line
-                type="monotone"
-                dataKey="risk_adjusted_balance"
-                name={t('investments.riskAdjusted')}
-                stroke="#f59e0b"
-                strokeWidth={2}
-                dot={false}
-                activeDot={{ r: 8 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Summary Section */}
-        {summary && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
-            <div className="p-4 bg-blue-50 dark:bg-blue-900/10 rounded-lg">
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                {t('investments.projectedValue')}
-              </p>
-              <p className="text-xl font-bold">
-                <CurrencyFormatter value={summary.final_balance} />
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                {t('investments.nominalValueDescription')}
-              </p>
-            </div>
-
-            <div className="p-4 bg-green-50 dark:bg-green-900/10 rounded-lg">
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                {t('investments.inflationAdjusted')}
-              </p>
-              <p className="text-xl font-bold">
-                <CurrencyFormatter
-                  value={summary.inflation_adjusted_final_balance}
-                />
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                {t('investments.inflationAdjustedDescription', {
-                  rate: (inflationRate * 100).toFixed(1),
-                })}
-              </p>
-            </div>
-
-            <div className="p-4 bg-amber-50 dark:bg-amber-900/10 rounded-lg">
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                {t('investments.riskAdjusted')}
-              </p>
-              <p className="text-xl font-bold">
-                <CurrencyFormatter value={summary.risk_adjusted_balance} />
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                {t('investments.riskAdjustedDescription', {
-                  factor: (riskFactor * 100).toFixed(0),
-                })}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Input Summary */}
-        <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-          <h4 className="font-medium">
-            {t('investments.calculationAssumptions')}
-          </h4>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-3">
-            <div>
-              <p className="text-sm text-gray-500">
-                {t('investments.monthlyInvestment')}
-              </p>
-              <p className="font-medium">
-                <CurrencyFormatter
-                  value={monthlyAmount}
-                  minimumFractionDigits={2}
-                  maximumFractionDigits={2}
-                />
-              </p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">
-                {t('investments.annualReturn')}
-              </p>
-              <p className="font-medium">{annualReturn.toFixed(2)}%</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">
-                {t('investments.timespan')}
-              </p>
-              <p className="font-medium">
-                {months} {t('investments.months')}({(months / 12).toFixed(1)}{' '}
-                {t('investments.years')})
-              </p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">
-                {t('investments.totalContributions')}
-              </p>
-              <p className="font-medium">
-                <CurrencyFormatter value={monthlyAmount * months} />
-              </p>
-            </div>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+    <div className="h-80 mb-6">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart
+          data={getChartData()}
+          margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+        >
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis
+            dataKey="month"
+            label={{
+              value: t('investments.month'),
+              position: 'insideBottomRight',
+              offset: -10,
+            }}
+          />
+          <YAxis
+            tickFormatter={(value) => {
+              return value >= 1000000
+                ? `${(value / 1000000).toFixed(1)}M`
+                : value >= 1000
+                  ? `${(value / 1000).toFixed(1)}K`
+                  : value.toFixed(0)
+            }}
+            label={{
+              value: t('investments.value'),
+              angle: -90,
+              position: 'insideLeft',
+            }}
+          />
+          <Tooltip
+            formatter={(value: any) => [
+              <CurrencyFormatter value={value} />,
+              null,
+            ]}
+            labelFormatter={(label) => `${t('investments.month')} ${label}`}
+          />
+          <Legend />
+          <Line
+            type="monotone"
+            dataKey="balance"
+            name={t('investments.projectedValue')}
+            stroke="#4f46e5"
+            strokeWidth={2}
+            dot={false}
+            activeDot={{ r: 8 }}
+          />
+          <Line
+            type="monotone"
+            dataKey="inflation_adjusted_balance"
+            name={t('investments.inflationAdjusted')}
+            stroke="#10b981"
+            strokeWidth={2}
+            dot={false}
+            activeDot={{ r: 8 }}
+          />
+          <Line
+            type="monotone"
+            dataKey="risk_adjusted_balance"
+            name={t('investments.riskAdjusted')}
+            stroke="#f59e0b"
+            strokeWidth={2}
+            dot={false}
+            activeDot={{ r: 8 }}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
   )
 }
 

@@ -159,7 +159,7 @@ export default function WealthToolsPage() {
       icon: <ChartIcon3 />,
       href: '/wealth-tools/investment-tracker',
       isPremium: true,
-      comingSoon: true,
+      comingSoon: false,
     },
     {
       id: 'financial-independence',
