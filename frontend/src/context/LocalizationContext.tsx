@@ -1,4 +1,4 @@
-// Updated LocalizationContext.tsx to fix currency conversion issues
+// Updated LocalizationContext.tsx to properly use the TranslationService
 
 import React, {
   createContext,
@@ -80,9 +80,24 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
   // Load translations when locale changes
   const loadTranslations = useCallback(async (currentLocale: Locale) => {
     setIsLoadingTranslations(true)
+    console.log(`Loading translations for locale: ${currentLocale}`)
+
     try {
-      const translationsData =
-        await TranslationService.getTranslations(currentLocale)
+      // Force a refresh of the translations when explicitly loading
+      const translationsData = await TranslationService.getTranslations(
+        currentLocale,
+        true
+      )
+
+      // Log what we received to help debug
+      console.log(`Received translations for ${currentLocale}:`, {
+        hasLoans: !!translationsData.loans,
+        namespaces: Object.keys(translationsData),
+        loanKeys: translationsData.loans
+          ? Object.keys(translationsData.loans).slice(0, 5)
+          : [],
+      })
+
       setTranslations(translationsData)
     } catch (error) {
       console.error(`Error loading translations for ${currentLocale}:`, error)
@@ -90,6 +105,7 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
       // If error with requested locale, try fallback
       if (currentLocale !== 'en') {
         try {
+          console.log(`Falling back to English translations due to error`)
           const fallbackTranslations =
             await TranslationService.getTranslations('en')
           setTranslations(fallbackTranslations)
@@ -236,6 +252,7 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
 
   // Function to refresh translations manually
   const refreshTranslations = async () => {
+    TranslationService.clearCache() // Clear the cache to force a fresh load
     await loadTranslations(locale)
   }
 
@@ -265,6 +282,8 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     }
 
     // Load translations for new locale
+    // Clear the cache to ensure we get fresh translations
+    TranslationService.clearCache()
     await loadTranslations(newLocale)
   }
 
@@ -336,8 +355,11 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  // Translation function
+  // Translation function - improved to better handle missing translations
   const t = (key: string, params?: Record<string, any>) => {
+    // Short circuit for empty key
+    if (!key) return ''
+
     // Split the key into path segments
     const keys = key.split('.')
 
@@ -345,20 +367,21 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     let value: any = translations
     for (const k of keys) {
       if (!value || typeof value !== 'object') {
-        return key // Key path is invalid, return the key itself
+        // Use TranslationService's sync method to get a better fallback
+        return TranslationService.getTranslationSync(locale, key, params)
       }
 
       value = value[k]
 
       if (value === undefined) {
-        console.warn(`Translation key not found: ${key}`)
-        return key.split('.').pop() || key // Return the last part of the key if not found
+        // Use TranslationService's sync method for better fallbacks
+        return TranslationService.getTranslationSync(locale, key, params)
       }
     }
 
-    // If the value is not a string, or is empty, return the key
+    // If the value is not a string, or is empty, use TranslationService
     if (typeof value !== 'string' || !value) {
-      return key
+      return TranslationService.getTranslationSync(locale, key, params)
     }
 
     // Replace parameters if provided

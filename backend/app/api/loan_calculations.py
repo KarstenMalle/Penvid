@@ -231,15 +231,69 @@ async def get_loan_amortization_schedule(
     Generate a detailed amortization schedule for a specific loan
     """
     try:
-        # This endpoint just forwards to the general amortization endpoint
-        # In a real implementation, you might fetch the loan details from the database
-        # and validate that the loan belongs to the authenticated user
+        # Extract parameters from request
+        principal = request.principal
+        annual_rate = request.annual_rate  # Already as percentage (e.g., 5.0 for 5%)
+        monthly_payment = request.monthly_payment
+        extra_payment = request.extra_payment
+        max_years = request.max_years
+        currency = request.currency
 
-        return await get_amortization_schedule(request, authenticated_user_id)
+        # Validate required parameters
+        if principal <= 0:
+            return standardize_response(
+                error="Principal must be greater than zero."
+            )
+
+        if monthly_payment <= 0:
+            return standardize_response(
+                error="Monthly payment must be greater than zero."
+            )
+
+        # Convert values to USD for calculation if needed
+        if currency != "USD":
+            principal = convert_currency(principal, currency, "USD")
+            monthly_payment = convert_currency(monthly_payment, currency, "USD")
+            if extra_payment:
+                extra_payment = convert_currency(extra_payment, currency, "USD")
+
+        # Log the received parameters for debugging
+        logger.info(f"Generating amortization schedule: principal={principal}, rate={annual_rate}%, payment={monthly_payment}")
+
+        # Generate amortization schedule
+        amortization_data = generate_amortization_schedule(
+            principal=principal,
+            annual_rate=annual_rate,  # Pass the rate as percentage
+            monthly_payment=monthly_payment,
+            extra_payment=extra_payment,
+            max_years=max_years
+        )
+
+        # Log the calculation results
+        logger.info(f"Amortization result: months={amortization_data['months_to_payoff']}, interest={amortization_data['total_interest_paid']}")
+
+        # Convert monetary values back to user's currency if needed
+        if currency != "USD":
+            # Convert schedule entries
+            for entry in amortization_data["schedule"]:
+                entry["payment"] = convert_currency(entry["payment"], "USD", currency)
+                entry["principal_payment"] = convert_currency(entry["principal_payment"], "USD", currency)
+                entry["interest_payment"] = convert_currency(entry["interest_payment"], "USD", currency)
+                entry["extra_payment"] = convert_currency(entry["extra_payment"], "USD", currency)
+                entry["remaining_balance"] = convert_currency(entry["remaining_balance"], "USD", currency)
+
+            # Convert summary values
+            amortization_data["total_interest_paid"] = convert_currency(
+                amortization_data["total_interest_paid"], "USD", currency
+            )
+
+        # Return the amortization schedule
+        return standardize_response(data=amortization_data)
 
     except Exception as e:
         import traceback
         traceback.print_exc()  # Print full traceback for debugging
+        logger.error(f"Error generating loan amortization schedule: {str(e)}")
         return standardize_response(
             error=f"Error generating loan amortization schedule: {str(e)}"
         )

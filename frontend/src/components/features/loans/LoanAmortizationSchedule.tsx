@@ -54,8 +54,6 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
 
   // Generate the amortization schedule when the loan or extra payment changes
   useEffect(() => {
-    // Updated fetchAmortizationSchedule function in LoanAmortizationSchedule.tsx
-
     const fetchAmortizationSchedule = async () => {
       if (!loan) return
 
@@ -72,7 +70,7 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
           })
 
         // Map the API response to our component's expected format
-        const formattedSchedule = scheduleData.schedule.map((entry, index) => ({
+        const formattedSchedule = scheduleData.schedule.map((entry) => ({
           paymentNumber: entry.month,
           date: entry.payment_date,
           payment: entry.payment,
@@ -82,15 +80,41 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
         }))
 
         setAmortizationSchedule(formattedSchedule)
-
         // Reset to first page when schedule changes
         setCurrentPage(1)
       } catch (error) {
         console.error('Error generating amortization schedule:', error)
         toast.error('Failed to generate amortization schedule')
 
-        // Set empty schedule on error
-        setAmortizationSchedule([])
+        // Use fallback method to generate amortization schedule locally
+        try {
+          const fallbackSchedule =
+            LoanCalculationService.generateAmortizationScheduleLocal(
+              loan.balance,
+              loan.interestRate,
+              loan.minimumPayment,
+              extraPayment
+            )
+
+          // Format the fallback schedule to match component expectations
+          const formattedFallbackSchedule = fallbackSchedule.map((entry) => ({
+            paymentNumber: entry.month,
+            date: entry.payment_date,
+            payment: entry.payment,
+            principal: entry.principal_payment,
+            interest: entry.interest_payment,
+            balance: entry.remaining_balance,
+          }))
+
+          setAmortizationSchedule(formattedFallbackSchedule)
+          setCurrentPage(1)
+
+          // Show a warning toast instead of error since we have a fallback
+          toast.success('Using locally generated amortization schedule')
+        } catch (fallbackError) {
+          console.error('Fallback generation also failed:', fallbackError)
+          setAmortizationSchedule([])
+        }
       } finally {
         setIsLoading(false)
       }
