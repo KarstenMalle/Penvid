@@ -12,13 +12,12 @@ import {
 import { Icons } from '@/components/ui/icons'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/context/AuthContext'
-import {
-  FinancialApiService,
-  AmortizationEntry,
-} from '@/services/FinancialApiService'
 import { CurrencyFormatter } from '@/components/ui/currency-formatter'
 import { useLocalization } from '@/context/LocalizationContext'
-import { LoanCalculationService } from '@/services/LoanCalculationService'
+import {
+  LoanCalculationService,
+  AmortizationEntry,
+} from '@/services/LoanCalculationService'
 import toast from 'react-hot-toast'
 
 interface AmortizationTableProps {
@@ -57,24 +56,51 @@ const AmortizationTable: React.FC<AmortizationTableProps> = ({
 
       setIsLoading(true)
       try {
-        // Use the new service instead of direct API call
-        const result = await LoanCalculationService.calculateLoanDetails({
+        // Use the LoanCalculationService to get amortization schedule for this specific loan
+        // IMPORTANT: We pass annualRate directly - no need to divide by 100 here
+        // The service will handle it correctly now
+        const result = await LoanCalculationService.getAmortizationSchedule(
+          loanId,
           principal,
-          annual_rate: annualRate / 100, // Convert to decimal
-          monthly_payment: monthlyPayment,
-          extra_payment: extraPayment,
-        })
+          annualRate,
+          monthlyPayment,
+          extraPayment,
+          currency
+        )
 
-        if (result.amortization) {
-          setAmortizationData(result.amortization)
+        if (result && result.schedule) {
+          setAmortizationData(result.schedule)
           setSummary({
-            total_interest_paid: result.total_interest,
-            months_to_payoff: result.loan_term.months,
+            total_interest_paid: result.total_interest_paid,
+            months_to_payoff: result.months_to_payoff,
           })
+        } else {
+          throw new Error('Invalid response format from API')
         }
       } catch (error) {
         console.error('Error fetching amortization schedule:', error)
         toast.error(t('loans.failedToLoadAmortizationSchedule'))
+
+        // Use client-side calculation as fallback
+        const localSchedule =
+          LoanCalculationService.generateAmortizationScheduleLocal(
+            principal,
+            annualRate,
+            monthlyPayment,
+            extraPayment
+          )
+
+        // Calculate total interest from schedule
+        const totalInterest = localSchedule.reduce(
+          (sum, entry) => sum + entry.interest_payment,
+          0
+        )
+
+        setAmortizationData(localSchedule)
+        setSummary({
+          total_interest_paid: totalInterest,
+          months_to_payoff: localSchedule.length,
+        })
       } finally {
         setIsLoading(false)
       }

@@ -1,7 +1,7 @@
 // frontend/src/components/features/loans/LoanTaxOptimization.tsx
-// Complete file with updates
+// Fixed version to address key errors and setState in render issues
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import {
   Card,
   CardContent,
@@ -165,8 +165,10 @@ const LoanTaxOptimization: React.FC<LoanTaxOptimizationProps> = ({
     return `loans.types.${type}`
   }
 
-  // Function to get localized loan explanations
-  const getLoanExplanation = () => {
+  // Memoized loan explanation to prevent render issues
+  const loanExplanation = useMemo(() => {
+    if (!countryRules) return ''
+
     if (
       loanType === LoanType.MORTGAGE_BOND &&
       countryRules?.mortgage_interest_deductible
@@ -214,7 +216,50 @@ const LoanTaxOptimization: React.FC<LoanTaxOptimizationProps> = ({
         loanType: t(getLoanTypeKey()),
       })
     }
-  }
+  }, [countryRules, loanType, t])
+
+  // Memoized cap information to avoid render issues
+  const capInformation = useMemo(() => {
+    if (!countryRules) return null
+
+    if (
+      (loanType === LoanType.MORTGAGE ||
+        loanType === LoanType.MORTGAGE_BOND ||
+        loanType === LoanType.HOME_LOAN) &&
+      countryRules.mortgage_interest_deductible &&
+      countryRules.mortgage_interest_deduction_cap
+    ) {
+      return t('loans.taxInfo.mortgageDeductionCap', {
+        cap: (
+          <CurrencyFormatter
+            key="mortgage-cap"
+            value={countryRules.mortgage_interest_deduction_cap}
+            minimumFractionDigits={0}
+            maximumFractionDigits={0}
+          />
+        ),
+      })
+    }
+
+    if (
+      loanType === LoanType.STUDENT &&
+      countryRules.student_loan_interest_deductible &&
+      countryRules.student_loan_interest_deduction_cap
+    ) {
+      return t('loans.taxInfo.studentDeductionCap', {
+        cap: (
+          <CurrencyFormatter
+            key="student-cap"
+            value={countryRules.student_loan_interest_deduction_cap}
+            minimumFractionDigits={0}
+            maximumFractionDigits={0}
+          />
+        ),
+      })
+    }
+
+    return null
+  }, [countryRules, loanType, t])
 
   // Render loading state
   if (isLoading) {
@@ -380,46 +425,11 @@ const LoanTaxOptimization: React.FC<LoanTaxOptimizationProps> = ({
                 {t('loans.taxInfo.countrySpecificRules')}
               </h4>
               <p className="text-gray-600 dark:text-gray-300">
-                {getLoanExplanation()}
-
-                {/* Add cap information if available */}
-                {(loanType === LoanType.MORTGAGE ||
-                  loanType === LoanType.MORTGAGE_BOND ||
-                  loanType === LoanType.HOME_LOAN) &&
-                  countryRules.mortgage_interest_deductible &&
-                  countryRules.mortgage_interest_deduction_cap && (
-                    <>
-                      {' '}
-                      {t('loans.taxInfo.mortgageDeductionCap', {
-                        cap: (
-                          <CurrencyFormatter
-                            value={countryRules.mortgage_interest_deduction_cap}
-                            minimumFractionDigits={0}
-                            maximumFractionDigits={0}
-                          />
-                        ),
-                      })}
-                    </>
-                  )}
-
-                {loanType === LoanType.STUDENT &&
-                  countryRules.student_loan_interest_deductible &&
-                  countryRules.student_loan_interest_deduction_cap && (
-                    <>
-                      {' '}
-                      {t('loans.taxInfo.studentDeductionCap', {
-                        cap: (
-                          <CurrencyFormatter
-                            value={
-                              countryRules.student_loan_interest_deduction_cap
-                            }
-                            minimumFractionDigits={0}
-                            maximumFractionDigits={0}
-                          />
-                        ),
-                      })}
-                    </>
-                  )}
+                {loanExplanation}
+                {/* Add cap information if available - now rendered from memoized value */}
+                {capInformation && (
+                  <span key="cap-info"> {capInformation}</span>
+                )}
               </p>
             </div>
           )}
@@ -453,7 +463,7 @@ const LoanTaxOptimization: React.FC<LoanTaxOptimizationProps> = ({
 
                 <ul className="space-y-2">
                   {taxInfo.recommendations.map((tip, index) => (
-                    <li key={index} className="flex items-start">
+                    <li key={`tip-${index}`} className="flex items-start">
                       <PiggyBank className="h-5 w-5 mr-2 text-green-600 mt-0.5 flex-shrink-0" />
                       <span className="text-sm">{tip}</span>
                     </li>

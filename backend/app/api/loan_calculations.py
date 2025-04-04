@@ -1,58 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Body
-from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field
-from enum import Enum
-from ..utils.auth import verify_token
-from ..calculations import (
-    calculate_monthly_payment,
-    calculate_loan_term,
-    calculate_total_interest_paid,
-    calculate_extra_payment_impact,
-    generate_amortization_schedule,
-    convert_currency
-)
-from ..utils.api_util import handle_exceptions, standardize_response
-
-
-router = APIRouter(prefix="/api", tags=["loan_calculations"])
-
-
-class Currency(str, Enum):
-    USD = "USD"
-    DKK = "DKK"
-
-
-class LoanCalculationRequest(BaseModel):
-    principal: float
-    annual_rate: float
-    term_years: Optional[float] = None
-    monthly_payment: Optional[float] = None
-    extra_payment: Optional[float] = 0
-    currency: Currency = Currency.USD
-
-
-class ExtraPaymentImpact(BaseModel):
-    original_term: Dict[str, int]
-    new_term: Dict[str, int]
-    months_saved: int
-    interest_saved: float
-
-
-class LoanCalculationResponse(BaseModel):
-    monthly_payment: float
-    loan_term: Dict[str, int]
-    total_interest: float
-    extra_payment_impact: Optional[ExtraPaymentImpact] = None
-    amortization: Optional[list] = None
-
-
 # backend/app/api/loan_calculations.py
 from fastapi import APIRouter, Depends, HTTPException, Body
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 from enum import Enum
+
 from ..utils.auth import verify_token
-from ..calculations import (
+# Fix the import - ensure all required functions are properly imported
+from app.calculations import (
     calculate_monthly_payment,
     calculate_loan_term,
     calculate_total_interest_paid,
@@ -60,6 +14,7 @@ from ..calculations import (
     generate_amortization_schedule,
     convert_currency
 )
+
 from ..utils.api_util import handle_exceptions, standardize_response
 
 
@@ -114,6 +69,7 @@ async def calculate_loan_details(
     Calculate various loan metrics based on provided parameters
     """
     try:
+        # Extract request data
         principal = request.principal
         annual_rate = request.annual_rate  # As percentage (e.g., 5.0 for 5%)
         term_years = request.term_years
@@ -190,6 +146,8 @@ async def calculate_loan_details(
         })
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()  # Print full traceback for debugging
         return standardize_response(
             error=f"Error calculating loan details: {str(e)}"
         )
@@ -254,6 +212,8 @@ async def get_amortization_schedule(
         return standardize_response(data=amortization_data)
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()  # Print full traceback for debugging
         return standardize_response(
             error=f"Error generating amortization schedule: {str(e)}"
         )
@@ -278,6 +238,8 @@ async def get_loan_amortization_schedule(
         return await get_amortization_schedule(request, authenticated_user_id)
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()  # Print full traceback for debugging
         return standardize_response(
             error=f"Error generating loan amortization schedule: {str(e)}"
         )

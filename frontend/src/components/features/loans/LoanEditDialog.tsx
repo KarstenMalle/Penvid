@@ -19,10 +19,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { LoanCalculationService } from '@/services/LoanCalculationService'
 import { ArrowRightLeft } from 'lucide-react'
 import { useLocalization } from '@/context/LocalizationContext'
-import { Currency, currencyConfig } from '@/i18n/config'
 import { Loan, LoanType } from '@/components/features/wealth-optimizer/types'
 
 interface LoanEditDialogProps {
@@ -38,151 +36,269 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
   onSave,
   onCancel,
 }) => {
-  const { t, currency } = useLocalization()
-  const [editedLoan, setEditedLoan] = useState<Loan>({ ...loan })
+  const { t, currency, convertAmount } = useLocalization()
+
+  // Track both display values (in current currency) and base values (in USD)
+  const [displayLoan, setDisplayLoan] = useState<Loan>({ ...loan })
+  const [baseLoan, setBaseLoan] = useState<Loan>({ ...loan })
+
   const [isCalculationMode, setIsCalculationMode] = useState<
     'payment' | 'term'
-  >('payment')
+  >(
+    loan.termYears > 0 && (!loan.minimumPayment || loan.minimumPayment <= 0)
+      ? 'term'
+      : 'payment'
+  )
+  const [isCalculating, setIsCalculating] = useState(false)
 
-  // Reset form when loan changes
+  // Initialize the form with the loan data, converting values if necessary
   useEffect(() => {
-    setEditedLoan({ ...loan })
-  }, [loan])
+    if (currency === 'USD') {
+      // If we're in USD, no conversion needed
+      setDisplayLoan({ ...loan })
+      setBaseLoan({ ...loan })
+    } else {
+      // If in a different currency, convert monetary values for display
+      const displayBalance =
+        loan.balance > 0 ? convertAmount(loan.balance, 'USD', currency) : 0
 
-  // Handle input changes
+      const displayPayment =
+        loan.minimumPayment > 0
+          ? convertAmount(loan.minimumPayment, 'USD', currency)
+          : 0
+
+      // Set display values with conversion
+      setDisplayLoan({
+        ...loan,
+        balance: displayBalance,
+        minimumPayment: displayPayment,
+      })
+
+      // Keep original USD values
+      setBaseLoan({ ...loan })
+    }
+
+    // Set calculation mode based on loan values
+    setIsCalculationMode(
+      loan.termYears > 0 && (!loan.minimumPayment || loan.minimumPayment <= 0)
+        ? 'term'
+        : 'payment'
+    )
+  }, [loan, currency, convertAmount])
+
+  // Input validation - check if required fields are filled
+  const canProceedToCalculation = () => {
+    const hasName = displayLoan.name && displayLoan.name.trim() !== ''
+    const hasLoanType = !!displayLoan.loanType
+    const hasBalance = displayLoan.balance > 0
+    const hasRate = displayLoan.interestRate >= 0
+
+    if (isCalculationMode === 'term') {
+      // When calculating payment, need balance, rate and term
+      return (
+        hasName &&
+        hasLoanType &&
+        hasBalance &&
+        hasRate &&
+        displayLoan.termYears > 0
+      )
+    } else {
+      // When calculating term, need balance, rate and payment
+      return (
+        hasName &&
+        hasLoanType &&
+        hasBalance &&
+        hasRate &&
+        displayLoan.minimumPayment > 0
+      )
+    }
+  }
+
+  // Calculate monthly payment based on balance, interest rate, and term
+  const calculatePayment = () => {
+    const principal = displayLoan.balance
+    const years = displayLoan.termYears
+    const rate = displayLoan.interestRate
+
+    // Convert annual rate to monthly decimal
+    const monthlyRate = rate / 12 / 100
+    const numPayments = years * 12
+
+    let payment
+
+    // Special case for 0% loans
+    if (monthlyRate === 0 || rate === 0) {
+      payment = principal / numPayments
+    } else {
+      // Use standard loan payment formula: PMT = P × r × (1 + r)^n / ((1 + r)^n - 1)
+      payment =
+        (principal * monthlyRate * Math.pow(1 + monthlyRate, numPayments)) /
+        (Math.pow(1 + monthlyRate, numPayments) - 1)
+    }
+
+    return parseFloat(payment.toFixed(2))
+  }
+
+  // Calculate loan term based on balance, interest rate, and payment
+  const calculateTerm = () => {
+    const principal = displayLoan.balance
+    const payment = displayLoan.minimumPayment
+    const rate = displayLoan.interestRate
+
+    // Convert annual rate to monthly decimal
+    const monthlyRate = rate / 12 / 100
+
+    let termMonths
+
+    // Special case for 0% loans
+    if (monthlyRate === 0 || rate === 0) {
+      termMonths = principal / payment
+    } else {
+      // If payment is too small to cover interest
+      if (payment <= principal * monthlyRate) {
+        termMonths = 1200 // Cap at 100 years (effectively infinity)
+      } else {
+        // Use standard formula: n = -log(1 - (P×r)/PMT) / log(1+r)
+        termMonths =
+          -Math.log(1 - (principal * monthlyRate) / payment) /
+          Math.log(1 + monthlyRate)
+      }
+    }
+
+    const termYears = termMonths / 12
+    return parseFloat(termYears.toFixed(2))
+  }
+
+  // Handle input changes with direct string manipulation
   const handleChange = (
     field: keyof Loan,
     value: string | number | LoanType
   ) => {
-    const updatedLoan = { ...editedLoan, [field]: value }
+    // For monetary fields, don't auto-parse to number to allow better input control
+    if (field === 'balance' || field === 'minimumPayment') {
+      // Allow any valid input, including empty string, will be parsed on submission
+      let inputValue = typeof value === 'string' ? value : String(value)
 
-    // If we're updating balance, interest rate, or term, recalculate payment
-    if (
-      isCalculationMode === 'term' &&
-      (field === 'balance' || field === 'interestRate' || field === 'termYears')
-    ) {
-      // Use service to calculate payment
-      calculatePayment(updatedLoan)
-    }
-
-    // If we're updating balance, interest rate, or payment, recalculate term
-    if (
-      isCalculationMode === 'payment' &&
-      (field === 'balance' ||
-        field === 'interestRate' ||
-        field === 'minimumPayment')
-    ) {
-      // Use service to calculate term
-      calculateTerm(updatedLoan)
-    }
-
-    setEditedLoan(updatedLoan)
-  }
-
-  // Calculate monthly payment using our service
-  const calculatePayment = async (loanData: Loan) => {
-    try {
-      const result = await LoanCalculationService.calculateLoanDetails({
-        principal: loanData.balance,
-        annual_rate: loanData.interestRate / 100, // Convert to decimal
-        term_years: loanData.termYears,
-        currency: currency as Currency,
-      })
-
-      setEditedLoan((prev) => ({
-        ...prev,
-        minimumPayment: result.monthly_payment,
-      }))
-    } catch (error) {
-      console.error('Error calculating payment:', error)
-
-      // Fallback calculation if API fails
-      const monthlyRate = loanData.interestRate / 100 / 12
-      const numPayments = loanData.termYears * 12
-
-      let payment = loanData.balance / numPayments // For zero interest
-
-      if (monthlyRate > 0) {
-        payment =
-          (loanData.balance *
-            monthlyRate *
-            Math.pow(1 + monthlyRate, numPayments)) /
-          (Math.pow(1 + monthlyRate, numPayments) - 1)
+      // Only update if valid or empty
+      if (inputValue === '' || /^[0-9]*[.,]?[0-9]*$/.test(inputValue)) {
+        setDisplayLoan({
+          ...displayLoan,
+          [field]:
+            inputValue === '' ? 0 : parseFloat(inputValue.replace(',', '.')),
+        })
       }
-
-      setEditedLoan((prev) => ({
-        ...prev,
-        minimumPayment: payment,
-      }))
     }
-  }
+    // For other numeric fields
+    else if (field === 'interestRate' || field === 'termYears') {
+      let inputValue = typeof value === 'string' ? value : String(value)
 
-  // Calculate loan term using our service
-  const calculateTerm = async (loanData: Loan) => {
-    if (loanData.minimumPayment <= 0) return
-
-    try {
-      const result = await LoanCalculationService.calculateLoanDetails({
-        principal: loanData.balance,
-        annual_rate: loanData.interestRate / 100, // Convert to decimal
-        monthly_payment: loanData.minimumPayment,
-        currency: currency as Currency,
-      })
-
-      setEditedLoan((prev) => ({
-        ...prev,
-        termYears: result.loan_term.years + (result.loan_term.months % 12) / 12,
-      }))
-    } catch (error) {
-      console.error('Error calculating term:', error)
-
-      // Fallback calculation if API fails
-      const monthlyRate = loanData.interestRate / 100 / 12
-
-      let termMonths = loanData.balance / loanData.minimumPayment // For zero interest
-
-      if (monthlyRate > 0) {
-        // For interest-bearing loans, use the formula: n = -log(1 - P*r/PMT) / log(1 + r)
-        if (loanData.minimumPayment > loanData.balance * monthlyRate) {
-          termMonths =
-            -Math.log(
-              1 - (loanData.balance * monthlyRate) / loanData.minimumPayment
-            ) / Math.log(1 + monthlyRate)
-        } else {
-          termMonths = 999 // Very long term if payment barely covers interest
-        }
+      // Only update if valid or empty
+      if (inputValue === '' || /^[0-9]*[.,]?[0-9]*$/.test(inputValue)) {
+        setDisplayLoan({
+          ...displayLoan,
+          [field]:
+            inputValue === '' ? 0 : parseFloat(inputValue.replace(',', '.')),
+        })
       }
-
-      setEditedLoan((prev) => ({
-        ...prev,
-        termYears: termMonths / 12,
-      }))
+    }
+    // For non-numeric fields
+    else {
+      setDisplayLoan({ ...displayLoan, [field]: value })
     }
   }
 
   // Toggle calculation mode
   const toggleCalculationMode = () => {
-    setIsCalculationMode((prev) => (prev === 'payment' ? 'term' : 'payment'))
+    setIsCalculationMode((prevMode) =>
+      prevMode === 'payment' ? 'term' : 'payment'
+    )
+  }
 
-    // Recalculate based on new mode
-    if (isCalculationMode === 'term') {
-      // Switching to payment mode, recalculate term
-      const updatedLoan = { ...editedLoan }
-      calculateTerm(updatedLoan)
-    } else {
-      // Switching to term mode, recalculate payment
-      const updatedLoan = { ...editedLoan }
-      calculatePayment(updatedLoan)
+  // Handle form submission with calculation
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!canProceedToCalculation()) {
+      return
+    }
+
+    setIsCalculating(true)
+
+    try {
+      // Create a copy of the display loan for calculations
+      let updatedDisplayLoan = { ...displayLoan }
+
+      // Calculate the missing value based on mode
+      if (isCalculationMode === 'term') {
+        // Calculate payment based on balance, rate, and term
+        const calculatedPayment = calculatePayment()
+        updatedDisplayLoan.minimumPayment = calculatedPayment
+      } else {
+        // Calculate term based on balance, rate, and payment
+        const calculatedTerm = calculateTerm()
+        updatedDisplayLoan.termYears = calculatedTerm
+      }
+
+      // Update display loan with calculated values
+      setDisplayLoan(updatedDisplayLoan)
+
+      // Convert monetary values back to USD for saving to database
+      let baseValues = { ...updatedDisplayLoan }
+
+      if (currency !== 'USD') {
+        // Convert display values back to USD base values for database
+        baseValues.balance = convertAmount(
+          updatedDisplayLoan.balance,
+          currency,
+          'USD'
+        )
+        baseValues.minimumPayment = convertAmount(
+          updatedDisplayLoan.minimumPayment,
+          currency,
+          'USD'
+        )
+      }
+
+      // Ensure all values are numbers and properly formatted
+      const formattedLoan = {
+        ...baseValues,
+        id: loan.id, // Ensure we keep the original ID
+        balance: Number(baseValues.balance),
+        interestRate: Number(baseValues.interestRate),
+        termYears: Number(baseValues.termYears),
+        minimumPayment: Number(baseValues.minimumPayment),
+      }
+
+      // Update the base loan state too
+      setBaseLoan(formattedLoan)
+
+      // Pass the base loan (in USD) to the save handler
+      onSave(formattedLoan)
+    } catch (error) {
+      console.error('Error calculating loan details:', error)
+    } finally {
+      setIsCalculating(false)
     }
   }
 
-  // Handle form submission
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    onSave(editedLoan)
+  // Format a number for display, properly handling locale
+  const formatNumberInput = (value: number | string | undefined): string => {
+    if (value === undefined || value === null || value === 0) return ''
+
+    // Convert to string if not already
+    let stringValue = String(value)
+
+    // Replace any commas with periods for consistent decimal formatting
+    if (typeof value === 'string') {
+      // Don't do any special formatting if it's user input
+      return stringValue
+    }
+
+    // For numbers, format with proper decimal places
+    return value.toString()
   }
 
-  // Format currency symbol
+  // Get currency symbol
   const getCurrencySymbol = () => {
     return currency === 'USD' ? '$' : currency === 'DKK' ? 'kr' : currency
   }
@@ -205,7 +321,7 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
               </Label>
               <Input
                 id="name"
-                value={editedLoan.name}
+                value={displayLoan.name || ''}
                 onChange={(e) => handleChange('name', e.target.value)}
                 className="col-span-3"
                 required
@@ -218,12 +334,12 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
                 {t('loans.type')}
               </Label>
               <Select
-                value={editedLoan.loanType || LoanType.OTHER}
+                value={displayLoan.loanType || LoanType.OTHER}
                 onValueChange={(value) =>
                   handleChange('loanType', value as LoanType)
                 }
               >
-                <SelectTrigger className="col-span-3">
+                <SelectTrigger id="type" className="col-span-3">
                   <SelectValue placeholder={t('loans.selectLoanType')} />
                 </SelectTrigger>
                 <SelectContent>
@@ -255,7 +371,7 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
               </Select>
             </div>
 
-            {/* Loan Balance */}
+            {/* Loan Balance with Currency Indicator */}
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="balance" className="text-right">
                 {t('loans.balance')}
@@ -266,14 +382,10 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
                 </span>
                 <Input
                   id="balance"
-                  type="number"
-                  min="0"
-                  step="0.01"
+                  type="text" // Using text type for better input control
                   className="pl-7"
-                  value={editedLoan.balance}
-                  onChange={(e) =>
-                    handleChange('balance', parseFloat(e.target.value) || 0)
-                  }
+                  value={formatNumberInput(displayLoan.balance)}
+                  onChange={(e) => handleChange('balance', e.target.value)}
                   required
                 />
               </div>
@@ -287,16 +399,9 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
               <div className="col-span-3 relative">
                 <Input
                   id="interestRate"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={editedLoan.interestRate}
-                  onChange={(e) =>
-                    handleChange(
-                      'interestRate',
-                      parseFloat(e.target.value) || 0
-                    )
-                  }
+                  type="text" // Using text type for better input control
+                  value={formatNumberInput(displayLoan.interestRate)}
+                  onChange={(e) => handleChange('interestRate', e.target.value)}
                   className="pr-7"
                   required
                 />
@@ -319,6 +424,7 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
                 size="sm"
                 onClick={toggleCalculationMode}
                 className="col-span-3 flex items-center"
+                disabled={isCalculating}
               >
                 <ArrowRightLeft className="mr-2 h-4 w-4" />
                 {isCalculationMode === 'payment'
@@ -335,20 +441,16 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
               <div className="col-span-3 relative">
                 <Input
                   id="termYears"
-                  type="number"
-                  min="0.1"
-                  step="0.1"
-                  value={editedLoan.termYears.toFixed(2)}
-                  onChange={(e) =>
-                    handleChange('termYears', parseFloat(e.target.value) || 0)
-                  }
+                  type="text" // Using text type for better input control
+                  value={formatNumberInput(displayLoan.termYears)}
+                  onChange={(e) => handleChange('termYears', e.target.value)}
                   disabled={isCalculationMode === 'payment'}
                   className={
                     isCalculationMode === 'payment'
                       ? 'bg-gray-50 dark:bg-gray-800 pr-10'
                       : 'pr-10'
                   }
-                  required
+                  required={isCalculationMode === 'term'}
                 />
                 <span className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500">
                   {t('loans.years')}
@@ -356,7 +458,7 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
               </div>
             </div>
 
-            {/* Monthly Payment */}
+            {/* Monthly Payment with Currency Indicator */}
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="minimumPayment" className="text-right">
                 {t('loans.monthlyPayment')}
@@ -367,16 +469,10 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
                 </span>
                 <Input
                   id="minimumPayment"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  className="pl-7"
-                  value={editedLoan.minimumPayment.toFixed(2)}
+                  type="text" // Using text type for better input control
+                  value={formatNumberInput(displayLoan.minimumPayment)}
                   onChange={(e) =>
-                    handleChange(
-                      'minimumPayment',
-                      parseFloat(e.target.value) || 0
-                    )
+                    handleChange('minimumPayment', e.target.value)
                   }
                   disabled={isCalculationMode === 'term'}
                   className={
@@ -384,16 +480,57 @@ const LoanEditDialog: React.FC<LoanEditDialogProps> = ({
                       ? 'bg-gray-50 dark:bg-gray-800 pl-7'
                       : 'pl-7'
                   }
-                  required
+                  required={isCalculationMode === 'payment'}
                 />
               </div>
             </div>
           </div>
+
+          {currency !== 'USD' && (
+            <div className="text-xs text-gray-500 mb-4 px-4">
+              {t('loans.currencyNote', {
+                currency: currency,
+                originalCurrency: 'USD',
+              })}
+            </div>
+          )}
+
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onCancel}>
               {t('common.cancel')}
             </Button>
-            <Button type="submit">{t('common.save')}</Button>
+            <Button
+              type="submit"
+              disabled={!canProceedToCalculation() || isCalculating}
+            >
+              {isCalculating ? (
+                <span className="flex items-center">
+                  <svg
+                    className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    ></circle>
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    ></path>
+                  </svg>
+                  {t('common.calculating')}
+                </span>
+              ) : (
+                t('common.save')
+              )}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

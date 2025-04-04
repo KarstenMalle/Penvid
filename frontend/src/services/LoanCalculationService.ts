@@ -6,11 +6,21 @@ import { ApiClient } from './ApiClient'
 /**
  * Interfaces for loan calculation API
  */
+
+// Interface for AmortizationRequest to help with typechecking
+export interface AmortizationRequest {
+  principal: number
+  annual_rate: number
+  monthly_payment: number
+  extra_payment?: number
+  max_years?: number
+  currency?: string
+}
 export interface LoanCalculationRequest {
   principal: number
   annual_rate: number
-  monthly_payment?: number
   term_years?: number
+  monthly_payment?: number
   extra_payment?: number
   currency?: string
 }
@@ -62,16 +72,27 @@ export const LoanCalculationService = {
     request: LoanCalculationRequest,
     abortSignal?: AbortSignal
   ): Promise<LoanCalculationResponse> {
+    // IMPORTANT: Backend expects annual_rate as percentage (e.g., 5.0 for 5%)
+    // NOT as decimal (0.05), so we don't divide by 100 here
     const response = await ApiClient.post<
       LoanCalculationRequest,
       LoanCalculationResponse
-    >('/api/loans/calculate', request, {
-      requiresAuth: true,
-      signal: abortSignal,
-      requestId: 'calculate-loan-details',
-    })
+    >(
+      '/api/loans/calculate',
+      {
+        ...request,
+        // Make sure annual_rate is passed as percentage
+        annual_rate: request.annual_rate,
+      },
+      {
+        requiresAuth: true,
+        signal: abortSignal,
+        requestId: 'calculate-loan-details',
+      }
+    )
 
     if (response.error || !response.data) {
+      console.error('Error in calculateLoanDetails:', response.error)
       // Return minimal default response on error
       return {
         monthly_payment: 0,
@@ -88,23 +109,76 @@ export const LoanCalculationService = {
    */
   async getAmortizationSchedule(
     loanId: number,
-    request: LoanCalculationRequest,
+    principal: number,
+    annualRate: number,
+    monthlyPayment: number,
+    extraPayment: number = 0,
+    currency: string = 'USD',
     abortSignal?: AbortSignal
-  ): Promise<AmortizationEntry[]> {
-    const response = await ApiClient.post<
-      any,
-      { schedule: AmortizationEntry[] }
-    >(`/api/loans/${loanId}/amortization`, request, {
-      requiresAuth: true,
-      signal: abortSignal,
-      requestId: `amortization-${loanId}`,
-    })
+  ): Promise<{
+    schedule: AmortizationEntry[]
+    total_interest_paid: number
+    months_to_payoff: number
+  }> {
+    try {
+      // IMPORTANT: Pass annualRate as percentage (5.0), not decimal (0.05)
+      const response = await ApiClient.post<
+        AmortizationRequest,
+        {
+          schedule: AmortizationEntry[]
+          total_interest_paid: number
+          months_to_payoff: number
+        }
+      >(
+        `/api/loans/${loanId}/amortization`,
+        {
+          principal,
+          annual_rate: annualRate, // Pass as percentage
+          monthly_payment: monthlyPayment,
+          extra_payment: extraPayment,
+          currency,
+        },
+        {
+          requiresAuth: true,
+          signal: abortSignal,
+          requestId: `amortization-${loanId}`,
+        }
+      )
 
-    if (response.error || !response.data || !response.data.schedule) {
-      return [] // Return empty array on error
+      if (response.error || !response.data) {
+        throw new Error(
+          response.error?.message || 'Failed to fetch amortization schedule'
+        )
+      }
+
+      return {
+        schedule: response.data.schedule || [],
+        total_interest_paid: response.data.total_interest_paid || 0,
+        months_to_payoff: response.data.months_to_payoff || 0,
+      }
+    } catch (error) {
+      console.error('Error in getAmortizationSchedule:', error)
+
+      // Use local calculation as fallback
+      const schedule = this.generateAmortizationScheduleLocal(
+        principal,
+        annualRate,
+        monthlyPayment,
+        extraPayment
+      )
+
+      // Calculate total interest from schedule
+      const totalInterest = schedule.reduce(
+        (sum, entry) => sum + entry.interest_payment,
+        0
+      )
+
+      return {
+        schedule,
+        total_interest_paid: totalInterest,
+        months_to_payoff: schedule.length,
+      }
     }
-
-    return response.data.schedule
   },
 
   /**

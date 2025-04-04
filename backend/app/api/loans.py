@@ -1,4 +1,4 @@
-# backend/app/api/loans.py - Updated with better error handling
+# backend/app/api/loans.py - Updated with better error handling and fixed endpoint conflict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from typing import List
@@ -223,58 +223,3 @@ async def create_default_loan(
         data=created_loan,
         message="Default loan created successfully"
     )
-
-@router.post("/loans/calculate")
-@handle_exceptions
-async def calculate_loan_details(
-        request: dict,
-        authenticated_user_id: str = Depends(verify_token)
-):
-    """
-    Calculate various loan metrics based on provided parameters
-    """
-    try:
-        principal = request.get("principal", 0)
-        annual_rate = request.get("annual_rate", 0)  # As decimal (e.g., 0.05 for 5%)
-        term_years = request.get("term_years", 0)
-        monthly_payment = request.get("monthly_payment", 0)
-        extra_payment = request.get("extra_payment", 0)
-
-        # Validate the input data
-        if principal <= 0:
-            return standardize_response(error="Principal amount must be greater than zero")
-
-        # Calculate monthly payment if not provided
-        if monthly_payment <= 0 and term_years > 0:
-            monthly_payment = calculate_monthly_payment(principal, annual_rate, term_years)
-
-        # Calculate loan term if payment is provided
-        loan_term = None
-        if monthly_payment > 0:
-            loan_term = calculate_loan_term(principal, annual_rate, monthly_payment)
-
-        # Calculate total interest paid
-        total_interest = calculate_total_interest_paid(principal, annual_rate, monthly_payment)
-
-        # Calculate impact of extra payments if provided
-        extra_payment_impact = None
-        if extra_payment > 0:
-            extra_payment_impact = calculate_extra_payment_impact(
-                principal, annual_rate, monthly_payment, extra_payment
-            )
-
-        # Return the calculated values
-        return standardize_response(data={
-            "monthly_payment": monthly_payment,
-            "loan_term": loan_term,
-            "total_interest": total_interest,
-            "extra_payment_impact": extra_payment_impact,
-            "amortization": generate_amortization_schedule(
-                principal, annual_rate, monthly_payment, extra_payment
-            ) if monthly_payment > 0 else None
-        })
-
-    except Exception as e:
-        return standardize_response(
-            error=f"Error calculating loan details: {str(e)}"
-        )

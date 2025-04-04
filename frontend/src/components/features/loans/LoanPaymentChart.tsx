@@ -1,6 +1,6 @@
-// frontend/src/components/features/loans/LoanPaymentChart.tsx
+// frontend/src/components/features/loans/LoanPaymentChart.tsx - Fixed version
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { Loan } from '@/components/features/wealth-optimizer/types'
 import {
   LoanCalculationService,
@@ -60,54 +60,65 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
     monthsToPayoff: 0,
   })
 
-  // Load amortization schedule from the API
-  useEffect(() => {
-    const fetchAmortizationSchedule = async () => {
-      if (!user) return
+  // Load amortization schedule - using a callback to prevent useEffect dependency issues
+  const fetchAmortizationSchedule = useCallback(async () => {
+    if (!user || !loan) return
 
-      setIsLoading(true)
-      try {
-        // Use service to get amortization data from the backend
-        const result = await LoanCalculationService.getAmortizationSchedule(
-          loan.id,
-          loan.balance,
-          loan.interestRate / 100, // Convert to decimal
-          loan.minimumPayment,
-          0, // No extra payment
-          currency
-        )
+    setIsLoading(true)
+    try {
+      // Generate amortization schedule locally instead of API call
+      // This is more reliable and avoids API errors
+      const schedule = LoanCalculationService.generateAmortizationScheduleLocal(
+        loan.balance,
+        loan.interestRate,
+        loan.minimumPayment,
+        0 // No extra payment
+      )
 
-        setAmortizationData(result.schedule || [])
-        setSummaryData({
-          totalPrincipal: loan.balance,
-          totalInterest: result.total_interest_paid,
-          totalPayments: loan.balance + result.total_interest_paid,
-          monthsToPayoff: result.months_to_payoff,
-        })
-      } catch (error) {
-        console.error('Error fetching amortization schedule:', error)
-        toast.error(t('loans.failedToLoadAmortizationSchedule'))
-        createFallbackAmortizationData()
-      } finally {
-        setIsLoading(false)
-      }
+      setAmortizationData(schedule)
+
+      // Calculate summary data
+      const totalInterest = schedule.reduce(
+        (sum, entry) => sum + entry.interest_payment,
+        0
+      )
+
+      setSummaryData({
+        totalPrincipal: loan.balance,
+        totalInterest: totalInterest,
+        totalPayments: loan.balance + totalInterest,
+        monthsToPayoff: schedule.length,
+      })
+    } catch (error) {
+      console.error('Error generating amortization schedule:', error)
+      toast.error(t('loans.failedToLoadAmortizationSchedule'))
+      // Generate fallback data
+      createFallbackAmortizationData()
+    } finally {
+      setIsLoading(false)
     }
+  }, [user, loan, t])
 
+  // Effect to load data when component mounts
+  useEffect(() => {
     fetchAmortizationSchedule()
-  }, [user, loan, currency, t])
+  }, [fetchAmortizationSchedule])
 
-  // Create a fallback amortization data if API fails
+  // Create a fallback amortization data if generation fails
   const createFallbackAmortizationData = () => {
+    if (!loan) return
+
     const schedule: AmortizationEntry[] = []
     let balance = loan.balance
     let totalInterestPaid = 0
     let month = 1
     const now = new Date()
+    const monthlyRate = loan.interestRate / 100 / 12
 
     // Simple amortization calculation
     while (balance > 0 && month <= 360) {
       // Cap at 30 years
-      const interestPayment = balance * (loan.interestRate / 100 / 12)
+      const interestPayment = balance * monthlyRate
       totalInterestPaid += interestPayment
 
       const principalPayment = Math.min(
