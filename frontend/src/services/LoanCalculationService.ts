@@ -1,4 +1,4 @@
-// frontend/src/services/LoanCalculationService.ts
+// frontend/src/services/LoanCalculationService.ts (Updated)
 
 import { Loan } from '@/components/features/wealth-optimizer/types'
 import { ApiClient } from './ApiClient'
@@ -16,6 +16,7 @@ export interface AmortizationRequest {
   max_years?: number
   currency?: string
 }
+
 export interface LoanCalculationRequest {
   principal: number
   annual_rate: number
@@ -74,34 +75,79 @@ export const LoanCalculationService = {
   ): Promise<LoanCalculationResponse> {
     // IMPORTANT: Backend expects annual_rate as percentage (e.g., 5.0 for 5%)
     // NOT as decimal (0.05), so we don't divide by 100 here
-    const response = await ApiClient.post<
-      LoanCalculationRequest,
-      LoanCalculationResponse
-    >(
-      '/api/loans/calculate',
-      {
-        ...request,
-        // Make sure annual_rate is passed as percentage
-        annual_rate: request.annual_rate,
-      },
-      {
-        requiresAuth: true,
-        signal: abortSignal,
-        requestId: 'calculate-loan-details',
-      }
-    )
+    try {
+      const response = await ApiClient.post<
+        LoanCalculationRequest,
+        LoanCalculationResponse
+      >(
+        '/api/loans/calculate',
+        {
+          ...request,
+          // Make sure annual_rate is passed as percentage
+          annual_rate: request.annual_rate,
+        },
+        {
+          requiresAuth: true,
+          signal: abortSignal,
+          requestId: 'calculate-loan-details',
+        }
+      )
 
-    if (response.error || !response.data) {
-      console.error('Error in calculateLoanDetails:', response.error)
-      // Return minimal default response on error
-      return {
+      if (response.error || !response.data) {
+        throw new Error(
+          'Error in calculateLoanDetails: ' +
+            (response.error?.message || 'Unknown error')
+        )
+      }
+
+      return response.data
+    } catch (error) {
+      console.error('Error in calculateLoanDetails:', error)
+
+      // Return calculated values using client-side functions as fallback
+      const result: LoanCalculationResponse = {
         monthly_payment: 0,
         loan_term: { months: 0, years: 0 },
         total_interest: 0,
       }
-    }
 
-    return response.data
+      // Calculate monthly payment if we have principal, rate and term
+      if (
+        request.principal > 0 &&
+        request.annual_rate >= 0 &&
+        request.term_years &&
+        request.term_years > 0
+      ) {
+        result.monthly_payment = this.calculateMonthlyPayment(
+          request.principal,
+          request.annual_rate,
+          request.term_years
+        )
+      }
+
+      // Calculate term if we have principal, rate and payment
+      if (
+        request.principal > 0 &&
+        request.annual_rate >= 0 &&
+        request.monthly_payment &&
+        request.monthly_payment > 0
+      ) {
+        result.loan_term = this.calculateLoanTerm(
+          request.principal,
+          request.annual_rate,
+          request.monthly_payment
+        )
+
+        // Calculate total interest
+        result.total_interest = this.calculateTotalInterestPaid(
+          request.principal,
+          request.annual_rate,
+          request.monthly_payment
+        )
+      }
+
+      return result
+    }
   },
 
   /**
@@ -109,11 +155,7 @@ export const LoanCalculationService = {
    */
   async getAmortizationSchedule(
     loanId: number,
-    principal: number,
-    annualRate: number,
-    monthlyPayment: number,
-    extraPayment: number = 0,
-    currency: string = 'USD',
+    request: AmortizationRequest,
     abortSignal?: AbortSignal
   ): Promise<{
     schedule: AmortizationEntry[]
@@ -132,11 +174,11 @@ export const LoanCalculationService = {
       >(
         `/api/loans/${loanId}/amortization`,
         {
-          principal,
-          annual_rate: annualRate, // Pass as percentage
-          monthly_payment: monthlyPayment,
-          extra_payment: extraPayment,
-          currency,
+          principal: request.principal,
+          annual_rate: request.annual_rate, // Pass as percentage
+          monthly_payment: request.monthly_payment,
+          extra_payment: request.extra_payment || 0,
+          currency: request.currency || 'USD',
         },
         {
           requiresAuth: true,
@@ -161,10 +203,10 @@ export const LoanCalculationService = {
 
       // Use local calculation as fallback
       const schedule = this.generateAmortizationScheduleLocal(
-        principal,
-        annualRate,
-        monthlyPayment,
-        extraPayment
+        request.principal,
+        request.annual_rate,
+        request.monthly_payment,
+        request.extra_payment || 0
       )
 
       // Calculate total interest from schedule
@@ -270,7 +312,7 @@ export const LoanCalculationService = {
       return 0
     }
 
-    const monthlyRate = annualRate / 100 / 12
+    const monthlyRate = annualRate / 100 / 12 // Convert percentage to decimal
     const payments = years * 12
 
     // Special case for 0% loans
@@ -278,6 +320,9 @@ export const LoanCalculationService = {
       return principal / payments
     }
 
+    // Use the standard formula for calculating monthly payments
+    // P = (P * r * (1 + r)^n) / ((1 + r)^n - 1)
+    // where P = principal, r = monthly rate, n = number of payments
     return (
       (principal * monthlyRate * Math.pow(1 + monthlyRate, payments)) /
       (Math.pow(1 + monthlyRate, payments) - 1)
@@ -300,7 +345,7 @@ export const LoanCalculationService = {
       return { months: 0, years: 0 }
     }
 
-    const monthlyRate = annualRate / 100 / 12
+    const monthlyRate = annualRate / 100 / 12 // Convert percentage to decimal
 
     // Special case for 0% loans
     if (monthlyRate === 0) {
@@ -345,7 +390,7 @@ export const LoanCalculationService = {
       return 0
     }
 
-    const monthlyRate = annualRate / 100 / 12
+    const monthlyRate = annualRate / 100 / 12 // Convert percentage to decimal
 
     // If payment is too small to cover interest
     if (monthlyPayment <= principal * monthlyRate) {
@@ -375,6 +420,7 @@ export const LoanCalculationService = {
   ): AmortizationEntry[] {
     const schedule: AmortizationEntry[] = []
     let balance = principal
+    // Convert percentage to decimal for calculation
     const monthlyRate = annualRate / 100 / 12
 
     // Start date for payments (first of next month)
@@ -389,16 +435,18 @@ export const LoanCalculationService = {
       // Calculate interest for this period
       const interestPayment = balance * monthlyRate
 
-      // Calculate principal portion of regular payment (cannot exceed balance)
-      const principalPayment = Math.min(
-        monthlyPayment - interestPayment,
-        balance
-      )
+      // Calculate principal portion of regular payment
+      let principalPayment = 0
+
+      // If payment is sufficient to cover interest
+      if (monthlyPayment > interestPayment) {
+        principalPayment = Math.min(monthlyPayment - interestPayment, balance)
+      }
 
       // Calculate extra payment (cannot exceed remaining balance)
       const actualExtraPayment = Math.min(
         extraPayment,
-        balance - principalPayment
+        balance - principalPayment > 0 ? balance - principalPayment : 0
       )
 
       // Calculate total principal payment (regular + extra)
@@ -418,7 +466,7 @@ export const LoanCalculationService = {
       schedule.push({
         month,
         payment_date: paymentDate.toISOString().split('T')[0],
-        payment: totalPayment,
+        payment: monthlyPayment + actualExtraPayment,
         principal_payment: totalPrincipalPayment,
         interest_payment: interestPayment,
         extra_payment: actualExtraPayment,

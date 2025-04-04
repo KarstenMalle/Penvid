@@ -107,6 +107,8 @@ export default function LoanDetailPage() {
 
   // Calculate loan details when loan changes
   useEffect(() => {
+    // Updated calculateLoanDetails function in LoanDetailPage.tsx
+
     const calculateLoanDetails = async () => {
       if (!loan) return
 
@@ -114,7 +116,7 @@ export default function LoanDetailPage() {
         // Use the LoanCalculationService
         const result = await LoanCalculationService.calculateLoanDetails({
           principal: loan.balance,
-          annual_rate: loan.interestRate / 100, // Convert percentage to decimal
+          annual_rate: loan.interestRate, // Pass the percentage directly, not divided by 100
           term_years: loan.termYears,
           monthly_payment: loan.minimumPayment,
           currency,
@@ -126,8 +128,9 @@ export default function LoanDetailPage() {
           payoffDate.getMonth() + (result.loan_term?.months || 0)
         )
 
-        // Monthly interest calculation
-        const monthlyInterest = loan.balance * (loan.interestRate / 100 / 12)
+        // Monthly interest calculation - Make sure we're using the correct rate
+        const monthlyRate = loan.interestRate / 100 / 12 // Convert percentage to decimal for calculation
+        const monthlyInterest = loan.balance * monthlyRate
 
         setLoanDetails({
           loanTerm: result.loan_term || { months: 0, years: 0 },
@@ -137,21 +140,31 @@ export default function LoanDetailPage() {
         })
       } catch (error) {
         console.error('Error calculating loan details:', error)
+
         // Fallback to simple calculations if API fails
+        // Make sure we're converting percentage to decimal (divide by 100)
         const monthlyRate = loan.interestRate / 100 / 12
+
+        // Use Math.log for more accurate calculations
         const months = Math.ceil(
-          Math.log(
-            loan.minimumPayment /
-              (loan.minimumPayment - loan.balance * monthlyRate)
-          ) / Math.log(1 + monthlyRate)
+          loan.minimumPayment > loan.balance * monthlyRate
+            ? Math.log(
+                loan.minimumPayment /
+                  (loan.minimumPayment - loan.balance * monthlyRate)
+              ) / Math.log(1 + monthlyRate)
+            : 360 // Cap at 30 years if payment is too small
         )
+
+        // Calculate total payments and interest
+        const totalPayments = loan.minimumPayment * months
+        const totalInterest = totalPayments - loan.balance
 
         const fallbackPayoffDate = new Date()
         fallbackPayoffDate.setMonth(fallbackPayoffDate.getMonth() + months)
 
         setLoanDetails({
           loanTerm: { months, years: months / 12 },
-          totalInterest: loan.minimumPayment * months - loan.balance,
+          totalInterest: totalInterest > 0 ? totalInterest : 0,
           payoffDate: fallbackPayoffDate,
           monthlyInterest: loan.balance * monthlyRate,
         })
@@ -417,11 +430,12 @@ export default function LoanDetailPage() {
                     </span>
                     <span className="font-semibold">
                       {loanDetails.payoffDate
-                        ? loanDetails.payoffDate.toLocaleDateString(
+                        ? new Date(loanDetails.payoffDate).toLocaleDateString(
                             locale === 'da' ? 'da-DK' : 'en-US',
                             {
                               year: 'numeric',
                               month: 'long',
+                              day: 'numeric', // Add day for more precise date
                             }
                           )
                         : t('common.notAvailable')}
@@ -465,10 +479,12 @@ export default function LoanDetailPage() {
                         {t('loans.interestToPrincipalRatio')}
                       </p>
                       <p className="text-lg font-semibold">
-                        {(
-                          (loanDetails.totalInterest / loan.balance) *
-                          100
-                        ).toFixed(2)}
+                        {loanDetails.totalInterest > 0
+                          ? (
+                              (loanDetails.totalInterest / loan.balance) *
+                              100
+                            ).toFixed(2)
+                          : '0.00'}
                         %
                       </p>
                     </div>

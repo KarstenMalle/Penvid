@@ -120,7 +120,8 @@ def generate_amortization_schedule(
     if principal <= 0 or monthly_payment <= 0:
         return {"schedule": [], "total_interest_paid": 0, "months_to_payoff": 0}
 
-    monthly_rate = annual_rate / 100 / 12  # Convert to monthly decimal
+    # Convert percentage to decimal
+    monthly_rate = annual_rate / 100 / 12
     balance = principal
     month = 0
     total_interest = 0
@@ -137,8 +138,14 @@ def generate_amortization_schedule(
         interest_payment = balance * monthly_rate
         total_interest += interest_payment
 
-        # Calculate amount going to principal
-        principal_payment = min(monthly_payment - interest_payment, balance)
+        # Calculate amount going to principal (handle case where payment is less than interest)
+        if monthly_payment <= interest_payment:
+            principal_payment = 0
+            # If payment can't cover interest, add unpaid interest to principal
+            balance += (interest_payment - monthly_payment)
+            interest_payment = monthly_payment
+        else:
+            principal_payment = min(monthly_payment - interest_payment, balance)
 
         # Add extra payment if available
         if extra_payment > 0:

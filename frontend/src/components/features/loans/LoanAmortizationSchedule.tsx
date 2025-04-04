@@ -54,6 +54,8 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
 
   // Generate the amortization schedule when the loan or extra payment changes
   useEffect(() => {
+    // Updated fetchAmortizationSchedule function in LoanAmortizationSchedule.tsx
+
     const fetchAmortizationSchedule = async () => {
       if (!loan) return
 
@@ -70,9 +72,9 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
           })
 
         // Map the API response to our component's expected format
-        const formattedSchedule = scheduleData.map((entry, index) => ({
-          paymentNumber: index + 1,
-          date: entry.date,
+        const formattedSchedule = scheduleData.schedule.map((entry, index) => ({
+          paymentNumber: entry.month,
+          date: entry.payment_date,
           payment: entry.payment,
           principal: entry.principal_payment,
           interest: entry.interest_payment,
@@ -80,6 +82,7 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
         }))
 
         setAmortizationSchedule(formattedSchedule)
+
         // Reset to first page when schedule changes
         setCurrentPage(1)
       } catch (error) {
