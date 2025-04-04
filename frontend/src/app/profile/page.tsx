@@ -1,9 +1,9 @@
-// frontend/src/app/profile/page.tsx
 'use client'
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
+import { useLocalization } from '@/context/LocalizationContext'
 import {
   Card,
   CardContent,
@@ -22,6 +22,7 @@ import toast from 'react-hot-toast'
 
 export default function ProfilePage() {
   const { user, isAuthenticated, loading, profile } = useAuth()
+  const { t } = useLocalization()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -93,15 +94,21 @@ export default function ProfilePage() {
     )
   }
 
+  // Handle unauthenticated users
+  if (!isAuthenticated) {
+    router.push('/login?redirect=/profile')
+    return null
+  }
+
   return (
     <div className="container max-w-4xl mx-auto p-8">
-      <h1 className="text-3xl font-bold mb-8">Your Profile</h1>
+      <h1 className="text-3xl font-bold mb-8">{t('profile.title')}</h1>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         <div>
           <Card>
             <CardHeader>
-              <CardTitle>Profile Picture</CardTitle>
+              <CardTitle>{t('profile.profilePicture')}</CardTitle>
               <CardDescription>How you appear across Penvid</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col items-center">
@@ -122,7 +129,7 @@ export default function ProfilePage() {
         <div className="md:col-span-2">
           <Card>
             <CardHeader>
-              <CardTitle>Personal Information</CardTitle>
+              <CardTitle>{t('profile.personalInfo')}</CardTitle>
               <CardDescription>Update your personal details</CardDescription>
             </CardHeader>
             <form onSubmit={handleSubmit}>
@@ -158,7 +165,7 @@ export default function ProfilePage() {
                       Saving...
                     </>
                   ) : (
-                    'Save Changes'
+                    t('profile.update')
                   )}
                 </Button>
               </CardFooter>

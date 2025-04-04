@@ -27,7 +27,7 @@ import {
   PercentIcon,
   BarChart4Icon,
 } from 'lucide-react'
-import { formatPercent } from '@/lib/loan-calculations'
+import { formatPercent } from '@/components/features/wealth-optimizer/format-utils'
 import {
   Dialog,
   DialogContent,

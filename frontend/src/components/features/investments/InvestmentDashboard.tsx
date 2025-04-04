@@ -1,5 +1,3 @@
-// frontend/src/components/features/investments/InvestmentDashboard.tsx
-
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { useLocalization } from '@/context/LocalizationContext'
@@ -7,9 +5,9 @@ import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
+  CardFooter,
 } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -19,357 +17,378 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
-  InvestmentPortfolio as PortfolioType,
-  InvestmentService,
-  InvestmentSummary,
-} from '@/services/InvestmentService'
-import InvestmentPortfolio from './InvestmentPortfolio'
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Icons } from '@/components/ui/icons'
 import {
-  PlusIcon,
-  LayoutDashboard,
-  DollarSign,
-  PieChart,
-  TrendingUp,
-} from 'lucide-react'
+  InvestmentService,
+  InvestmentPortfolio,
+  Investment,
+  InvestmentType,
+  InvestmentSummary,
+} from '@/services/InvestmentService'
 import { CurrencyFormatter } from '@/components/ui/currency-formatter'
+import { Pie, Doughnut } from 'react-chartjs-2'
+import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 
-const InvestmentDashboard: React.FC = () => {
-  const { user } = useAuth()
-  const { t, currency } = useLocalization()
-  const [portfolios, setPortfolios] = useState<PortfolioType[]>([])
-  const [summary, setSummary] = useState<InvestmentSummary | null>(null)
+// Define chart colors
+const chartColors = [
+  'rgba(54, 162, 235, 0.8)',
+  'rgba(255, 99, 132, 0.8)',
+  'rgba(255, 205, 86, 0.8)',
+  'rgba(75, 192, 192, 0.8)',
+  'rgba(153, 102, 255, 0.8)',
+  'rgba(255, 159, 64, 0.8)',
+  'rgba(201, 203, 207, 0.8)',
+  'rgba(94, 232, 129, 0.8)',
+]
+
+export default function InvestmentDashboard() {
+  const { user, isAuthenticated } = useAuth()
+  const { formatCurrency } = useLocalization()
+
+  // State
+  const [portfolios, setPortfolios] = useState<InvestmentPortfolio[]>([])
+  const [investments, setInvestments] = useState<Investment[]>([])
+  const [selectedPortfolio, setSelectedPortfolio] = useState<string | null>(
+    null
+  )
+  const [investmentSummary, setInvestmentSummary] =
+    useState<InvestmentSummary | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [showCreatePortfolio, setShowCreatePortfolio] = useState(false)
-  const [newPortfolio, setNewPortfolio] = useState<Partial<PortfolioType>>({
+  const [isAddingInvestment, setIsAddingInvestment] = useState(false)
+  const [isAddingPortfolio, setIsAddingPortfolio] = useState(false)
+  const [newInvestment, setNewInvestment] = useState<Partial<Investment>>({
+    name: '',
+    type: InvestmentType.STOCK,
+    symbol: '',
+    amount: 0,
+    purchase_price: 0,
+    purchase_date: format(new Date(), 'yyyy-MM-dd'),
+  })
+  const [newPortfolio, setNewPortfolio] = useState<
+    Partial<InvestmentPortfolio>
+  >({
     name: '',
     description: '',
   })
 
-  // Load portfolios and summary
-  const loadData = async () => {
+  // Load user's investment data
+  useEffect(() => {
+    const loadInvestmentData = async () => {
+      if (!isAuthenticated || !user) {
+        setIsLoading(false)
+        return
+      }
+
+      setIsLoading(true)
+      try {
+        // Fetch user's portfolios
+        const userPortfolios = await InvestmentService.getUserPortfolios(
+          user.id
+        )
+        setPortfolios(userPortfolios)
+
+        // Fetch investment summary
+        const summary = await InvestmentService.getUserInvestmentSummary(
+          user.id
+        )
+        setInvestmentSummary(summary)
+
+        // If portfolios exist, select the first one and fetch its investments
+        if (userPortfolios.length > 0) {
+          setSelectedPortfolio(userPortfolios[0].id)
+          const portfolioInvestments =
+            await InvestmentService.getPortfolioInvestments(
+              user.id,
+              userPortfolios[0].id
+            )
+          setInvestments(portfolioInvestments)
+        }
+      } catch (error) {
+        console.error('Error loading investment data:', error)
+        toast.error('Failed to load investment data')
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadInvestmentData()
+  }, [user, isAuthenticated])
+
+  // Handle portfolio selection change
+  const handlePortfolioChange = async (portfolioId: string) => {
     if (!user) return
 
+    setSelectedPortfolio(portfolioId)
     setIsLoading(true)
-    try {
-      // Load portfolios
-      const portfolioData = await InvestmentService.getUserPortfolios(user.id)
-      setPortfolios(portfolioData)
 
-      // Load summary
-      const summaryData = await InvestmentService.getUserInvestmentSummary(
-        user.id
-      )
-      setSummary(summaryData)
+    try {
+      const portfolioInvestments =
+        await InvestmentService.getPortfolioInvestments(user.id, portfolioId)
+      setInvestments(portfolioInvestments)
     } catch (error) {
-      console.error('Error loading investment data:', error)
-      toast.error('Failed to load investment data')
+      console.error('Error loading portfolio investments:', error)
+      toast.error('Failed to load portfolio investments')
     } finally {
       setIsLoading(false)
     }
   }
 
-  // Load data on mount
-  useEffect(() => {
-    loadData()
-  }, [user])
+  // Handle adding a new portfolio
+  const handleAddPortfolio = async () => {
+    if (!user || !newPortfolio.name) return
 
-  // Handle creating a new portfolio
-  const handleCreatePortfolio = async () => {
-    if (!user) return
-
+    setIsLoading(true)
     try {
-      const result = await InvestmentService.createPortfolio(
+      const createdPortfolio = await InvestmentService.createPortfolio(
         user.id,
         newPortfolio
       )
-      if (result) {
-        setPortfolios([...portfolios, result])
-        setShowCreatePortfolio(false)
-        setNewPortfolio({
-          name: '',
-          description: '',
-        })
+
+      if (createdPortfolio) {
+        setPortfolios([...portfolios, createdPortfolio])
+        setSelectedPortfolio(createdPortfolio.id)
+        setInvestments([]) // Clear investments since new portfolio is empty
+        setIsAddingPortfolio(false)
+        setNewPortfolio({ name: '', description: '' })
         toast.success('Portfolio created successfully')
-        loadData() // Refresh data
       }
     } catch (error) {
       console.error('Error creating portfolio:', error)
       toast.error('Failed to create portfolio')
+    } finally {
+      setIsLoading(false)
     }
   }
 
-  // Function to get investment type distribution for chart
-  const getInvestmentTypeData = () => {
-    if (!summary || !summary.investment_types) {
-      return []
-    }
+  // Handle adding a new investment
+  const handleAddInvestment = async () => {
+    if (!user || !selectedPortfolio || !newInvestment.name) return
 
-    return Object.entries(summary.investment_types).map(
-      ([type, percentage]) => ({
-        name: type,
-        value: percentage,
-      })
+    setIsLoading(true)
+    try {
+      const investment = {
+        ...newInvestment,
+        portfolio_id: selectedPortfolio,
+      }
+
+      const createdInvestment = await InvestmentService.addInvestment(
+        user.id,
+        selectedPortfolio,
+        investment
+      )
+
+      if (createdInvestment) {
+        setInvestments([...investments, createdInvestment])
+        setIsAddingInvestment(false)
+        setNewInvestment({
+          name: '',
+          type: InvestmentType.STOCK,
+          symbol: '',
+          amount: 0,
+          purchase_price: 0,
+          purchase_date: format(new Date(), 'yyyy-MM-dd'),
+        })
+
+        // Refresh the investment summary
+        const updatedSummary = await InvestmentService.getUserInvestmentSummary(
+          user.id
+        )
+        setInvestmentSummary(updatedSummary)
+
+        toast.success('Investment added successfully')
+      }
+    } catch (error) {
+      console.error('Error adding investment:', error)
+      toast.error('Failed to add investment')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Handle investment input changes
+  const handleInvestmentChange = (field: string, value: any) => {
+    setNewInvestment({
+      ...newInvestment,
+      [field]: value,
+    })
+  }
+
+  // Calculate total portfolio value
+  const totalPortfolioValue = investments.reduce((total, investment) => {
+    return (
+      total +
+      investment.amount *
+        (investment.current_price || investment.purchase_price)
     )
+  }, 0)
+
+  // Prepare chart data for investment types
+  const investmentTypeChartData = {
+    labels: Object.keys(investmentSummary?.investment_types || {}),
+    datasets: [
+      {
+        data: Object.values(investmentSummary?.investment_types || {}),
+        backgroundColor: chartColors,
+        borderWidth: 1,
+      },
+    ],
   }
 
+  // Prepare chart data for portfolio allocation
+  const portfolioAllocationChartData = {
+    labels: investments.map((inv) => inv.name),
+    datasets: [
+      {
+        data: investments.map(
+          (inv) => inv.amount * (inv.current_price || inv.purchase_price)
+        ),
+        backgroundColor: chartColors,
+        borderWidth: 1,
+      },
+    ],
+  }
+
+  // Show loading state
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center h-64">
+      <div className="flex items-center justify-center h-96">
         <Icons.spinner className="h-8 w-8 animate-spin text-blue-600" />
+        <span className="ml-2">Loading investment data...</span>
       </div>
     )
   }
 
-  return (
-    <div className="space-y-6">
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center space-x-2">
-              <div className="rounded-full p-2 bg-blue-100 dark:bg-blue-900/20">
-                <DollarSign className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-              </div>
-              <CardTitle className="text-lg">Total Value</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              <CurrencyFormatter value={summary?.current_value || 0} />
-            </div>
-            <p className="text-sm text-gray-500 mt-1">
-              {summary?.investment_count || 0} investments across{' '}
-              {summary?.portfolio_count || 0} portfolios
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center space-x-2">
-              <div className="rounded-full p-2 bg-green-100 dark:bg-green-900/20">
-                <TrendingUp className="h-4 w-4 text-green-600 dark:text-green-400" />
-              </div>
-              <CardTitle className="text-lg">Total Gain/Loss</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div
-              className={`text-2xl font-bold ${(summary?.total_gain_loss || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}
-            >
-              <CurrencyFormatter value={summary?.total_gain_loss || 0} />
-            </div>
-            <p className="text-sm text-gray-500 mt-1">
-              {(summary?.total_gain_loss_percentage || 0) >= 0 ? '+' : ''}
-              {(summary?.total_gain_loss_percentage || 0).toFixed(2)}% return
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center space-x-2">
-              <div className="rounded-full p-2 bg-purple-100 dark:bg-purple-900/20">
-                <LayoutDashboard className="h-4 w-4 text-purple-600 dark:text-purple-400" />
-              </div>
-              <CardTitle className="text-lg">Portfolios</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {summary?.portfolio_count || 0}
-            </div>
-            <p className="text-sm text-gray-500 mt-1">
-              Diversified investment portfolios
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center space-x-2">
-              <div className="rounded-full p-2 bg-orange-100 dark:bg-orange-900/20">
-                <PieChart className="h-4 w-4 text-orange-600 dark:text-orange-400" />
-              </div>
-              <CardTitle className="text-lg">Allocation</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent className="pb-2">
-            <div className="text-sm">
-              {summary?.investment_types &&
-              Object.entries(summary.investment_types).length > 0 ? (
-                <div className="space-y-2">
-                  {Object.entries(summary.investment_types)
-                    .sort(([, a], [, b]) => b - a) // Sort by percentage (descending)
-                    .slice(0, 3) // Take top 3
-                    .map(([type, percentage]) => (
-                      <div
-                        key={type}
-                        className="flex justify-between items-center"
-                      >
-                        <span>{type}</span>
-                        <span>{percentage.toFixed(1)}%</span>
-                      </div>
-                    ))}
-                </div>
-              ) : (
-                <p className="text-gray-500">No investments yet</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Portfolios */}
-      <div className="space-y-4">
-        <div className="flex justify-between items-center">
-          <h2 className="text-xl font-bold">Your Portfolios</h2>
-          <Button onClick={() => setShowCreatePortfolio(true)}>
-            <PlusIcon className="h-4 w-4 mr-1" />
-            New Portfolio
-          </Button>
+  // Show empty state if no portfolios
+  if (portfolios.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 text-center">
+        <div className="bg-blue-100 dark:bg-blue-900/20 rounded-full p-4 mb-4">
+          <Icons.dollar className="h-10 w-10 text-blue-600" />
         </div>
+        <h3 className="text-xl font-bold mb-2">No Investment Portfolios</h3>
+        <p className="text-gray-600 dark:text-gray-400 mb-6 max-w-md">
+          Start tracking your investments by creating your first portfolio.
+        </p>
+        <Button onClick={() => setIsAddingPortfolio(true)}>
+          Create Portfolio
+        </Button>
 
-        {portfolios.length > 0 ? (
-          portfolios.map((portfolio) => (
-            <InvestmentPortfolio
-              key={portfolio.id}
-              portfolio={portfolio}
-              onRefresh={loadData}
-            />
-          ))
-        ) : (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <div className="rounded-full bg-blue-100 dark:bg-blue-900/20 p-4 mb-4">
-                <LayoutDashboard className="h-10 w-10 text-blue-600 dark:text-blue-400" />
-              </div>
-              <h3 className="text-xl font-semibold mb-2">No Portfolios Yet</h3>
-              <p className="text-gray-500 dark:text-gray-400 text-center max-w-md mb-6">
-                Create your first investment portfolio to start tracking your
-                investments and monitor your financial growth.
-              </p>
-              <Button onClick={() => setShowCreatePortfolio(true)}>
-                <PlusIcon className="h-4 w-4 mr-2" />
-                Create Portfolio
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-      </div>
-
-      {/* Create Portfolio Dialog */}
-      <Dialog open={showCreatePortfolio} onOpenChange={setShowCreatePortfolio}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create Investment Portfolio</DialogTitle>
-            <DialogDescription>
-              Create a new portfolio to organize and track your investments.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="portfolio_name" className="text-right">
-                Name
-              </Label>
-              <Input
-                id="portfolio_name"
-                value={newPortfolio.name}
-                onChange={(e) =>
-                  setNewPortfolio({ ...newPortfolio, name: e.target.value })
-                }
-                className="col-span-3"
-                required
-              />
-            </div>
-
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="portfolio_description" className="text-right">
-                Description
-              </Label>
-              <Input
-                id="portfolio_description"
-                value={newPortfolio.description}
-                onChange={(e) =>
-                  setNewPortfolio({
-                    ...newPortfolio,
-                    description: e.target.value,
-                  })
-                }
-                className="col-span-3"
-              />
-            </div>
-
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="goal_amount" className="text-right">
-                Goal Amount
-              </Label>
-              <div className="col-span-3 relative">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500">
-                  {currency === 'USD'
-                    ? '$'
-                    : currency === 'DKK'
-                      ? 'kr'
-                      : currency}
-                </span>
+        {/* Portfolio Creation Dialog */}
+        <Dialog open={isAddingPortfolio} onOpenChange={setIsAddingPortfolio}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Create New Portfolio</DialogTitle>
+              <DialogDescription>
+                Create a new portfolio to organize your investments.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="portfolio-name">Portfolio Name</Label>
                 <Input
-                  id="goal_amount"
-                  type="number"
-                  min="0"
-                  step="100"
-                  value={newPortfolio.goal_amount || ''}
+                  id="portfolio-name"
+                  placeholder="e.g., Retirement, Growth Stocks"
+                  value={newPortfolio.name}
                   onChange={(e) =>
-                    setNewPortfolio({
-                      ...newPortfolio,
-                      goal_amount: e.target.value
-                        ? parseFloat(e.target.value)
-                        : undefined,
-                    })
+                    handlePortfolioChange('name', e.target.value)
                   }
-                  className="pl-8"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="portfolio-description">
+                  Description (Optional)
+                </Label>
+                <Input
+                  id="portfolio-description"
+                  placeholder="Brief description of this portfolio"
+                  value={newPortfolio.description}
+                  onChange={(e) =>
+                    handlePortfolioChange('description', e.target.value)
+                  }
                 />
               </div>
             </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setIsAddingPortfolio(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleAddPortfolio}
+                disabled={!newPortfolio.name}
+              >
+                Create Portfolio
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="target_date" className="text-right">
-                Target Date
-              </Label>
-              <Input
-                id="target_date"
-                type="date"
-                value={newPortfolio.target_date || ''}
-                onChange={(e) =>
-                  setNewPortfolio({
-                    ...newPortfolio,
-                    target_date: e.target.value || undefined,
-                  })
-                }
-                className="col-span-3"
-              />
+        {/* Portfolio Creation Dialog */}
+        <Dialog open={isAddingPortfolio} onOpenChange={setIsAddingPortfolio}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Create New Portfolio</DialogTitle>
+              <DialogDescription>
+                Create a new portfolio to organize your investments.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="portfolio-name">Portfolio Name</Label>
+                <Input
+                  id="portfolio-name"
+                  placeholder="e.g., Retirement, Growth Stocks"
+                  value={newPortfolio.name}
+                  onChange={(e) =>
+                    handlePortfolioChange('name', e.target.value)
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="portfolio-description">
+                  Description (Optional)
+                </Label>
+                <Input
+                  id="portfolio-description"
+                  placeholder="Brief description of this portfolio"
+                  value={newPortfolio.description}
+                  onChange={(e) =>
+                    handlePortfolioChange('description', e.target.value)
+                  }
+                />
+              </div>
             </div>
-          </div>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowCreatePortfolio(false)}
-            >
-              Cancel
-            </Button>
-            <Button onClick={handleCreatePortfolio}>Create Portfolio</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  )
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setIsAddingPortfolio(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleAddPortfolio}
+                disabled={!newPortfolio.name}
+              >
+                Create Portfolio
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    )
+  }
 }
-
-export default InvestmentDashboard
