@@ -1,4 +1,4 @@
-# backend/app/utils/api_util.py
+# backend/app/utils/api_util.py - Helpers for API responses and error handling
 from functools import wraps
 
 from fastapi import HTTPException, Request

@@ -1,8 +1,8 @@
-// frontend/src/services/FinancialApiService.ts
+// frontend/src/services/FinancialApiService.ts - Improved with ApiClient
 
 import { Loan } from '@/components/features/wealth-optimizer/types'
 import { Currency } from '@/i18n/config'
-import { createClient } from '@/lib/supabase-browser'
+import { ApiClient } from './ApiClient'
 
 export interface UserSettings {
   expected_inflation: number
@@ -68,23 +68,6 @@ export interface FinancialStrategyResponse {
   riskAnalysis?: Record<string, StrategyRiskAnalysis> // Added for risk analysis
 }
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
-
-/**
- * Get auth token from Supabase
- */
-const getAuthToken = async (): Promise<string | null> => {
-  try {
-    const supabase = createClient()
-    const { data } = await supabase.auth.getSession()
-    return data.session?.access_token || null
-  } catch (error) {
-    console.error('Error getting auth token:', error)
-    return null
-  }
-}
-
 /**
  * Service for financial calculations via backend API
  */
@@ -93,34 +76,28 @@ export const FinancialApiService = {
    * Get user financial settings
    */
   async getUserSettings(userId: string): Promise<UserSettings> {
-    try {
-      const token = await getAuthToken()
-      // Call backend API directly
-      const response = await fetch(
-        `${API_BASE_URL}/api/user/${userId}/settings`,
-        {
-          headers: {
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-        }
-      )
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+    const response = await ApiClient.get<UserSettings>(
+      `/api/user/${userId}/settings`,
+      {
+        requiresAuth: true,
+        cache: {
+          enabled: true,
+          ttl: 1000 * 60 * 5, // 5 minutes
+        },
+        requestId: 'get-user-settings',
       }
+    )
 
-      const result = await response.json()
-      return result.data
-    } catch (error) {
-      console.error('Error in getUserSettings:', error)
-
-      // Return default settings
+    if (response.error || !response.data) {
+      // Return default settings on error
       return {
         expected_inflation: 0.025,
         expected_investment_return: 0.07,
         risk_tolerance: 0.2,
       }
     }
+
+    return response.data
   },
 
   /**
@@ -130,31 +107,21 @@ export const FinancialApiService = {
     userId: string,
     settings: UserSettings
   ): Promise<UserSettings> {
-    try {
-      const token = await getAuthToken()
-      // Call backend API directly
-      const response = await fetch(
-        `${API_BASE_URL}/api/user/${userId}/settings`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify(settings),
-        }
-      )
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+    const response = await ApiClient.post<UserSettings, UserSettings>(
+      `/api/user/${userId}/settings`,
+      settings,
+      {
+        requiresAuth: true,
+        invalidateCache: `/api/user/${userId}/settings`,
+        requestId: 'update-user-settings',
       }
+    )
 
-      const result = await response.json()
-      return result.data
-    } catch (error) {
-      console.error('Error in updateUserSettings:', error)
-      throw error
+    if (response.error) {
+      throw new Error(response.error.message || 'Failed to update settings')
     }
+
+    return response.data || settings
   },
 
   /**
@@ -173,37 +140,23 @@ export const FinancialApiService = {
     inflation_adjusted_final_balance: number
     risk_adjusted_balance: number
   }> {
-    try {
-      const token = await getAuthToken()
-      // Call backend API directly
-      const response = await fetch(
-        `${API_BASE_URL}/api/investment/projection`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            monthly_amount: monthlyAmount,
-            annual_return: annualReturn,
-            months,
-            inflation_rate: inflationRate,
-            risk_factor: riskFactor,
-            currency,
-          }),
-        }
-      )
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+    const response = await ApiClient.post<any, any>(
+      `/api/investment/projection`,
+      {
+        monthly_amount: monthlyAmount,
+        annual_return: annualReturn,
+        months,
+        inflation_rate: inflationRate,
+        risk_factor: riskFactor,
+        currency,
+      },
+      {
+        requiresAuth: true,
+        requestId: 'investment-projection',
       }
+    )
 
-      const result = await response.json()
-      return result.data
-    } catch (error) {
-      console.error('Error in getInvestmentProjection:', error)
-
+    if (response.error || !response.data) {
       // Create simple fallback projection
       const fallbackProjection: InvestmentEntry[] = []
       let balance = 0
@@ -235,6 +188,8 @@ export const FinancialApiService = {
         risk_adjusted_balance: balance * (1 - riskFactor),
       }
     }
+
+    return response.data
   },
 
   /**
@@ -249,51 +204,37 @@ export const FinancialApiService = {
     riskFactor: number = 0.2,
     currency: Currency = 'USD'
   ): Promise<FinancialStrategyResponse> {
-    try {
-      const token = await getAuthToken()
+    // Convert loan format for API compatibility
+    const apiFormattedLoans = loans.map((loan) => ({
+      loan_id: loan.id,
+      name: loan.name,
+      balance: loan.balance,
+      interest_rate: loan.interestRate,
+      term_years: loan.termYears,
+      minimum_payment: loan.minimumPayment,
+      loan_type: loan.loanType || 'OTHER',
+    }))
 
-      // Convert loan format for API compatibility
-      const apiFormattedLoans = loans.map((loan) => ({
-        loan_id: loan.id,
-        name: loan.name,
-        balance: loan.balance,
-        interest_rate: loan.interestRate,
-        term_years: loan.termYears,
-        minimum_payment: loan.minimumPayment,
-        loan_type: loan.loanType || 'OTHER',
-      }))
-
-      // Call backend API directly
-      const response = await fetch(
-        `${API_BASE_URL}/api/user/${userId}/financial-strategy`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            loans: apiFormattedLoans,
-            monthly_surplus: monthlyBudget,
-            annual_investment_return: annualInvestmentReturn,
-            inflation_rate: inflationRate,
-            risk_factor: riskFactor,
-            currency,
-            include_risk_analysis: true, // Request risk analysis data
-          }),
-        }
-      )
-
-      if (!response.ok) {
-        console.error('API Error:', await response.text())
-        throw new Error(`HTTP error! status: ${response.status}`)
+    const response = await ApiClient.post<any, any>(
+      `/api/user/${userId}/financial-strategy`,
+      {
+        loans: apiFormattedLoans,
+        monthly_surplus: monthlyBudget,
+        annual_investment_return: annualInvestmentReturn,
+        inflation_rate: inflationRate,
+        risk_factor: riskFactor,
+        currency,
+        include_risk_analysis: true, // Request risk analysis data
+      },
+      {
+        requiresAuth: true,
+        requestId: 'financial-strategy',
+        // Cache this - calculations are expensive
+        invalidateCache: `/api/user/${userId}/financial-strategy`,
       }
+    )
 
-      const result = await response.json()
-      return result.data || result // Handle both data wrapper and direct response
-    } catch (error) {
-      console.error('Error in getFinancialStrategy:', error)
-
+    if (response.error || !response.data) {
       // Create minimal fallback response
       const defaultStrategy = 'Hybrid Approach'
       const fallbackResponse: FinancialStrategyResponse = {
@@ -323,11 +264,12 @@ export const FinancialApiService = {
 
       return fallbackResponse
     }
+
+    return response.data
   },
 
   /**
    * Get risk-adjusted scenarios for financial strategies
-   * This is a new method to handle the risk scenario calculations that were previously done on the frontend
    */
   async getRiskScenarios(
     userId: string,
@@ -337,53 +279,37 @@ export const FinancialApiService = {
     baseRiskFactor: number = 0.7, // Standard risk factor (70%)
     currency: Currency = 'USD'
   ): Promise<StrategyRiskAnalysis> {
-    try {
-      const token = await getAuthToken()
+    // Convert loan format for API compatibility
+    const apiFormattedLoans = loans.map((loan) => ({
+      loan_id: loan.id,
+      name: loan.name,
+      balance: loan.balance,
+      interest_rate: loan.interestRate,
+      term_years: loan.termYears,
+      minimum_payment: loan.minimumPayment,
+      loan_type: loan.loanType || 'OTHER',
+    }))
 
-      // Convert loan format for API compatibility
-      const apiFormattedLoans = loans.map((loan) => ({
-        loan_id: loan.id,
-        name: loan.name,
-        balance: loan.balance,
-        interest_rate: loan.interestRate,
-        term_years: loan.termYears,
-        minimum_payment: loan.minimumPayment,
-        loan_type: loan.loanType || 'OTHER',
-      }))
-
-      // Request risk scenarios from the backend
-      const response = await fetch(
-        `${API_BASE_URL}/api/financial-calculations/risk-scenarios`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            user_id: userId,
-            loans: apiFormattedLoans,
-            monthly_budget: monthlyBudget,
-            strategy_name: strategyName,
-            base_risk_factor: baseRiskFactor,
-            currency,
-          }),
-        }
-      )
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+    const response = await ApiClient.post<any, StrategyRiskAnalysis>(
+      `/api/financial-calculations/risk-scenarios`,
+      {
+        user_id: userId,
+        loans: apiFormattedLoans,
+        monthly_budget: monthlyBudget,
+        strategy_name: strategyName,
+        base_risk_factor: baseRiskFactor,
+        currency,
+      },
+      {
+        requiresAuth: true,
+        requestId: 'risk-scenarios',
       }
+    )
 
-      const result = await response.json()
-      return result.data
-    } catch (error) {
-      console.error('Error in getRiskScenarios:', error)
-
-      // Provide fallback data for critical errors
-      // This fallback data is simplified and only meant for UI rendering when API fails
+    if (response.error || !response.data) {
+      // Provide fallback data for UI rendering
       return {
-        strategyName: strategyName,
+        strategyName,
         scenarios: {
           pessimistic: {
             name: 'pessimistic',
@@ -413,5 +339,158 @@ export const FinancialApiService = {
         comparisonData: [],
       }
     }
+
+    return response.data
+  },
+
+  /**
+   * Calculate optimal strategy (simplified endpoint)
+   */
+  async calculateOptimalStrategy(
+    loans: Loan[],
+    monthlyBudget: number,
+    currency: Currency = 'USD'
+  ): Promise<any> {
+    // Format loans for API
+    const formattedLoans = loans.map((loan) => ({
+      id: loan.id,
+      name: loan.name,
+      balance: loan.balance,
+      interestRate: loan.interestRate,
+      termYears: loan.termYears,
+      minimumPayment: loan.minimumPayment,
+      loanType: loan.loanType,
+    }))
+
+    const response = await ApiClient.post<any, any>(
+      `/api/financial-strategy/optimize`,
+      {
+        loans: formattedLoans,
+        monthly_budget: monthlyBudget,
+        currency,
+      },
+      {
+        requiresAuth: true,
+        requestId: 'optimize-strategy',
+      }
+    )
+
+    if (response.error || !response.data) {
+      // Return minimal fallback
+      return {
+        optimal_strategy: 'debt-avalanche',
+        total_minimum_payment: 0,
+        monthly_surplus: 0,
+        loan_comparisons: [],
+        strategies: {},
+      }
+    }
+
+    return response.data
+  },
+
+  /**
+   * Generate loan recommendations
+   */
+  async generateLoanRecommendations(
+    loans: Loan[],
+    monthlyAvailable: number
+  ): Promise<any> {
+    // Format loans for API
+    const formattedLoans = loans.map((loan) => ({
+      id: loan.id,
+      name: loan.name,
+      balance: loan.balance,
+      interestRate: loan.interestRate,
+      termYears: loan.termYears,
+      minimumPayment: loan.minimumPayment,
+      loanType: loan.loanType,
+    }))
+
+    const response = await ApiClient.post<any, any>(
+      `/api/recommendations`,
+      {
+        loans: formattedLoans,
+        monthly_available: monthlyAvailable,
+      },
+      {
+        requiresAuth: true,
+        requestId: 'loan-recommendations',
+      }
+    )
+
+    if (response.error || !response.data) {
+      // Return minimal fallback recommendations
+      return [
+        {
+          title: 'Prioritize high-interest debt',
+          description:
+            'Focus on paying down your highest interest rate loans first to minimize interest costs.',
+          priority: 'high',
+        },
+        {
+          title: 'Build an emergency fund',
+          description:
+            'Before focusing heavily on debt repayment, ensure you have 3-6 months of expenses saved.',
+          priority: 'high',
+        },
+      ]
+    }
+
+    return response.data
+  },
+
+  /**
+   * Get tax optimization advice for loans
+   */
+  async getLoanTaxOptimization(
+    loanId: number,
+    loanType: string,
+    balance: number,
+    interestRate: number,
+    country: string = 'US'
+  ): Promise<any> {
+    const response = await ApiClient.get<any>(
+      `/api/loans/${loanId}/tax-optimization`,
+      {
+        requiresAuth: true,
+        params: {
+          loan_type: loanType,
+          balance,
+          interest_rate: interestRate,
+          country,
+        },
+        cache: {
+          enabled: true,
+          ttl: 1000 * 60 * 60, // 1 hour
+        },
+        requestId: `tax-optimization-${loanId}`,
+      }
+    )
+
+    if (response.error || !response.data) {
+      // Return minimal fallback data
+      return {
+        is_tax_deductible:
+          loanType === 'MORTGAGE' ||
+          loanType === 'MORTGAGE_BOND' ||
+          loanType === 'STUDENT',
+        deduction_rate: country === 'DK' ? 0.33 : 0.25,
+        annual_interest: balance * (interestRate / 100),
+        estimated_savings:
+          loanType === 'MORTGAGE' ||
+          loanType === 'MORTGAGE_BOND' ||
+          loanType === 'STUDENT'
+            ? balance * (interestRate / 100) * (country === 'DK' ? 0.33 : 0.25)
+            : 0,
+        recommendations: [
+          'Remember to include loan interest in your tax return',
+          'Keep detailed records of all interest payments',
+          'Consider consulting a tax professional for optimal tax strategies',
+        ],
+      }
+    }
+
+    return response.data
   },
 }

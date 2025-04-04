@@ -21,7 +21,7 @@ export default function LoansPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('all-loans')
   const [isSaving, setIsSaving] = useState(false)
-  const { t } = useLocalization()
+  const { t, currency, formatCurrency } = useLocalization()
 
   // Load user's loans from Supabase
   useEffect(() => {
@@ -34,7 +34,7 @@ export default function LoansPage() {
       setIsLoading(true)
       try {
         // Fetch user's loans
-        const userLoans = await LoanService.getUserLoans(user.id)
+        const userLoans = await LoanService.getUserLoans(user.id, currency)
         setLoans(userLoans.length > 0 ? userLoans : [])
       } catch (error) {
         console.error('Error loading loans:', error)
@@ -46,7 +46,7 @@ export default function LoansPage() {
     }
 
     loadUserLoans()
-  }, [user, isAuthenticated])
+  }, [user, isAuthenticated, currency])
 
   // Add a new loan
   const handleAddLoan = async () => {

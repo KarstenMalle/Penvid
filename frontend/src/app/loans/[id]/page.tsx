@@ -1,4 +1,3 @@
-// src/app/loans/[id]/page.tsx (partial update)
 'use client'
 
 import React, { useState, useEffect } from 'react'
@@ -6,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
 import { LoanService } from '@/services/LoanService'
 import { Loan, LoanType } from '@/components/features/wealth-optimizer/types'
+import { LoanCalculationService } from '@/services/LoanCalculationService'
 import { Icons } from '@/components/ui/icons'
 import LoanEditDialog from '@/components/features/loans/LoanEditDialog'
 import {
@@ -38,16 +38,13 @@ import {
 } from '@/components/ui/dialog'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
-import {
-  calculateLoanTerm,
-  calculateTotalInterestPaid,
-} from '@/lib/loan-calculations'
 import LoanAmortizationSchedule from '@/components/features/loans/LoanAmortizationSchedule'
 import LoanPaymentChart from '@/components/features/loans/LoanPaymentChart'
 import { CurrencyFormatter } from '@/components/ui/currency-formatter'
 import { useLocalization } from '@/context/LocalizationContext'
 import { CurrencySwitch } from '@/components/ui/currency-switch'
 import LoanTaxOptimization from '@/components/features/loans/LoanTaxOptimization'
+import { calculateLoanTerm } from '@/lib/loan-calculations'
 
 // Update loan types mapping to use translated values
 const LOAN_TYPE_CONFIG: Record<LoanType, { color: string }> = {
@@ -85,7 +82,7 @@ export default function LoanDetailPage() {
   const params = useParams()
   const router = useRouter()
   const { user, isAuthenticated, loading } = useAuth()
-  const { t, locale } = useLocalization()
+  const { t, locale, currency } = useLocalization()
 
   const [loan, setLoan] = useState<Loan | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -95,15 +92,74 @@ export default function LoanDetailPage() {
     'overview' | 'schedule' | 'payments'
   >('overview')
 
-  // Calculate payoff date and total interest
-  const payoffDate = loan ? calculatePayoffDate(loan) : null
-  const totalInterest = loan
-    ? calculateTotalInterestPaid(
-        loan.balance,
-        loan.interestRate,
-        loan.minimumPayment
-      )
-    : 0
+  // Loan calculation states
+  const [loanDetails, setLoanDetails] = useState<{
+    loanTerm: { months: number; years: number }
+    totalInterest: number
+    payoffDate: Date | null
+    monthlyInterest: number
+  }>({
+    loanTerm: { months: 0, years: 0 },
+    totalInterest: 0,
+    payoffDate: null,
+    monthlyInterest: 0,
+  })
+
+  // Calculate loan details when loan changes
+  useEffect(() => {
+    const calculateLoanDetails = async () => {
+      if (!loan) return
+
+      try {
+        // Use the LoanCalculationService
+        const result = await LoanCalculationService.calculateLoanDetails({
+          principal: loan.balance,
+          annual_rate: loan.interestRate / 100, // Convert percentage to decimal
+          term_years: loan.termYears,
+          monthly_payment: loan.minimumPayment,
+          currency,
+        })
+
+        // Calculate payoff date
+        const payoffDate = new Date()
+        payoffDate.setMonth(
+          payoffDate.getMonth() + (result.loan_term?.months || 0)
+        )
+
+        // Monthly interest calculation
+        const monthlyInterest = loan.balance * (loan.interestRate / 100 / 12)
+
+        setLoanDetails({
+          loanTerm: result.loan_term || { months: 0, years: 0 },
+          totalInterest: result.total_interest || 0,
+          payoffDate,
+          monthlyInterest,
+        })
+      } catch (error) {
+        console.error('Error calculating loan details:', error)
+        // Fallback to simple calculations if API fails
+        const monthlyRate = loan.interestRate / 100 / 12
+        const months = Math.ceil(
+          Math.log(
+            loan.minimumPayment /
+              (loan.minimumPayment - loan.balance * monthlyRate)
+          ) / Math.log(1 + monthlyRate)
+        )
+
+        const fallbackPayoffDate = new Date()
+        fallbackPayoffDate.setMonth(fallbackPayoffDate.getMonth() + months)
+
+        setLoanDetails({
+          loanTerm: { months, years: months / 12 },
+          totalInterest: loan.minimumPayment * months - loan.balance,
+          payoffDate: fallbackPayoffDate,
+          monthlyInterest: loan.balance * monthlyRate,
+        })
+      }
+    }
+
+    calculateLoanDetails()
+  }, [loan, currency])
 
   // Load the loan data
   useEffect(() => {
@@ -122,7 +178,7 @@ export default function LoanDetailPage() {
 
       setIsLoading(true)
       try {
-        const loans = await LoanService.getUserLoans(user.id)
+        const loans = await LoanService.getUserLoans(user.id, currency)
         const foundLoan = loans.find((l) => l.id === loanId)
 
         if (foundLoan) {
@@ -140,20 +196,7 @@ export default function LoanDetailPage() {
     }
 
     loadLoan()
-  }, [user, isAuthenticated, params.id, router, t])
-
-  // Calculate payoff date
-  function calculatePayoffDate(loan: Loan): Date {
-    const { months } = calculateLoanTerm(
-      loan.balance,
-      loan.interestRate,
-      loan.minimumPayment
-    )
-
-    const date = new Date()
-    date.setMonth(date.getMonth() + months)
-    return date
-  }
+  }, [user, isAuthenticated, params.id, router, t, currency])
 
   // Handle loan update
   const handleUpdateLoan = async (updatedLoan: Loan) => {
@@ -365,7 +408,7 @@ export default function LoanDetailPage() {
                       {t('loans.totalInterest')}
                     </span>
                     <span className="font-semibold text-orange-600">
-                      <CurrencyFormatter value={totalInterest} />
+                      <CurrencyFormatter value={loanDetails.totalInterest} />
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -373,8 +416,8 @@ export default function LoanDetailPage() {
                       {t('loans.estimatedPayoffDate')}
                     </span>
                     <span className="font-semibold">
-                      {payoffDate
-                        ? payoffDate.toLocaleDateString(
+                      {loanDetails.payoffDate
+                        ? loanDetails.payoffDate.toLocaleDateString(
                             locale === 'da' ? 'da-DK' : 'en-US',
                             {
                               year: 'numeric',
@@ -407,7 +450,7 @@ export default function LoanDetailPage() {
                       </p>
                       <p className="text-lg font-semibold">
                         <CurrencyFormatter
-                          value={loan.balance + totalInterest}
+                          value={loan.balance + loanDetails.totalInterest}
                         />
                       </p>
                     </div>
@@ -422,7 +465,11 @@ export default function LoanDetailPage() {
                         {t('loans.interestToPrincipalRatio')}
                       </p>
                       <p className="text-lg font-semibold">
-                        {((totalInterest / loan.balance) * 100).toFixed(2)}%
+                        {(
+                          (loanDetails.totalInterest / loan.balance) *
+                          100
+                        ).toFixed(2)}
+                        %
                       </p>
                     </div>
                   </div>

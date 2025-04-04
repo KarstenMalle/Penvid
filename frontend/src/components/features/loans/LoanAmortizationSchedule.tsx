@@ -20,10 +20,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { DownloadIcon, ChevronLeftIcon, ChevronRightIcon } from 'lucide-react'
-import { generateAmortizationSchedule } from '@/lib/loan-calculations'
+import { LoanCalculationService } from '@/services/LoanCalculationService'
 import { CurrencyFormatter } from '@/components/ui/currency-formatter'
 import { useLocalization } from '@/context/LocalizationContext'
-import { Currency } from '@/i18n/config'
+import { Icons } from '@/components/ui/icons'
+import toast from 'react-hot-toast'
 
 interface LoanAmortizationScheduleProps {
   loan: Loan
@@ -41,7 +42,7 @@ type AmortizationEntry = {
 const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
   loan,
 }) => {
-  const { t, locale, currency, convertAmount } = useLocalization()
+  const { t, locale, currency } = useLocalization()
   const [amortizationSchedule, setAmortizationSchedule] = useState<
     AmortizationEntry[]
   >([])
@@ -49,20 +50,51 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
   const [extraPayment, setExtraPayment] = useState<number>(0)
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(12)
+  const [isLoading, setIsLoading] = useState(false)
 
   // Generate the amortization schedule when the loan or extra payment changes
   useEffect(() => {
-    if (loan) {
-      const schedule = generateAmortizationSchedule(
-        loan.balance,
-        loan.interestRate,
-        loan.minimumPayment + extraPayment
-      )
-      setAmortizationSchedule(schedule)
-      // Reset to first page when schedule changes
-      setCurrentPage(1)
+    const fetchAmortizationSchedule = async () => {
+      if (!loan) return
+
+      setIsLoading(true)
+      try {
+        // Use the LoanCalculationService to get the amortization schedule
+        const scheduleData =
+          await LoanCalculationService.getAmortizationSchedule(loan.id, {
+            principal: loan.balance,
+            annual_rate: loan.interestRate,
+            monthly_payment: loan.minimumPayment,
+            extra_payment: extraPayment,
+            currency: currency,
+          })
+
+        // Map the API response to our component's expected format
+        const formattedSchedule = scheduleData.map((entry, index) => ({
+          paymentNumber: index + 1,
+          date: entry.date,
+          payment: entry.payment,
+          principal: entry.principal_payment,
+          interest: entry.interest_payment,
+          balance: entry.remaining_balance,
+        }))
+
+        setAmortizationSchedule(formattedSchedule)
+        // Reset to first page when schedule changes
+        setCurrentPage(1)
+      } catch (error) {
+        console.error('Error generating amortization schedule:', error)
+        toast.error('Failed to generate amortization schedule')
+
+        // Set empty schedule on error
+        setAmortizationSchedule([])
+      } finally {
+        setIsLoading(false)
+      }
     }
-  }, [loan, extraPayment])
+
+    fetchAmortizationSchedule()
+  }, [loan, extraPayment, currency])
 
   // Filter schedule by year if needed
   const filteredSchedule =
@@ -116,10 +148,10 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
         year: 'numeric',
         month: 'short',
       }),
-      convertAmount(entry.payment).toFixed(2),
-      convertAmount(entry.principal).toFixed(2),
-      convertAmount(entry.interest).toFixed(2),
-      convertAmount(entry.balance).toFixed(2),
+      entry.payment.toFixed(2),
+      entry.principal.toFixed(2),
+      entry.interest.toFixed(2),
+      entry.balance.toFixed(2),
     ])
 
     const csvContent = [
@@ -152,6 +184,15 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
     (sum, entry) => sum + entry.principal,
     0
   )
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center py-12">
+        <Icons.spinner className="h-8 w-8 animate-spin text-blue-600" />
+        <span className="ml-2">{t('common.loading')}</span>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">

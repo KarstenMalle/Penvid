@@ -1,6 +1,4 @@
-// src/context/LocalizationContext.tsx - Updated with API integration
-
-'use client'
+// Updated LocalizationContext.tsx to fix currency conversion issues
 
 import React, {
   createContext,
@@ -9,6 +7,7 @@ import React, {
   useEffect,
   ReactNode,
   useCallback,
+  useMemo,
 } from 'react'
 import { createClient } from '@/lib/supabase-browser'
 import { useAuth } from './AuthContext'
@@ -61,6 +60,9 @@ const initialTranslations = {
   },
 }
 
+// Cache for currency conversions to avoid duplicate API calls
+const conversionCache: Record<string, number> = {}
+
 export function LocalizationProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
   const [locale, setLocaleState] = useState<Locale>(defaultLocale)
@@ -69,6 +71,10 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
   const [translations, setTranslations] =
     useState<Record<string, any>>(initialTranslations)
   const [isLoadingTranslations, setIsLoadingTranslations] = useState(true)
+  const [conversionRates, setConversionRates] = useState<
+    Record<string, number>
+  >({})
+  const [isLoadingRates, setIsLoadingRates] = useState(false)
   const supabase = createClient()
 
   // Load translations when locale changes
@@ -95,6 +101,27 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
       setIsLoadingTranslations(false)
     }
   }, [])
+
+  // Load currency conversion rates when currency changes
+  const loadConversionRates = useCallback(async () => {
+    if (isLoadingRates) return
+
+    setIsLoadingRates(true)
+    try {
+      // Get exchange rates for current currency
+      const rates = await CurrencyService.getExchangeRates()
+      setConversionRates(rates || {})
+
+      // Reset the conversion cache when rates change
+      Object.keys(conversionCache).forEach((key) => {
+        delete conversionCache[key]
+      })
+    } catch (error) {
+      console.error('Error loading conversion rates:', error)
+    } finally {
+      setIsLoadingRates(false)
+    }
+  }, [isLoadingRates])
 
   // Load user's language, currency, and country preferences
   useEffect(() => {
@@ -201,6 +228,11 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     loadTranslations(locale)
   }, [locale, loadTranslations])
+
+  // Load conversion rates when currency changes
+  useEffect(() => {
+    loadConversionRates()
+  }, [currency, loadConversionRates])
 
   // Function to refresh translations manually
   const refreshTranslations = async () => {
@@ -353,13 +385,62 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     return value
   }
 
-  // Convert amount between currencies
-  const convertAmount = async (
+  // Convert amount between currencies - non-async version that uses the cached rates
+  const convertAmount = (
     amount: number,
     from: Currency = 'USD',
     to: Currency = currency
-  ): Promise<number> => {
-    return await CurrencyService.convertCurrency(amount, from, to)
+  ): number => {
+    if (!amount || isNaN(amount)) return 0
+    if (from === to) return amount
+
+    // Check if we have this conversion in the cache
+    const cacheKey = `${from}-${to}-${amount}`
+    if (conversionCache[cacheKey] !== undefined) {
+      return conversionCache[cacheKey]
+    }
+
+    // Perform conversion using rates if available
+    if (Object.keys(conversionRates).length > 0) {
+      let result = amount
+
+      // Convert to USD first if not already USD
+      if (from !== 'USD') {
+        result = amount / (conversionRates[from] || 1.0)
+      }
+
+      // Convert from USD to target currency
+      if (to !== 'USD') {
+        result = result * (conversionRates[to] || 1.0)
+      }
+
+      // Cache the result
+      conversionCache[cacheKey] = result
+      return result
+    }
+
+    // Fallback conversion rates if API rates are not available
+    const fallbackRates = {
+      USD: 1.0,
+      DKK: 6.9,
+    }
+
+    let result = amount
+
+    // Convert to USD first if not already USD
+    if (from !== 'USD') {
+      result =
+        amount / (fallbackRates[from as keyof typeof fallbackRates] || 1.0)
+    }
+
+    // Convert from USD to target currency
+    if (to !== 'USD') {
+      result = result * (fallbackRates[to as keyof typeof fallbackRates] || 1.0)
+    }
+
+    // Cache the result
+    conversionCache[cacheKey] = result
+    return result
   }
 
   // Format currency function
@@ -367,7 +448,9 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     amount: number,
     options?: FormatCurrencyOptions
   ): string => {
-    const { originalCurrency = 'USD', ...formatOptions } = options || {}
+    if (!amount || isNaN(amount)) return '0'
+
+    const { originalCurrency = currency, ...formatOptions } = options || {}
     const config = currencyConfig[currency]
 
     // Handle NaN, Infinity, etc.
@@ -410,7 +493,7 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
       safeOptions.style = formatOptions.style
     }
 
-    // Convert amount if needed
+    // Convert amount if needed - using the synchronous version
     const convertedAmount =
       originalCurrency === currency
         ? amount
@@ -429,25 +512,36 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  // Memoize the context value to prevent unnecessary re-renders
+  const contextValue = useMemo(
+    () => ({
+      locale,
+      setLocale,
+      currency,
+      setCurrency,
+      country,
+      setCountry,
+      t,
+      formatCurrency,
+      convertAmount,
+      languages,
+      currencies: currencyConfig,
+      countries: countryConfig,
+      isLoadingTranslations,
+      refreshTranslations,
+    }),
+    [
+      locale,
+      currency,
+      country,
+      translations,
+      isLoadingTranslations,
+      conversionRates,
+    ]
+  )
+
   return (
-    <LocalizationContext.Provider
-      value={{
-        locale,
-        setLocale,
-        currency,
-        setCurrency,
-        country,
-        setCountry,
-        t,
-        formatCurrency,
-        convertAmount,
-        languages,
-        currencies: currencyConfig,
-        countries: countryConfig,
-        isLoadingTranslations,
-        refreshTranslations,
-      }}
-    >
+    <LocalizationContext.Provider value={contextValue}>
       {children}
     </LocalizationContext.Provider>
   )

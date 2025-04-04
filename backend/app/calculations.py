@@ -1,27 +1,100 @@
 import numpy as np
 import numpy_financial as npf
-import pandas as pd
 import requests
 from typing import List, Dict, Any, Optional
 from cachetools import cached, TTLCache
 from datetime import datetime, timedelta
 
+from app.utils.api_util import logger
+
 # Cache for exchange rates, with 24-hour TTL
 exchange_rate_cache = TTLCache(maxsize=100, ttl=86400)
-
+# Cache for strategy calculations
+strategy_cache = TTLCache(maxsize=100, ttl=3600)  # 1 hour TTL
 
 def calculate_monthly_payment(principal: float, annual_rate: float, years: float) -> float:
     """Calculate monthly payment for a loan."""
     if principal <= 0 or years <= 0:
         return 0
 
-    monthly_rate = annual_rate / 12
+    monthly_rate = annual_rate / 12 / 100  # Convert annual rate to monthly decimal
     num_payments = years * 12
 
     if monthly_rate == 0:
         return principal / num_payments
 
     return -npf.pmt(monthly_rate, num_payments, principal)
+
+
+def calculate_loan_term(principal: float, annual_rate: float, monthly_payment: float) -> dict:
+    """
+    Calculate the time it will take to pay off a loan
+
+    Args:
+        principal: Loan principal amount
+        annual_rate: Annual interest rate (as percentage, e.g., 5.0 for 5%)
+        monthly_payment: Monthly payment amount
+
+    Returns:
+        Dictionary with months and years to payoff
+    """
+    if principal <= 0 or monthly_payment <= 0:
+        return {"months": 0, "years": 0}
+
+    monthly_rate = annual_rate / 100 / 12  # Convert to monthly decimal
+
+    # If interest rate is 0, simple division
+    if monthly_rate == 0:
+        months = principal / monthly_payment
+        return {"months": int(months), "years": round(months / 12, 2)}
+
+    # If monthly payment is too small to cover interest
+    if monthly_payment <= principal * monthly_rate:
+        return {"months": float('inf'), "years": float('inf')}
+
+    # Calculate using standard formula
+    # n = -log(1 - (P*r)/PMT) / log(1+r)
+    # where: n = number of payments, P = principal, r = monthly rate, PMT = payment
+    import math
+    n = -math.log(1 - (principal * monthly_rate) / monthly_payment) / math.log(1 + monthly_rate)
+
+    # Round up to nearest month
+    months = math.ceil(n)
+    years = round(n / 12, 2)
+
+    return {"months": months, "years": years}
+
+
+def calculate_total_interest_paid(principal: float, annual_rate: float, monthly_payment: float) -> float:
+    """
+    Calculate the total interest paid over the life of a loan
+
+    Args:
+        principal: Loan principal amount
+        annual_rate: Annual interest rate (as percentage, e.g., 5.0 for 5%)
+        monthly_payment: Monthly payment amount
+
+    Returns:
+        Total interest paid
+    """
+    if principal <= 0 or monthly_payment <= 0:
+        return 0
+
+    monthly_rate = annual_rate / 100 / 12  # Convert to monthly decimal
+
+    # If monthly payment is too small to cover interest
+    if monthly_payment <= principal * monthly_rate:
+        return float('inf')  # Will never be paid off
+
+    # Get term in months
+    loan_term = calculate_loan_term(principal, annual_rate, monthly_payment)
+    months = loan_term["months"]
+
+    # Calculate total interest (total payments - principal)
+    total_payments = monthly_payment * months
+    total_interest = total_payments - principal
+
+    return max(0, total_interest)  # Ensure non-negative
 
 
 def generate_amortization_schedule(
@@ -36,7 +109,7 @@ def generate_amortization_schedule(
 
     Args:
         principal: Loan principal amount
-        annual_rate: Annual interest rate (as decimal, e.g., 0.05 for 5%)
+        annual_rate: Annual interest rate (as percentage, e.g., 5.0 for 5%)
         monthly_payment: Regular monthly payment
         extra_payment: Additional payment each month
         max_years: Maximum years to calculate (to prevent infinite loops)
@@ -47,7 +120,7 @@ def generate_amortization_schedule(
     if principal <= 0 or monthly_payment <= 0:
         return {"schedule": [], "total_interest_paid": 0, "months_to_payoff": 0}
 
-    monthly_rate = annual_rate / 12
+    monthly_rate = annual_rate / 100 / 12  # Convert to monthly decimal
     balance = principal
     month = 0
     total_interest = 0
@@ -103,6 +176,65 @@ def generate_amortization_schedule(
         "schedule": schedule,
         "total_interest_paid": total_interest,
         "months_to_payoff": month
+    }
+
+
+def calculate_extra_payment_impact(
+        principal: float,
+        annual_rate: float,
+        monthly_payment: float,
+        extra_payment: float
+) -> Dict[str, Any]:
+    """
+    Calculate the impact of making extra payments on a loan.
+
+    Args:
+        principal: Loan principal amount
+        annual_rate: Annual interest rate as percentage (e.g., 5.0 for 5%)
+        monthly_payment: Regular monthly payment
+        extra_payment: Additional monthly payment
+
+    Returns:
+        Dictionary with original term, new term, months saved, and interest saved
+    """
+    if principal <= 0 or monthly_payment <= 0 or extra_payment <= 0:
+        return {
+            "original_term": {"months": 0, "years": 0},
+            "new_term": {"months": 0, "years": 0},
+            "months_saved": 0,
+            "interest_saved": 0
+        }
+
+    # Calculate regular loan term and interest
+    regular_schedule = generate_amortization_schedule(
+        principal=principal,
+        annual_rate=annual_rate,
+        monthly_payment=monthly_payment
+    )
+
+    # Calculate accelerated loan term and interest
+    accelerated_schedule = generate_amortization_schedule(
+        principal=principal,
+        annual_rate=annual_rate,
+        monthly_payment=monthly_payment,
+        extra_payment=extra_payment
+    )
+
+    # Calculate months saved and interest saved
+    months_saved = regular_schedule["months_to_payoff"] - accelerated_schedule["months_to_payoff"]
+    interest_saved = regular_schedule["total_interest_paid"] - accelerated_schedule["total_interest_paid"]
+
+    return {
+        "original_term": {
+            "months": regular_schedule["months_to_payoff"],
+            "years": round(regular_schedule["months_to_payoff"] / 12, 2)
+        },
+        "new_term": {
+            "months": accelerated_schedule["months_to_payoff"],
+            "years": round(accelerated_schedule["months_to_payoff"] / 12, 2)
+        },
+        "months_saved": months_saved,
+        "interest_saved": interest_saved
     }
 
 
@@ -189,6 +321,40 @@ def calculate_investment_projection(
     }
 
 
+@cached(cache=exchange_rate_cache)
+def get_exchange_rates(base_currency="USD"):
+    """Fetch exchange rates from an API with caching"""
+    try:
+        url = f"https://api.exchangerate-api.com/v4/latest/{base_currency}"
+        response = requests.get(url, timeout=5)
+        data = response.json()
+        return data.get('rates', {"USD": 1.0, "DKK": 6.8991310126})
+    except Exception as e:
+        print(f"Error fetching exchange rates: {e}")
+        # Fallback rates
+        return {"USD": 1.0, "DKK": 6.8991310126}
+
+
+def convert_currency(amount: float, from_currency: str = "USD", to_currency: str = "USD") -> float:
+    """Convert amount between currencies"""
+    if from_currency == to_currency:
+        return amount
+
+    rates = get_exchange_rates(base_currency="USD")
+
+    # Convert to USD as an intermediate step if needed
+    if from_currency != "USD":
+        amount = amount / rates.get(from_currency, 1.0)
+
+    # Convert from USD to target currency
+    if to_currency != "USD":
+        amount = amount * rates.get(to_currency, 1.0)
+
+    return amount
+
+
+
+@cached(cache=strategy_cache, key=lambda loans, monthly_surplus, **kwargs: f"{hash(str(loans))}-{monthly_surplus}")
 def calculate_financial_strategy_comparison(
         loans: List[Dict[str, Any]],
         monthly_surplus: float,
@@ -222,136 +388,621 @@ def calculate_financial_strategy_comparison(
             }
         }
 
-    strategies_results = {}
+    # Initialize strategies
+    strategies = {
+        "debt_avalanche": {"name": "Debt Avalanche", "details": {}},
+        "debt_snowball": {"name": "Debt Snowball", "details": {}},
+        "highest_interest_first": {"name": "Highest Interest First", "details": {}},
+        "balanced": {"name": "Balanced Approach", "details": {}},
+        "invest_first": {"name": "Invest First", "details": {}}
+    }
 
-    # Sort loans by interest rate (highest first)
-    sorted_loans = sorted(loans, key=lambda x: x['interest_rate'], reverse=True)
-    priority_loan = sorted_loans[0]  # Highest interest loan
+    # Calculate loan comparisons for each loan
+    loan_comparisons = []
 
-    # Strategy A: Pay extra on highest interest loan, then invest after payoff
-    # First, calculate how long it takes to pay off with extra payments
-    loan_minimum_payment = priority_loan.get('minimum_payment', 0)
-    loan_balance = priority_loan.get('balance', 0)
-    loan_rate = priority_loan.get('interest_rate', 0)
+    for loan in loans:
+        # Extract loan details
+        loan_id = loan.get('id')
+        loan_name = loan.get('name', f'Loan {loan_id}')
+        principal = loan.get('balance', 0)
+        interest_rate = loan.get('interest_rate', 0) / 100  # Convert percentage to decimal
+        term_years = loan.get('term_years', 0)
+        minimum_payment = loan.get('minimum_payment', 0)
 
-    # Generate amortization schedule with extra payments
-    amortization_with_extra = generate_amortization_schedule(
-        principal=loan_balance,
-        annual_rate=loan_rate,
-        monthly_payment=loan_minimum_payment,
-        extra_payment=monthly_surplus
+        # Skip invalid loans
+        if principal <= 0 or interest_rate <= 0 or minimum_payment <= 0:
+            continue
+
+        # Baseline (minimum payments)
+        baseline = generate_amortization_schedule(
+            principal=principal,
+            annual_rate=interest_rate,
+            monthly_payment=minimum_payment
+        )
+
+        # Accelerated (with extra payments)
+        accelerated = generate_amortization_schedule(
+            principal=principal,
+            annual_rate=interest_rate,
+            monthly_payment=minimum_payment,
+            extra_payment=monthly_surplus
+        )
+
+        # Interest saved
+        interest_saved = baseline["total_interest_paid"] - accelerated["total_interest_paid"]
+
+        # Time saved
+        months_saved = baseline["months_to_payoff"] - accelerated["months_to_payoff"]
+
+        # Investment growth if investing the surplus
+        investment_projection = calculate_investment_projection(
+            monthly_amount=monthly_surplus,
+            annual_return=annual_investment_return,
+            months=accelerated["months_to_payoff"],
+            inflation_rate=inflation_rate,
+            risk_factor=risk_factor
+        )
+
+        # Determine if paying down is better than investing
+        risk_adjusted_investment = investment_projection["risk_adjusted_balance"]
+        paying_down_better = interest_saved > risk_adjusted_investment
+
+        # Calculate advantage amount
+        advantage_amount = abs(interest_saved - risk_adjusted_investment)
+
+        # Add to loan comparisons
+        loan_comparisons.append({
+            "loan_id": loan_id,
+            "loan_name": loan_name,
+            "interest_rate": interest_rate * 100,  # Convert back to percentage
+            "principal": principal,
+            "minimum_payment": minimum_payment,
+            "baseline": {
+                "months_to_payoff": baseline["months_to_payoff"],
+                "total_interest": baseline["total_interest_paid"]
+            },
+            "accelerated": {
+                "months_to_payoff": accelerated["months_to_payoff"],
+                "total_interest": accelerated["total_interest_paid"]
+            },
+            "interest_saved": interest_saved,
+            "months_saved": months_saved,
+            "investment_growth": investment_projection["final_balance"],
+            "risk_adjusted_investment": risk_adjusted_investment,
+            "paying_down_better": paying_down_better,
+            "advantage_amount": advantage_amount
+        })
+
+    # Sort loans by interest rate (highest first) for debt avalanche strategy
+    sorted_by_rate = sorted(loans, key=lambda x: x.get('interest_rate', 0), reverse=True)
+
+    # Sort loans by balance (lowest first) for debt snowball strategy
+    sorted_by_balance = sorted(loans, key=lambda x: x.get('balance', 0))
+
+    # Calculate debt avalanche strategy
+    strategies["debt_avalanche"]["details"] = simulate_debt_payoff_strategy(
+        loans=sorted_by_rate,
+        monthly_surplus=monthly_surplus,
+        annual_investment_return=annual_investment_return,
+        strategy="avalanche"
     )
 
-    # Generate baseline amortization schedule (minimum payments only)
-    baseline_amortization = generate_amortization_schedule(
-        principal=loan_balance,
-        annual_rate=loan_rate,
-        monthly_payment=loan_minimum_payment
+    # Calculate debt snowball strategy
+    strategies["debt_snowball"]["details"] = simulate_debt_payoff_strategy(
+        loans=sorted_by_balance,
+        monthly_surplus=monthly_surplus,
+        annual_investment_return=annual_investment_return,
+        strategy="snowball"
     )
 
-    # Calculate interest savings and time savings
-    interest_savings = baseline_amortization['total_interest_paid'] - amortization_with_extra['total_interest_paid']
-    months_saved = baseline_amortization['months_to_payoff'] - amortization_with_extra['months_to_payoff']
+    # Calculate highest interest first (focus only on highest interest loan)
+    if sorted_by_rate:
+        strategies["highest_interest_first"]["details"] = simulate_debt_payoff_strategy(
+            loans=sorted_by_rate,
+            monthly_surplus=monthly_surplus,
+            annual_investment_return=annual_investment_return,
+            strategy="highest_interest_only"
+        )
 
-    # Calculate investment growth after loan payoff
-    # Invest the entire payment + surplus for the remaining original term
-    investment_after_payoff = calculate_investment_projection(
-        monthly_amount=loan_minimum_payment + monthly_surplus,
-        annual_return=annual_investment_return,
-        months=months_saved,
-        inflation_rate=inflation_rate,
-        risk_factor=risk_factor
+    # Calculate balanced approach (pay down high interest loans, invest for low interest)
+    # High interest = above risk-adjusted investment return
+    risk_adjusted_return = annual_investment_return * (1 - risk_factor)
+    high_interest_loans = [loan for loan in loans if loan.get('interest_rate', 0) / 100 > risk_adjusted_return]
+    low_interest_loans = [loan for loan in loans if loan.get('interest_rate', 0) / 100 <= risk_adjusted_return]
+
+    strategies["balanced"]["details"] = simulate_balanced_strategy(
+        high_interest_loans=high_interest_loans,
+        low_interest_loans=low_interest_loans,
+        monthly_surplus=monthly_surplus,
+        annual_investment_return=annual_investment_return,
+        risk_adjusted_return=risk_adjusted_return
     )
 
-    # Strategy B: Minimum payments only, invest surplus right away
-    investment_immediate = calculate_investment_projection(
-        monthly_amount=monthly_surplus,
-        annual_return=annual_investment_return,
-        months=baseline_amortization['months_to_payoff'],
-        inflation_rate=inflation_rate,
-        risk_factor=risk_factor
+    # Calculate invest first strategy
+    strategies["invest_first"]["details"] = simulate_invest_first_strategy(
+        loans=loans,
+        monthly_surplus=monthly_surplus,
+        annual_investment_return=annual_investment_return
     )
 
     # Determine best strategy
-    strategy_a_value = interest_savings + investment_after_payoff['risk_adjusted_balance']
-    strategy_b_value = investment_immediate['risk_adjusted_balance']
+    best_strategy = max(strategies.items(), key=lambda s: s[1]["details"].get("final_net_worth", 0))
+    best_strategy_key = best_strategy[0]
+    best_strategy_details = best_strategy[1]
 
-    best_strategy = "Extra Payments First" if strategy_a_value > strategy_b_value else "Invest Surplus First"
-    advantage_amount = abs(strategy_a_value - strategy_b_value)
-
-    # Determine reason based on loan interest vs investment return
-    reason = ""
-    if loan_rate > annual_investment_return * (1 - risk_factor):
-        reason = f"Loan interest rate ({loan_rate:.1%}) exceeds risk-adjusted investment return ({annual_investment_return * (1 - risk_factor):.1%})"
-    else:
-        reason = f"Risk-adjusted investment return ({annual_investment_return * (1 - risk_factor):.1%}) exceeds loan interest rate ({loan_rate:.1%})"
-
-    return {
-        "recommendation": {
-            "best_strategy": best_strategy,
-            "reason": reason,
-            "interest_savings": interest_savings,
-            "months_saved": months_saved,
-            "investment_value_after_loan_payoff": investment_after_payoff['risk_adjusted_balance'],
-            "investment_value_immediate_invest": investment_immediate['risk_adjusted_balance'],
-            "total_savings_advantage": advantage_amount
-        },
-        "loan_details": {
-            "name": priority_loan.get('name', 'Highest Interest Loan'),
-            "interest_rate": loan_rate,
-            "payoff_months_with_extra": amortization_with_extra['months_to_payoff'],
-            "payoff_months_minimum": baseline_amortization['months_to_payoff']
-        },
-        "amortization_comparison": {
-            "baseline": {
-                "total_interest": baseline_amortization['total_interest_paid'],
-                "months_to_payoff": baseline_amortization['months_to_payoff']
-            },
-            "with_extra_payments": {
-                "total_interest": amortization_with_extra['total_interest_paid'],
-                "months_to_payoff": amortization_with_extra['months_to_payoff']
-            }
-        },
-        "investment_comparison": {
-            "immediate_investment": {
-                "final_balance": investment_immediate['final_balance'],
-                "risk_adjusted_balance": investment_immediate['risk_adjusted_balance']
-            },
-            "investment_after_payoff": {
-                "final_balance": investment_after_payoff['final_balance'],
-                "risk_adjusted_balance": investment_after_payoff['risk_adjusted_balance']
-            }
-        }
+    # Generate recommendation
+    recommendation = {
+        "best_strategy": best_strategy_details["name"],
+        "strategy_key": best_strategy_key,
+        "net_worth_advantage": {},
+        "details": best_strategy_details["details"],
+        "risk_adjusted_return": risk_adjusted_return * 100  # Convert to percentage
     }
 
+    # Calculate advantage over other strategies
+    for key, strategy in strategies.items():
+        if key != best_strategy_key and "details" in strategy and "final_net_worth" in strategy["details"]:
+            advantage = best_strategy_details["details"]["final_net_worth"] - strategy["details"]["final_net_worth"]
+            advantage_percent = (advantage / strategy["details"]["final_net_worth"]) * 100 if strategy["details"]["final_net_worth"] > 0 else 0
+            recommendation["net_worth_advantage"][key] = {
+                "amount": advantage,
+                "percent": advantage_percent
+            }
+
+    return {
+        "recommendation": recommendation,
+        "strategies": strategies,
+        "loan_comparisons": loan_comparisons,
+        "risk_adjusted_return": risk_adjusted_return
+    }
+
+def simulate_debt_payoff_strategy(
+        loans: List[Dict[str, Any]],
+        monthly_surplus: float,
+        annual_investment_return: float,
+        strategy: str = "avalanche"
+) -> Dict[str, Any]:
+    """
+    Simulate debt payoff using a specific strategy (avalanche, snowball, etc.).
+
+    Args:
+        loans: List of loans (sorted according to strategy)
+        monthly_surplus: Extra money available monthly after minimum payments
+        annual_investment_return: Expected annual return on investments
+        strategy: Strategy to simulate (avalanche, snowball, highest_interest_only)
+
+    Returns:
+        Dictionary with strategy results
+    """
+    if not loans or monthly_surplus <= 0:
+        return {
+            "final_net_worth": 0,
+            "total_interest_paid": 0,
+            "months_to_debt_free": 0,
+            "investment_value": 0
+        }
+
+    # Create copies of loans to avoid modifying originals
+    working_loans = []
+    for loan in loans:
+        working_loans.append({
+            "id": loan.get('id'),
+            "name": loan.get('name', f'Loan {loan.get("id", 0)}'),
+            "balance": loan.get('balance', 0),
+            "interest_rate": loan.get('interest_rate', 0) / 100,  # Convert to decimal
+            "minimum_payment": loan.get('minimum_payment', 0)
+        })
+
+    # Initialize tracking variables
+    month = 0
+    total_interest_paid = 0
+    investment_balance = 0
+    monthly_return = annual_investment_return / 12
+    max_months = 30 * 12  # Simulate up to 30 years
+    monthly_data = []
+
+    # Continue until all loans are paid off or reached max simulation time
+    while any(loan["balance"] > 0 for loan in working_loans) and month < max_months:
+        month += 1
+
+        # Calculate total minimum payments
+        total_minimum_payment = sum(
+            min(loan["minimum_payment"], loan["balance"])
+            for loan in working_loans if loan["balance"] > 0
+        )
+
+        # Available surplus after minimum payments
+        available_surplus = monthly_surplus
+
+        # Make minimum payments on all loans
+        for loan in working_loans:
+            if loan["balance"] <= 0:
+                continue
+
+            # Calculate interest
+            interest = loan["balance"] * (loan["interest_rate"] / 12)
+            total_interest_paid += interest
+
+            # Apply minimum payment
+            payment = min(loan["minimum_payment"], loan["balance"] + interest)
+            principal_payment = payment - interest
+            loan["balance"] -= principal_payment
+
+            # Ensure balance doesn't go negative
+            if loan["balance"] < 0.01:
+                loan["balance"] = 0
+
+        # Apply extra payment according to strategy
+        if strategy == "avalanche" or strategy == "snowball":
+            # Find first loan with positive balance
+            target_loan = next((loan for loan in working_loans if loan["balance"] > 0), None)
+
+            if target_loan:
+                # Apply extra payment
+                extra_payment = min(available_surplus, target_loan["balance"])
+                target_loan["balance"] -= extra_payment
+                available_surplus -= extra_payment
+
+                # Ensure balance doesn't go negative
+                if target_loan["balance"] < 0.01:
+                    target_loan["balance"] = 0
+
+        elif strategy == "highest_interest_only":
+            # Only apply extra to the first loan (which should be highest interest)
+            target_loan = working_loans[0] if working_loans else None
+
+            if target_loan and target_loan["balance"] > 0:
+                # Apply extra payment
+                extra_payment = min(available_surplus, target_loan["balance"])
+                target_loan["balance"] -= extra_payment
+                available_surplus -= extra_payment
+
+                # Ensure balance doesn't go negative
+                if target_loan["balance"] < 0.01:
+                    target_loan["balance"] = 0
+
+        # Invest any remaining surplus
+        if available_surplus > 0:
+            investment_balance += available_surplus
+
+        # Grow investments
+        investment_balance *= (1 + monthly_return)
+
+        # Record data for this month
+        total_debt = sum(loan["balance"] for loan in working_loans)
+        monthly_data.append({
+            "month": month,
+            "total_debt": total_debt,
+            "investment_balance": investment_balance,
+            "net_worth": investment_balance - total_debt,
+            "total_interest_paid": total_interest_paid
+        })
+
+    # Once all loans are paid off, invest all monthly payment + surplus
+    total_monthly_payment = sum(loan["minimum_payment"] for loan in loans) + monthly_surplus
+
+    # Continue simulation until max months
+    while month < max_months:
+        month += 1
+
+        # Add monthly payment to investment
+        investment_balance += total_monthly_payment
+
+        # Grow investments
+        investment_balance *= (1 + monthly_return)
+
+        # Record data
+        monthly_data.append({
+            "month": month,
+            "total_debt": 0,
+            "investment_balance": investment_balance,
+            "net_worth": investment_balance,
+            "total_interest_paid": total_interest_paid
+        })
+
+    # Calculate months to debt free
+    debt_free_month = next((data["month"] for data in monthly_data if data["total_debt"] == 0), max_months)
+
+    # Create yearly data for charts
+    yearly_data = []
+    for year in range(1, (max_months // 12) + 1):
+        month_idx = year * 12 - 1
+        if month_idx < len(monthly_data):
+            yearly_data.append({
+                "year": year,
+                "netWorth": monthly_data[month_idx]["net_worth"],
+                "investmentValue": monthly_data[month_idx]["investment_balance"],
+                "debtValue": monthly_data[month_idx]["total_debt"]
+            })
+
+    return {
+        "final_net_worth": monthly_data[-1]["net_worth"] if monthly_data else 0,
+        "total_interest_paid": total_interest_paid,
+        "months_to_debt_free": debt_free_month,
+        "investment_value": monthly_data[-1]["investment_balance"] if monthly_data else 0,
+        "monthly_data": monthly_data,
+        "yearly_data": yearly_data
+    }
+
+def simulate_balanced_strategy(
+        high_interest_loans: List[Dict[str, Any]],
+        low_interest_loans: List[Dict[str, Any]],
+        monthly_surplus: float,
+        annual_investment_return: float,
+        risk_adjusted_return: float
+) -> Dict[str, Any]:
+    """
+    Simulate balanced strategy: pay down high interest loans, invest for low interest.
+
+    Args:
+        high_interest_loans: Loans with rates above risk-adjusted return
+        low_interest_loans: Loans with rates below risk-adjusted return
+        monthly_surplus: Extra money available monthly
+        annual_investment_return: Expected annual return on investments
+        risk_adjusted_return: Risk-adjusted investment return
+
+    Returns:
+        Dictionary with strategy results
+    """
+    # Sort high interest loans by interest rate (highest first)
+    high_interest_loans = sorted(high_interest_loans, key=lambda x: x.get('interest_rate', 0), reverse=True)
+
+    # Create copies of all loans
+    all_loans = []
+    for loan in high_interest_loans + low_interest_loans:
+        all_loans.append({
+            "id": loan.get('id'),
+            "name": loan.get('name', f'Loan {loan.get("id", 0)}'),
+            "balance": loan.get('balance', 0),
+            "interest_rate": loan.get('interest_rate', 0) / 100,  # Convert to decimal
+            "minimum_payment": loan.get('minimum_payment', 0),
+            "is_high_interest": loan in high_interest_loans
+        })
+
+    # Initialize tracking variables
+    month = 0
+    total_interest_paid = 0
+    investment_balance = 0
+    monthly_return = annual_investment_return / 12
+    max_months = 30 * 12  # Simulate up to 30 years
+    monthly_data = []
+
+    # Continue until all loans are paid off or reached max simulation time
+    while any(loan["balance"] > 0 for loan in all_loans) and month < max_months:
+        month += 1
+
+        # Calculate total minimum payments
+        total_minimum_payment = sum(
+            min(loan["minimum_payment"], loan["balance"])
+            for loan in all_loans if loan["balance"] > 0
+        )
+
+        # Available surplus after minimum payments
+        available_surplus = monthly_surplus
+
+        # Make minimum payments on all loans
+        for loan in all_loans:
+            if loan["balance"] <= 0:
+                continue
+
+            # Calculate interest
+            interest = loan["balance"] * (loan["interest_rate"] / 12)
+            total_interest_paid += interest
+
+            # Apply minimum payment
+            payment = min(loan["minimum_payment"], loan["balance"] + interest)
+            principal_payment = payment - interest
+            loan["balance"] -= principal_payment
+
+            # Ensure balance doesn't go negative
+            if loan["balance"] < 0.01:
+                loan["balance"] = 0
+
+        # First apply extra payment to high interest loans
+        for loan in [l for l in all_loans if l["is_high_interest"] and l["balance"] > 0]:
+            if available_surplus <= 0:
+                break
+
+            # Apply extra payment
+            extra_payment = min(available_surplus, loan["balance"])
+            loan["balance"] -= extra_payment
+            available_surplus -= extra_payment
+
+            # Ensure balance doesn't go negative
+            if loan["balance"] < 0.01:
+                loan["balance"] = 0
+
+        # Invest any remaining surplus
+        if available_surplus > 0:
+            investment_balance += available_surplus
+
+        # Grow investments
+        investment_balance *= (1 + monthly_return)
+
+        # Record data for this month
+        total_debt = sum(loan["balance"] for loan in all_loans)
+        monthly_data.append({
+            "month": month,
+            "total_debt": total_debt,
+            "investment_balance": investment_balance,
+            "net_worth": investment_balance - total_debt,
+            "total_interest_paid": total_interest_paid
+        })
+
+    # Once all loans are paid off, invest all monthly payment + surplus
+    total_monthly_payment = sum(loan["minimum_payment"] for loan in high_interest_loans + low_interest_loans) + monthly_surplus
+
+    # Continue simulation until max months
+    while month < max_months:
+        month += 1
+
+        # Add monthly payment to investment
+        investment_balance += total_monthly_payment
+
+        # Grow investments
+        investment_balance *= (1 + monthly_return)
+
+        # Record data
+        monthly_data.append({
+            "month": month,
+            "total_debt": 0,
+            "investment_balance": investment_balance,
+            "net_worth": investment_balance,
+            "total_interest_paid": total_interest_paid
+        })
+
+    # Calculate months to debt free
+    debt_free_month = next((data["month"] for data in monthly_data if data["total_debt"] == 0), max_months)
+
+    # Create yearly data for charts
+    yearly_data = []
+    for year in range(1, (max_months // 12) + 1):
+        month_idx = year * 12 - 1
+        if month_idx < len(monthly_data):
+            yearly_data.append({
+                "year": year,
+                "netWorth": monthly_data[month_idx]["net_worth"],
+                "investmentValue": monthly_data[month_idx]["investment_balance"],
+                "debtValue": monthly_data[month_idx]["total_debt"]
+            })
+
+    return {
+        "final_net_worth": monthly_data[-1]["net_worth"] if monthly_data else 0,
+        "total_interest_paid": total_interest_paid,
+        "months_to_debt_free": debt_free_month,
+        "investment_value": monthly_data[-1]["investment_balance"] if monthly_data else 0,
+        "monthly_data": monthly_data,
+        "yearly_data": yearly_data
+    }
+
+def simulate_invest_first_strategy(
+        loans: List[Dict[str, Any]],
+        monthly_surplus: float,
+        annual_investment_return: float
+) -> Dict[str, Any]:
+    """
+    Simulate strategy: invest all surplus, pay only minimum on loans.
+
+    Args:
+        loans: List of loans
+        monthly_surplus: Extra money available monthly
+        annual_investment_return: Expected annual return on investments
+
+    Returns:
+        Dictionary with strategy results
+    """
+    # Create copies of loans
+    working_loans = []
+    for loan in loans:
+        working_loans.append({
+            "id": loan.get('id'),
+            "name": loan.get('name', f'Loan {loan.get("id", 0)}'),
+            "balance": loan.get('balance', 0),
+            "interest_rate": loan.get('interest_rate', 0) / 100,  # Convert to decimal
+            "minimum_payment": loan.get('minimum_payment', 0)
+        })
+
+    # Initialize tracking variables
+    month = 0
+    total_interest_paid = 0
+    investment_balance = 0
+    monthly_return = annual_investment_return / 12
+    max_months = 30 * 12  # Simulate up to 30 years
+    monthly_data = []
+
+    # Continue until all loans are paid off or reached max simulation time
+    while any(loan["balance"] > 0 for loan in working_loans) and month < max_months:
+        month += 1
+
+        # Make minimum payments on all loans
+        for loan in working_loans:
+            if loan["balance"] <= 0:
+                continue
+
+            # Calculate interest
+            interest = loan["balance"] * (loan["interest_rate"] / 12)
+            total_interest_paid += interest
+
+            # Apply minimum payment
+            payment = min(loan["minimum_payment"], loan["balance"] + interest)
+            principal_payment = payment - interest
+            loan["balance"] -= principal_payment
+
+            # Ensure balance doesn't go negative
+            if loan["balance"] < 0.01:
+                loan["balance"] = 0
+
+        # Invest all surplus
+        investment_balance += monthly_surplus
+
+        # Grow investments
+        investment_balance *= (1 + monthly_return)
+
+        # Record data for this month
+        total_debt = sum(loan["balance"] for loan in working_loans)
+        monthly_data.append({
+            "month": month,
+            "total_debt": total_debt,
+            "investment_balance": investment_balance,
+            "net_worth": investment_balance - total_debt,
+            "total_interest_paid": total_interest_paid
+        })
+
+    # Once all loans are paid off, invest all monthly payment + surplus
+    total_monthly_payment = sum(loan["minimum_payment"] for loan in loans) + monthly_surplus
+
+    # Continue simulation until max months
+    while month < max_months:
+        month += 1
+
+        # Add monthly payment to investment
+        investment_balance += total_monthly_payment
+
+        # Grow investments
+        investment_balance *= (1 + monthly_return)
+
+        # Record data
+        monthly_data.append({
+            "month": month,
+            "total_debt": 0,
+            "investment_balance": investment_balance,
+            "net_worth": investment_balance,
+            "total_interest_paid": total_interest_paid
+        })
+
+    # Calculate months to debt free
+    debt_free_month = next((data["month"] for data in monthly_data if data["total_debt"] == 0), max_months)
+
+    # Create yearly data for charts
+    yearly_data = []
+    for year in range(1, (max_months // 12) + 1):
+        month_idx = year * 12 - 1
+        if month_idx < len(monthly_data):
+            yearly_data.append({
+                "year": year,
+                "netWorth": monthly_data[month_idx]["net_worth"],
+                "investmentValue": monthly_data[month_idx]["investment_balance"],
+                "debtValue": monthly_data[month_idx]["total_debt"]
+            })
+
+    return {
+        "final_net_worth": monthly_data[-1]["net_worth"] if monthly_data else 0,
+        "total_interest_paid": total_interest_paid,
+        "months_to_debt_free": debt_free_month,
+        "investment_value": monthly_data[-1]["investment_balance"] if monthly_data else 0,
+        "monthly_data": monthly_data,
+        "yearly_data": yearly_data
+    }
 
 @cached(cache=exchange_rate_cache)
 def get_exchange_rates(base_currency="USD"):
     """Fetch exchange rates from an API with caching"""
     try:
         url = f"https://api.exchangerate-api.com/v4/latest/{base_currency}"
-        response = requests.get(url)
+        response = requests.get(url, timeout=5)
         data = response.json()
         return data.get('rates', {"USD": 1.0, "DKK": 6.8991310126})
     except Exception as e:
-        print(f"Error fetching exchange rates: {e}")
+        logger.error(f"Error fetching exchange rates: {e}")
         # Fallback rates
         return {"USD": 1.0, "DKK": 6.8991310126}
-
-
-def convert_currency(amount: float, from_currency: str = "USD", to_currency: str = "USD") -> float:
-    """Convert amount between currencies"""
-    if from_currency == to_currency:
-        return amount
-
-    rates = get_exchange_rates(base_currency="USD")
-
-    # Convert to USD as an intermediate step if needed
-    if from_currency != "USD":
-        amount = amount / rates.get(from_currency, 1.0)
-
-    # Convert from USD to target currency
-    if to_currency != "USD":
-        amount = amount * rates.get(to_currency, 1.0)
-
-    return amount
