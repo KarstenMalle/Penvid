@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Body
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 from enum import Enum
+import logging
 
 from ..utils.auth import verify_token
 # Fix the import - ensure all required functions are properly imported
@@ -17,6 +18,8 @@ from app.calculations import (
 
 from ..utils.api_util import handle_exceptions, standardize_response
 
+# Configure logging for this module
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["loan_calculations"])
 
@@ -148,6 +151,7 @@ async def calculate_loan_details(
     except Exception as e:
         import traceback
         traceback.print_exc()  # Print full traceback for debugging
+        logger.error(f"Error calculating loan details: {str(e)}")
         return standardize_response(
             error=f"Error calculating loan details: {str(e)}"
         )
@@ -214,6 +218,7 @@ async def get_amortization_schedule(
     except Exception as e:
         import traceback
         traceback.print_exc()  # Print full traceback for debugging
+        logger.error(f"Error generating amortization schedule: {str(e)}")
         return standardize_response(
             error=f"Error generating amortization schedule: {str(e)}"
         )

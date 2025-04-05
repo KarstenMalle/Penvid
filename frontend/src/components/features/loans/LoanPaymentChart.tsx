@@ -1,6 +1,4 @@
-// frontend/src/components/features/loans/LoanPaymentChart.tsx - Fixed version
-
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Loan } from '@/components/features/wealth-optimizer/types'
 import {
   LoanCalculationService,
@@ -60,103 +58,72 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
     monthsToPayoff: 0,
   })
 
-  // Load amortization schedule - using a callback to prevent useEffect dependency issues
-  const fetchAmortizationSchedule = useCallback(async () => {
+  // Track if a request is in progress to prevent duplicate calls
+  const requestInProgressRef = useRef<boolean>(false)
+  // Track if component is mounted
+  const isMountedRef = useRef<boolean>(true)
+
+  // Set mounted flag to false when component unmounts
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
+
+  // Load amortization schedule
+  useEffect(() => {
     if (!user || !loan) return
 
-    setIsLoading(true)
-    try {
-      // Generate amortization schedule locally instead of API call
-      // This is more reliable and avoids API errors
-      const schedule = LoanCalculationService.generateAmortizationScheduleLocal(
-        loan.balance,
-        loan.interestRate,
-        loan.minimumPayment,
-        0 // No extra payment
-      )
+    // Skip if a request is already in progress
+    if (requestInProgressRef.current) return
 
-      setAmortizationData(schedule)
+    const fetchAmortizationData = async () => {
+      // Set request in progress flag
+      requestInProgressRef.current = true
+      setIsLoading(true)
 
-      // Calculate summary data
-      const totalInterest = schedule.reduce(
-        (sum, entry) => sum + entry.interest_payment,
-        0
-      )
+      try {
+        // Call the API for amortization schedule
+        const result = await LoanCalculationService.getAmortizationSchedule(
+          loan.id,
+          {
+            principal: loan.balance,
+            annual_rate: loan.interestRate,
+            monthly_payment: loan.minimumPayment,
+            currency: currency,
+          }
+        )
 
-      setSummaryData({
-        totalPrincipal: loan.balance,
-        totalInterest: totalInterest,
-        totalPayments: loan.balance + totalInterest,
-        monthsToPayoff: schedule.length,
-      })
-    } catch (error) {
-      console.error('Error generating amortization schedule:', error)
-      toast.error(t('loans.failedToLoadAmortizationSchedule'))
-      // Generate fallback data
-      createFallbackAmortizationData()
-    } finally {
-      setIsLoading(false)
-    }
-  }, [user, loan, t])
+        // Only update state if still mounted
+        if (isMountedRef.current) {
+          setAmortizationData(result.schedule)
 
-  // Effect to load data when component mounts
-  useEffect(() => {
-    fetchAmortizationSchedule()
-  }, [fetchAmortizationSchedule])
+          // Calculate summary data
+          setSummaryData({
+            totalPrincipal: loan.balance,
+            totalInterest: result.total_interest_paid,
+            totalPayments: loan.balance + result.total_interest_paid,
+            monthsToPayoff: result.months_to_payoff,
+          })
 
-  // Create a fallback amortization data if generation fails
-  const createFallbackAmortizationData = () => {
-    if (!loan) return
+          setIsLoading(false)
+        }
+      } catch (error) {
+        console.error('Error loading amortization data:', error)
 
-    const schedule: AmortizationEntry[] = []
-    let balance = loan.balance
-    let totalInterestPaid = 0
-    let month = 1
-    const now = new Date()
-    const monthlyRate = loan.interestRate / 100 / 12
-
-    // Simple amortization calculation
-    while (balance > 0 && month <= 360) {
-      // Cap at 30 years
-      const interestPayment = balance * monthlyRate
-      totalInterestPaid += interestPayment
-
-      const principalPayment = Math.min(
-        loan.minimumPayment - interestPayment,
-        balance
-      )
-      balance = Math.max(0, balance - principalPayment)
-
-      // Calculate date for this payment
-      const paymentDate = new Date(now)
-      paymentDate.setMonth(paymentDate.getMonth() + month - 1)
-
-      schedule.push({
-        month,
-        payment_date: paymentDate.toISOString().split('T')[0],
-        payment: loan.minimumPayment,
-        principal_payment: principalPayment,
-        interest_payment: interestPayment,
-        extra_payment: 0,
-        remaining_balance: balance,
-      })
-
-      month++
-
-      // Break if balance is very small
-      if (balance < 0.01) {
-        balance = 0
+        // Only show error if still mounted
+        if (isMountedRef.current) {
+          toast.error(t('loans.failedToLoadAmortizationData'))
+          setIsLoading(false)
+        }
+      } finally {
+        // Reset request in progress flag
+        requestInProgressRef.current = false
       }
     }
 
-    setAmortizationData(schedule)
-    setSummaryData({
-      totalPrincipal: loan.balance,
-      totalInterest: totalInterestPaid,
-      totalPayments: loan.balance + totalInterestPaid,
-      monthsToPayoff: month - 1,
-    })
-  }
+    fetchAmortizationData()
+  }, [user, loan, currency, t])
 
   // Prepare data for balance over time chart
   const prepareBalanceChartData = () => {

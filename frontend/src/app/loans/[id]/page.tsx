@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
 import { LoanService } from '@/services/LoanService'
@@ -44,7 +44,7 @@ import { CurrencyFormatter } from '@/components/ui/currency-formatter'
 import { useLocalization } from '@/context/LocalizationContext'
 import { CurrencySwitch } from '@/components/ui/currency-switch'
 import LoanTaxOptimization from '@/components/features/loans/LoanTaxOptimization'
-import { calculateLoanTerm } from '@/lib/loan-calculations'
+import { post } from '@/utils/api-helper'
 
 // Update loan types mapping to use translated values
 const LOAN_TYPE_CONFIG: Record<LoanType, { color: string }> = {
@@ -86,6 +86,7 @@ export default function LoanDetailPage() {
 
   const [loan, setLoan] = useState<Loan | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [calculationLoading, setCalculationLoading] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [activeTab, setActiveTab] = useState<
@@ -104,75 +105,6 @@ export default function LoanDetailPage() {
     payoffDate: null,
     monthlyInterest: 0,
   })
-
-  // Calculate loan details when loan changes
-  useEffect(() => {
-    // Updated calculateLoanDetails function in LoanDetailPage.tsx
-
-    const calculateLoanDetails = async () => {
-      if (!loan) return
-
-      try {
-        // Use the LoanCalculationService
-        const result = await LoanCalculationService.calculateLoanDetails({
-          principal: loan.balance,
-          annual_rate: loan.interestRate, // Pass the percentage directly, not divided by 100
-          term_years: loan.termYears,
-          monthly_payment: loan.minimumPayment,
-          currency,
-        })
-
-        // Calculate payoff date
-        const payoffDate = new Date()
-        payoffDate.setMonth(
-          payoffDate.getMonth() + (result.loan_term?.months || 0)
-        )
-
-        // Monthly interest calculation - Make sure we're using the correct rate
-        const monthlyRate = loan.interestRate / 100 / 12 // Convert percentage to decimal for calculation
-        const monthlyInterest = loan.balance * monthlyRate
-
-        setLoanDetails({
-          loanTerm: result.loan_term || { months: 0, years: 0 },
-          totalInterest: result.total_interest || 0,
-          payoffDate,
-          monthlyInterest,
-        })
-      } catch (error) {
-        console.error('Error calculating loan details:', error)
-
-        // Fallback to simple calculations if API fails
-        // Make sure we're converting percentage to decimal (divide by 100)
-        const monthlyRate = loan.interestRate / 100 / 12
-
-        // Use Math.log for more accurate calculations
-        const months = Math.ceil(
-          loan.minimumPayment > loan.balance * monthlyRate
-            ? Math.log(
-                loan.minimumPayment /
-                  (loan.minimumPayment - loan.balance * monthlyRate)
-              ) / Math.log(1 + monthlyRate)
-            : 360 // Cap at 30 years if payment is too small
-        )
-
-        // Calculate total payments and interest
-        const totalPayments = loan.minimumPayment * months
-        const totalInterest = totalPayments - loan.balance
-
-        const fallbackPayoffDate = new Date()
-        fallbackPayoffDate.setMonth(fallbackPayoffDate.getMonth() + months)
-
-        setLoanDetails({
-          loanTerm: { months, years: months / 12 },
-          totalInterest: totalInterest > 0 ? totalInterest : 0,
-          payoffDate: fallbackPayoffDate,
-          monthlyInterest: loan.balance * monthlyRate,
-        })
-      }
-    }
-
-    calculateLoanDetails()
-  }, [loan, currency])
 
   // Load the loan data
   useEffect(() => {
@@ -210,6 +142,66 @@ export default function LoanDetailPage() {
 
     loadLoan()
   }, [user, isAuthenticated, params.id, router, t, currency])
+
+  // Calculate loan details when loan changes - using API exclusively
+  useEffect(() => {
+    const calculateLoanDetails = async () => {
+      if (!loan) return
+
+      setCalculationLoading(true)
+      try {
+        // Use the LoanCalculationService API to calculate details
+        const result = await LoanCalculationService.calculateLoanDetails({
+          principal: loan.balance,
+          annual_rate: loan.interestRate,
+          monthly_payment: loan.minimumPayment,
+          term_years: loan.termYears,
+          currency: currency,
+        })
+
+        // Calculate monthly interest (simple calculation that doesn't need API)
+        const monthlyRate = loan.interestRate / 100 / 12
+        const monthlyInterest = loan.balance * monthlyRate
+
+        // Calculate payoff date
+        const payoffDate = new Date()
+        payoffDate.setMonth(payoffDate.getMonth() + result.loan_term.months)
+
+        setLoanDetails({
+          loanTerm: result.loan_term,
+          totalInterest: result.total_interest,
+          payoffDate,
+          monthlyInterest,
+        })
+      } catch (error) {
+        console.error('Error calculating loan details:', error)
+        toast.error(t('loans.failedToCalculateLoanDetails'))
+
+        // Set minimal details to avoid breaking the UI
+        const monthlyRate = loan.interestRate / 100 / 12
+        setLoanDetails({
+          loanTerm: { months: 0, years: 0 },
+          totalInterest: 0,
+          payoffDate: null,
+          monthlyInterest: loan.balance * monthlyRate,
+        })
+      } finally {
+        setCalculationLoading(false)
+      }
+    }
+
+    calculateLoanDetails()
+  }, [loan, currency, t])
+
+  // Calculate interest-to-principal ratio
+  const interestToPrincipalRatio = useMemo(() => {
+    if (!loan || !loanDetails.totalInterest || loan.balance <= 0) {
+      return 0
+    }
+
+    // Calculate the ratio and express as percentage
+    return (loanDetails.totalInterest / loan.balance) * 100
+  }, [loan, loanDetails.totalInterest])
 
   // Handle loan update
   const handleUpdateLoan = async (updatedLoan: Loan) => {
@@ -376,72 +368,84 @@ export default function LoanDetailPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      {t('loans.balance')}
-                    </p>
-                    <p className="text-2xl font-bold">
-                      <CurrencyFormatter value={loan.balance} />
-                    </p>
+                {calculationLoading ? (
+                  <div className="flex justify-center items-center py-4">
+                    <Icons.spinner className="h-6 w-6 animate-spin text-blue-600" />
                   </div>
-                  <div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      {t('loans.interestRate')}
-                    </p>
-                    <p className="text-2xl font-bold">
-                      {formatPercent(loan.interestRate)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      {t('loans.monthlyPayment')}
-                    </p>
-                    <p className="text-2xl font-bold">
-                      <CurrencyFormatter
-                        value={loan.minimumPayment}
-                        minimumFractionDigits={2}
-                        maximumFractionDigits={2}
-                      />
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      {t('loans.term')}
-                    </p>
-                    <p className="text-2xl font-bold">
-                      {loan.termYears.toFixed(2)} {t('loans.years')}
-                    </p>
-                  </div>
-                </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          {t('loans.balance')}
+                        </p>
+                        <p className="text-2xl font-bold">
+                          <CurrencyFormatter value={loan.balance} />
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          {t('loans.interestRate')}
+                        </p>
+                        <p className="text-2xl font-bold">
+                          {formatPercent(loan.interestRate)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          {t('loans.monthlyPayment')}
+                        </p>
+                        <p className="text-2xl font-bold">
+                          <CurrencyFormatter
+                            value={loan.minimumPayment}
+                            minimumFractionDigits={2}
+                            maximumFractionDigits={2}
+                          />
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          {t('loans.term')}
+                        </p>
+                        <p className="text-2xl font-bold">
+                          {loan.termYears.toFixed(2)} {t('loans.years')}
+                        </p>
+                      </div>
+                    </div>
 
-                <div className="pt-4 border-t">
-                  <div className="flex justify-between mb-2">
-                    <span className="text-gray-500 dark:text-gray-400">
-                      {t('loans.totalInterest')}
-                    </span>
-                    <span className="font-semibold text-orange-600">
-                      <CurrencyFormatter value={loanDetails.totalInterest} />
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-500 dark:text-gray-400">
-                      {t('loans.estimatedPayoffDate')}
-                    </span>
-                    <span className="font-semibold">
-                      {loanDetails.payoffDate
-                        ? new Date(loanDetails.payoffDate).toLocaleDateString(
-                            locale === 'da' ? 'da-DK' : 'en-US',
-                            {
-                              year: 'numeric',
-                              month: 'long',
-                              day: 'numeric', // Add day for more precise date
-                            }
-                          )
-                        : t('common.notAvailable')}
-                    </span>
-                  </div>
-                </div>
+                    <div className="pt-4 border-t">
+                      <div className="flex justify-between mb-2">
+                        <span className="text-gray-500 dark:text-gray-400">
+                          {t('loans.totalInterest')}
+                        </span>
+                        <span className="font-semibold text-orange-600">
+                          <CurrencyFormatter
+                            value={loanDetails.totalInterest}
+                          />
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500 dark:text-gray-400">
+                          {t('loans.estimatedPayoffDate')}
+                        </span>
+                        <span className="font-semibold">
+                          {loanDetails.payoffDate
+                            ? new Date(
+                                loanDetails.payoffDate
+                              ).toLocaleDateString(
+                                locale === 'da' ? 'da-DK' : 'en-US',
+                                {
+                                  year: 'numeric',
+                                  month: 'long',
+                                  day: 'numeric', // Add day for more precise date
+                                }
+                              )
+                            : t('common.notAvailable')}
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                )}
               </CardContent>
             </Card>
 
@@ -453,81 +457,75 @@ export default function LoanDetailPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 gap-4">
-                  <div className="flex items-center">
-                    <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/20 flex items-center justify-center mr-4">
-                      <DollarSignIcon className="h-5 w-5 text-blue-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {t('loans.totalCost')}
-                      </p>
-                      <p className="text-lg font-semibold">
-                        <CurrencyFormatter
-                          value={loan.balance + loanDetails.totalInterest}
-                        />
-                      </p>
-                    </div>
+                {calculationLoading ? (
+                  <div className="flex justify-center items-center py-4">
+                    <Icons.spinner className="h-6 w-6 animate-spin text-blue-600" />
                   </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="flex items-center">
+                      <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/20 flex items-center justify-center mr-4">
+                        <DollarSignIcon className="h-5 w-5 text-blue-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          {t('loans.totalCost')}
+                        </p>
+                        <p className="text-lg font-semibold">
+                          <CurrencyFormatter
+                            value={loan.balance + loanDetails.totalInterest}
+                          />
+                        </p>
+                      </div>
+                    </div>
 
-                  <div className="flex items-center">
-                    <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/20 flex items-center justify-center mr-4">
-                      <PercentIcon className="h-5 w-5 text-green-600" />
+                    <div className="flex items-center">
+                      <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/20 flex items-center justify-center mr-4">
+                        <PercentIcon className="h-5 w-5 text-green-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          {t('loans.interestToPrincipalRatio')}
+                        </p>
+                        <p className="text-lg font-semibold">
+                          {interestToPrincipalRatio.toFixed(2)}%
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {t('loans.interestToPrincipalRatio')}
-                      </p>
-                      <p className="text-lg font-semibold">
-                        {loanDetails.totalInterest > 0
-                          ? (
-                              (loanDetails.totalInterest / loan.balance) *
-                              100
-                            ).toFixed(2)
-                          : '0.00'}
-                        %
-                      </p>
-                    </div>
-                  </div>
 
-                  <div className="flex items-center">
-                    <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/20 flex items-center justify-center mr-4">
-                      <CalendarIcon className="h-5 w-5 text-purple-600" />
+                    <div className="flex items-center">
+                      <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/20 flex items-center justify-center mr-4">
+                        <CalendarIcon className="h-5 w-5 text-purple-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          {t('loans.monthsRemaining')}
+                        </p>
+                        <p className="text-lg font-semibold">
+                          {loanDetails.loanTerm.months}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {t('loans.monthsRemaining')}
-                      </p>
-                      <p className="text-lg font-semibold">
-                        {
-                          calculateLoanTerm(
-                            loan.balance,
-                            loan.interestRate,
-                            loan.minimumPayment
-                          ).months
-                        }
-                      </p>
-                    </div>
-                  </div>
 
-                  <div className="flex items-center">
-                    <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/20 flex items-center justify-center mr-4">
-                      <BarChart4Icon className="h-5 w-5 text-amber-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {t('loans.monthlyInterest')}
-                      </p>
-                      <p className="text-lg font-semibold">
-                        <CurrencyFormatter
-                          value={loan.balance * (loan.interestRate / 100 / 12)}
-                          minimumFractionDigits={2}
-                          maximumFractionDigits={2}
-                        />
-                      </p>
+                    <div className="flex items-center">
+                      <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/20 flex items-center justify-center mr-4">
+                        <BarChart4Icon className="h-5 w-5 text-amber-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          {t('loans.monthlyInterest')}
+                        </p>
+                        <p className="text-lg font-semibold">
+                          <CurrencyFormatter
+                            value={loanDetails.monthlyInterest}
+                            minimumFractionDigits={2}
+                            maximumFractionDigits={2}
+                          />
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -561,10 +559,6 @@ export default function LoanDetailPage() {
 
         {activeTab === 'overview' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Card>{/* Existing card content */}</Card>
-
-            <Card>{/* Existing card content */}</Card>
-
             {/* Add the Tax Optimization Component */}
             <div className="md:col-span-2 mt-6">
               <LoanTaxOptimization

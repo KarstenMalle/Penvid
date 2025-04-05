@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { Loan } from '@/components/features/wealth-optimizer/types'
 import {
   Table,
@@ -23,6 +23,7 @@ import { DownloadIcon, ChevronLeftIcon, ChevronRightIcon } from 'lucide-react'
 import { LoanCalculationService } from '@/services/LoanCalculationService'
 import { CurrencyFormatter } from '@/components/ui/currency-formatter'
 import { useLocalization } from '@/context/LocalizationContext'
+import { useAuth } from '@/context/AuthContext' // Add auth context
 import { Icons } from '@/components/ui/icons'
 import toast from 'react-hot-toast'
 
@@ -43,61 +44,63 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
   loan,
 }) => {
   const { t, locale, currency } = useLocalization()
+  const { user } = useAuth() // Get auth user context
   const [amortizationSchedule, setAmortizationSchedule] = useState<
     AmortizationEntry[]
   >([])
-  const [yearFilter, setYearFilter] = useState<'all' | number>('all')
+  const [yearFilter, setYearFilter] = useState<string>('all')
   const [extraPayment, setExtraPayment] = useState<number>(0)
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(12)
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
 
-  // Generate the amortization schedule when the loan or extra payment changes
+  // Track if a request is in progress to prevent duplicate calls
+  const requestInProgressRef = useRef<boolean>(false)
+  // Track if component is mounted
+  const isMountedRef = useRef<boolean>(true)
+
+  // Set mounted flag to false when component unmounts
   useEffect(() => {
-    const fetchAmortizationSchedule = async () => {
-      if (!loan) return
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
 
+  // Fetch amortization schedule when loan or extraPayment changes
+  useEffect(() => {
+    // Skip if no loan or user
+    if (!loan || !user) return
+
+    // Skip if a request is already in progress
+    if (requestInProgressRef.current) return
+
+    async function fetchAmortizationSchedule() {
+      // Set the flag that request is in progress
+      requestInProgressRef.current = true
       setIsLoading(true)
+
       try {
-        // Use the LoanCalculationService to get the amortization schedule
-        const scheduleData =
-          await LoanCalculationService.getAmortizationSchedule(loan.id, {
+        console.log('Fetching amortization schedule for loan ID:', loan.id)
+
+        // Call the API for amortization schedule
+        const result = await LoanCalculationService.getAmortizationSchedule(
+          loan.id,
+          {
             principal: loan.balance,
             annual_rate: loan.interestRate,
             monthly_payment: loan.minimumPayment,
             extra_payment: extraPayment,
             currency: currency,
-          })
+          }
+        )
 
-        // Map the API response to our component's expected format
-        const formattedSchedule = scheduleData.schedule.map((entry) => ({
-          paymentNumber: entry.month,
-          date: entry.payment_date,
-          payment: entry.payment,
-          principal: entry.principal_payment,
-          interest: entry.interest_payment,
-          balance: entry.remaining_balance,
-        }))
+        console.log('Received amortization data:', !!result)
 
-        setAmortizationSchedule(formattedSchedule)
-        // Reset to first page when schedule changes
-        setCurrentPage(1)
-      } catch (error) {
-        console.error('Error generating amortization schedule:', error)
-        toast.error('Failed to generate amortization schedule')
-
-        // Use fallback method to generate amortization schedule locally
-        try {
-          const fallbackSchedule =
-            LoanCalculationService.generateAmortizationScheduleLocal(
-              loan.balance,
-              loan.interestRate,
-              loan.minimumPayment,
-              extraPayment
-            )
-
-          // Format the fallback schedule to match component expectations
-          const formattedFallbackSchedule = fallbackSchedule.map((entry) => ({
+        // Only update state if still mounted
+        if (isMountedRef.current) {
+          // Map the API response to our component's expected format
+          const formattedSchedule = result.schedule.map((entry) => ({
             paymentNumber: entry.month,
             date: entry.payment_date,
             payment: entry.payment,
@@ -106,33 +109,63 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
             balance: entry.remaining_balance,
           }))
 
-          setAmortizationSchedule(formattedFallbackSchedule)
-          setCurrentPage(1)
+          setAmortizationSchedule(formattedSchedule)
+          setIsLoading(false)
 
-          // Show a warning toast instead of error since we have a fallback
-          toast.success('Using locally generated amortization schedule')
-        } catch (fallbackError) {
-          console.error('Fallback generation also failed:', fallbackError)
-          setAmortizationSchedule([])
+          // Reset to first page when schedule changes
+          setCurrentPage(1)
+        }
+      } catch (error) {
+        console.error('Error generating amortization schedule:', error)
+
+        // Only show error if still mounted
+        if (isMountedRef.current) {
+          toast.error('Failed to load amortization schedule')
+          setIsLoading(false)
         }
       } finally {
-        setIsLoading(false)
+        // Reset the request in progress flag
+        requestInProgressRef.current = false
       }
     }
 
+    // Execute the fetch function
     fetchAmortizationSchedule()
-  }, [loan, extraPayment, currency])
+  }, [loan, extraPayment, currency, user])
+
+  // Generate year options based on the schedule - memoized to avoid recalculation
+  const yearOptions = useMemo(() => {
+    if (!amortizationSchedule.length) return []
+
+    // Get years from the schedule
+    const years = new Set<number>()
+
+    // Process all dates in schedule to extract distinct years
+    amortizationSchedule.forEach((entry) => {
+      const entryDate = new Date(entry.date)
+      const year = entryDate.getFullYear()
+      years.add(year)
+    })
+
+    // Convert Set to sorted array of actual calendar years
+    return Array.from(years).sort((a, b) => a - b)
+  }, [amortizationSchedule])
 
   // Filter schedule by year if needed
-  const filteredSchedule =
-    yearFilter === 'all'
-      ? amortizationSchedule
-      : amortizationSchedule.filter((entry) => {
-          const entryDate = new Date(entry.date)
-          const entryYear = entryDate.getFullYear()
-          const currentYear = new Date().getFullYear()
-          return entryYear === currentYear + (yearFilter as number)
-        })
+  const filteredSchedule = useMemo(() => {
+    if (yearFilter === 'all') {
+      return amortizationSchedule
+    }
+
+    // Convert yearFilter string to number
+    const targetYear = parseInt(yearFilter)
+
+    return amortizationSchedule.filter((entry) => {
+      const entryDate = new Date(entry.date)
+      const entryYear = entryDate.getFullYear()
+      return entryYear === targetYear
+    })
+  }, [amortizationSchedule, yearFilter])
 
   // Calculate pagination
   const totalPages = Math.ceil(filteredSchedule.length / itemsPerPage)
@@ -141,14 +174,6 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
     startIndex,
     startIndex + itemsPerPage
   )
-
-  // Generate year options for filter
-  const yearOptions = []
-  const totalYears = Math.ceil(amortizationSchedule.length / 12)
-
-  for (let i = 0; i < Math.min(totalYears, 30); i++) {
-    yearOptions.push(i)
-  }
 
   // Handle extra payment input change
   const handleExtraPaymentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -215,8 +240,8 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
   if (isLoading) {
     return (
       <div className="flex justify-center items-center py-12">
-        <Icons.spinner className="h-8 w-8 animate-spin text-blue-600" />
-        <span className="ml-2">{t('common.loading')}</span>
+        <Icons.spinner className="h-8 w-8 animate-spin text-blue-600 mr-2" />
+        <span>{t('common.loading')}</span>
       </div>
     )
   }
@@ -228,9 +253,9 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
           <div>
             <Label htmlFor="yearFilter">{t('loans.filterByYear')}</Label>
             <Select
-              value={yearFilter.toString()}
+              value={yearFilter}
               onValueChange={(value) => {
-                setYearFilter(value === 'all' ? 'all' : parseInt(value))
+                setYearFilter(value)
                 setCurrentPage(1) // Reset to first page on filter change
               }}
             >
@@ -241,7 +266,7 @@ const LoanAmortizationSchedule: React.FC<LoanAmortizationScheduleProps> = ({
                 <SelectItem value="all">{t('loans.allYears')}</SelectItem>
                 {yearOptions.map((year) => (
                   <SelectItem key={year} value={year.toString()}>
-                    {t('loans.yearNumber', { year: year + 1 })}
+                    {year}
                   </SelectItem>
                 ))}
               </SelectContent>
