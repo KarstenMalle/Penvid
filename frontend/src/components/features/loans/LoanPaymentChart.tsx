@@ -1,3 +1,5 @@
+// frontend/src/components/features/loans/LoanPaymentChart.tsx
+
 import React, { useState, useEffect, useRef } from 'react'
 import { Loan } from '@/components/features/wealth-optimizer/types'
 import {
@@ -24,6 +26,7 @@ import {
 } from 'recharts'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import toast from 'react-hot-toast'
+import { CurrencyFormatter } from '@/components/ui/currency-formatter'
 
 interface LoanPaymentChartProps {
   loan: Loan
@@ -39,7 +42,8 @@ const colors = {
 
 const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
   const { user } = useAuth()
-  const { t, currency, formatCurrency } = useLocalization()
+  const { t, currency, locale, formatCurrency, convertAmount } =
+    useLocalization()
 
   const [amortizationData, setAmortizationData] = useState<AmortizationEntry[]>(
     []
@@ -58,13 +62,12 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
     monthsToPayoff: 0,
   })
 
-  // Track if a request is in progress to prevent duplicate calls
-  const requestInProgressRef = useRef<boolean>(false)
   // Track if component is mounted
   const isMountedRef = useRef<boolean>(true)
 
   // Set mounted flag to false when component unmounts
   useEffect(() => {
+    isMountedRef.current = true
     return () => {
       isMountedRef.current = false
     }
@@ -72,30 +75,27 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
 
   // Load amortization schedule
   useEffect(() => {
-    if (!user || !loan) return
-
-    // Skip if a request is already in progress
-    if (requestInProgressRef.current) return
+    if (!user || !loan || !loan.id) return
 
     const fetchAmortizationData = async () => {
-      // Set request in progress flag
-      requestInProgressRef.current = true
       setIsLoading(true)
 
       try {
-        // Call the API for amortization schedule
+        // Call the API for amortization schedule - specify currency
         const result = await LoanCalculationService.getAmortizationSchedule(
           loan.id,
           {
             principal: loan.balance,
             annual_rate: loan.interestRate,
             monthly_payment: loan.minimumPayment,
-            currency: currency,
+            extra_payment: 0,
+            currency: currency, // Pass current currency
           }
         )
 
         // Only update state if still mounted
         if (isMountedRef.current) {
+          // The returned schedule matches the AmortizationEntry interface required by our component
           setAmortizationData(result.schedule)
 
           // Calculate summary data
@@ -105,8 +105,6 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
             totalPayments: loan.balance + result.total_interest_paid,
             monthsToPayoff: result.months_to_payoff,
           })
-
-          setIsLoading(false)
         }
       } catch (error) {
         console.error('Error loading amortization data:', error)
@@ -114,35 +112,85 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
         // Only show error if still mounted
         if (isMountedRef.current) {
           toast.error(t('loans.failedToLoadAmortizationData'))
-          setIsLoading(false)
+
+          // Create minimal empty data to allow rendering without the loading spinner
+          setAmortizationData([])
+          setSummaryData({
+            totalPrincipal: loan.balance,
+            totalInterest: 0,
+            totalPayments: loan.balance,
+            monthsToPayoff: 0,
+          })
         }
       } finally {
-        // Reset request in progress flag
-        requestInProgressRef.current = false
+        if (isMountedRef.current) {
+          setIsLoading(false)
+        }
       }
     }
 
     fetchAmortizationData()
   }, [user, loan, currency, t])
 
-  // Prepare data for balance over time chart
+  // Prepare data for balance over time chart grouped by year
   const prepareBalanceChartData = () => {
-    // Sample data at regular intervals to avoid too many points
-    const interval = Math.max(1, Math.floor(amortizationData.length / 24))
+    if (!amortizationData || amortizationData.length === 0) {
+      return []
+    }
 
-    return amortizationData
-      .filter(
-        (_, index) =>
-          index % interval === 0 || index === amortizationData.length - 1
-      )
-      .map((entry) => ({
-        month: entry.month,
-        balance: entry.remaining_balance,
-      }))
+    // Group data by year
+    const yearlyData: {
+      [key: string]: { year: string; balance: number }
+    } = {}
+
+    // Add first data point (beginning balance)
+    const firstEntry = amortizationData[0]
+    if (firstEntry) {
+      const firstYear = new Date(firstEntry.payment_date)
+        .getFullYear()
+        .toString()
+      yearlyData[firstYear] = {
+        year: firstYear,
+        balance: firstEntry.remaining_balance,
+      }
+    }
+
+    // Add data points for every year after that
+    amortizationData.forEach((entry) => {
+      const date = new Date(entry.payment_date)
+      const year = date.getFullYear().toString()
+
+      // Only store the last entry for each year (December or end of year balance)
+      if (date.getMonth() === 11 || !yearlyData[year]) {
+        yearlyData[year] = {
+          year: year,
+          balance: entry.remaining_balance,
+        }
+      }
+    })
+
+    // Add the final data point if it's not already included
+    const lastEntry = amortizationData[amortizationData.length - 1]
+    if (lastEntry) {
+      const lastYear = new Date(lastEntry.payment_date).getFullYear().toString()
+      yearlyData[lastYear] = {
+        year: lastYear,
+        balance: lastEntry.remaining_balance,
+      }
+    }
+
+    // Convert to array and sort by year
+    return Object.values(yearlyData).sort((a, b) =>
+      a.year.localeCompare(b.year)
+    )
   }
 
   // Prepare data for payment breakdown chart
   const preparePaymentChartData = () => {
+    if (!amortizationData || amortizationData.length === 0) {
+      return []
+    }
+
     // Group by year to avoid too many bars
     const yearlyData: {
       [key: string]: { principal: number; interest: number; year: string }
@@ -160,7 +208,9 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
       yearlyData[year].interest += entry.interest_payment
     })
 
-    return Object.values(yearlyData)
+    return Object.values(yearlyData).sort((a, b) =>
+      a.year.localeCompare(b.year)
+    )
   }
 
   // Prepare data for pie chart
@@ -181,6 +231,10 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
 
   // Prepare data for interest analysis chart (interest to principal ratio by year)
   const prepareInterestAnalysisData = () => {
+    if (!amortizationData || amortizationData.length === 0) {
+      return []
+    }
+
     // Group by year
     const yearlyData: {
       [key: string]: {
@@ -210,13 +264,52 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
         totalPayment > 0 ? (yearData.interest / totalPayment) * 100 : 0
     })
 
-    return Object.values(yearlyData)
+    return Object.values(yearlyData).sort((a, b) =>
+      a.year.localeCompare(b.year)
+    )
+  }
+
+  // Format value as currency (using CurrencyFormatter to render in the correct span)
+  const CustomizedAxisTick = (props: any) => {
+    const { x, y, payload } = props
+    return (
+      <g transform={`translate(${x},${y})`}>
+        <text
+          x={0}
+          y={0}
+          dy={16}
+          textAnchor="end"
+          fill="#666"
+          transform="rotate(-35)"
+        >
+          <CurrencyFormatter
+            value={payload.value}
+            maximumFractionDigits={0}
+            minimumFractionDigits={0}
+          />
+        </text>
+      </g>
+    )
   }
 
   if (isLoading) {
     return (
       <div className="flex justify-center items-center h-64">
         <Icons.spinner className="h-8 w-8 animate-spin text-blue-600" />
+      </div>
+    )
+  }
+
+  // Show empty state if no data is available
+  if (!amortizationData || amortizationData.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 text-center">
+        <p className="text-gray-500 mb-2">
+          {t('loans.noDataAvailable') || 'No data available'}
+        </p>
+        <p className="text-sm text-gray-400">
+          {t('loans.checkLoanDetails') || 'Please check your loan details'}
+        </p>
       </div>
     )
   }
@@ -244,40 +337,52 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
           <h3 className="text-lg font-medium mb-4">
             {t('loans.balanceOverTime')}
           </h3>
-          <div className="h-64">
+          <div className="h-72">
+            {' '}
+            {/* Increased height for better visualization */}
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
                 data={prepareBalanceChartData()}
-                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                margin={{ top: 10, right: 30, left: 70, bottom: 20 }} // Increased left margin for currency
               >
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis
-                  dataKey="month"
+                  dataKey="year"
                   label={{
-                    value: t('loans.month'),
+                    value: t('loans.years'),
                     position: 'insideBottomRight',
                     offset: -10,
                   }}
                 />
                 <YAxis
-                  tickFormatter={(value) =>
-                    formatCurrency(value, {
-                      style: 'currency',
-                      maximumFractionDigits: 0,
-                      minimumFractionDigits: 0,
-                    })
-                  }
+                  width={70} // Fixed width for y-axis to prevent cutoff
+                  tickMargin={5} // Add space between tick and axis line
+                  // Use CurrencyFormatter via formatter function
+                  tickFormatter={(value) => {
+                    // Convert to correct currency if needed
+                    return new Intl.NumberFormat(
+                      locale === 'da' ? 'da-DK' : 'en-US',
+                      {
+                        style: 'currency',
+                        currency: currency,
+                        maximumFractionDigits: 0,
+                        minimumFractionDigits: 0,
+                      }
+                    ).format(value)
+                  }}
                 />
                 <Tooltip
-                  formatter={(value: number) => [
-                    formatCurrency(value, {
-                      style: 'currency',
-                      maximumFractionDigits: 2,
-                      minimumFractionDigits: 2,
-                    }),
-                    t('loans.balance'),
-                  ]}
-                  labelFormatter={(label) => `${t('loans.month')} ${label}`}
+                  formatter={(value: number) => {
+                    // Use CurrencyFormatter via custom tooltip
+                    return [
+                      <CurrencyFormatter
+                        value={value}
+                        maximumFractionDigits={2}
+                        minimumFractionDigits={2}
+                      />,
+                      t('loans.balance'),
+                    ]
+                  }}
                 />
                 <Legend />
                 <Line
@@ -286,6 +391,12 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
                   stroke={colors.balance}
                   activeDot={{ r: 8 }}
                   name={t('loans.balance')}
+                  dot={{
+                    stroke: colors.balance,
+                    strokeWidth: 2,
+                    fill: 'white',
+                    r: 3,
+                  }}
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -297,27 +408,45 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
           <h3 className="text-lg font-medium mb-4">
             {t('loans.paymentBreakdown')}
           </h3>
-          <div className="h-64">
+          <div className="h-72">
+            {' '}
+            {/* Increased height */}
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={preparePaymentChartData()}
-                margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                margin={{ top: 20, right: 30, left: 70, bottom: 10 }} // Increased left margin for currency
               >
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="year" />
                 <YAxis
-                  tickFormatter={(value) =>
-                    formatCurrency(value, {
-                      style: 'currency',
-                      maximumFractionDigits: 0,
-                    })
-                  }
+                  width={70} // Fixed width for y-axis to prevent cutoff
+                  tickMargin={5} // Add space between tick and axis line
+                  // Use CurrencyFormatter via formatter function
+                  tickFormatter={(value) => {
+                    // Convert to correct currency if needed
+                    return new Intl.NumberFormat(
+                      locale === 'da' ? 'da-DK' : 'en-US',
+                      {
+                        style: 'currency',
+                        currency: currency,
+                        maximumFractionDigits: 0,
+                        minimumFractionDigits: 0,
+                      }
+                    ).format(value)
+                  }}
                 />
                 <Tooltip
-                  formatter={(value: number) => [
-                    formatCurrency(value, { style: 'currency' }),
-                    null,
-                  ]}
+                  formatter={(value: number) => {
+                    // Use CurrencyFormatter via custom tooltip
+                    return [
+                      <CurrencyFormatter
+                        value={value}
+                        maximumFractionDigits={2}
+                        minimumFractionDigits={2}
+                      />,
+                      null,
+                    ]
+                  }}
                 />
                 <Legend />
                 <Bar
@@ -340,11 +469,13 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
           <h3 className="text-lg font-medium mb-4">
             {t('loans.interestAnalysis')}
           </h3>
-          <div className="h-64">
+          <div className="h-72">
+            {' '}
+            {/* Increased height */}
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
                 data={prepareInterestAnalysisData()}
-                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                margin={{ top: 10, right: 30, left: 20, bottom: 10 }}
               >
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="year" />
@@ -364,6 +495,12 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
                   dataKey="ratio"
                   stroke={colors.interest}
                   name={t('loans.interestToPrincipalRatio')}
+                  dot={{
+                    stroke: colors.interest,
+                    strokeWidth: 2,
+                    fill: 'white',
+                    r: 3,
+                  }}
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -375,7 +512,9 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
           <h3 className="text-lg font-medium mb-4">
             {t('loans.principalVsInterest')}
           </h3>
-          <div className="h-64 flex items-center justify-center">
+          <div className="h-72 flex items-center justify-center">
+            {' '}
+            {/* Increased height */}
             <ResponsiveContainer width="80%" height="100%">
               <PieChart>
                 <Pie
@@ -383,7 +522,7 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
                   cx="50%"
                   cy="50%"
                   labelLine={true}
-                  outerRadius={80}
+                  outerRadius={100} // Increased size
                   fill="#8884d8"
                   dataKey="value"
                   nameKey="name"
@@ -396,10 +535,16 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
                   ))}
                 </Pie>
                 <Tooltip
-                  formatter={(value: number) => [
-                    formatCurrency(value, { style: 'currency' }),
-                    null,
-                  ]}
+                  formatter={(value: number) => {
+                    return [
+                      <CurrencyFormatter
+                        value={value}
+                        maximumFractionDigits={2}
+                        minimumFractionDigits={2}
+                      />,
+                      null,
+                    ]
+                  }}
                 />
                 <Legend />
               </PieChart>
@@ -414,9 +559,7 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
               </p>
               <p className="text-lg font-semibold">
                 <span style={{ color: colors.principal }}>
-                  {formatCurrency(summaryData.totalPrincipal, {
-                    style: 'currency',
-                  })}
+                  <CurrencyFormatter value={summaryData.totalPrincipal} />
                 </span>
               </p>
             </div>
@@ -426,18 +569,14 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
               </p>
               <p className="text-lg font-semibold">
                 <span style={{ color: colors.interest }}>
-                  {formatCurrency(summaryData.totalInterest, {
-                    style: 'currency',
-                  })}
+                  <CurrencyFormatter value={summaryData.totalInterest} />
                 </span>
               </p>
             </div>
             <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
               <p className="text-sm text-gray-500">{t('loans.totalCost')}</p>
               <p className="text-lg font-semibold">
-                {formatCurrency(summaryData.totalPayments, {
-                  style: 'currency',
-                })}
+                <CurrencyFormatter value={summaryData.totalPayments} />
               </p>
             </div>
             <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">

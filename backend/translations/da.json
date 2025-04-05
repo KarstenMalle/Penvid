@@ -333,6 +333,9 @@
     "balanceExplanation": "Husk, at afdrag på gæld giver et garanteret afkast svarende til renten, mens investering giver et potentielt højere, men usikkert afkast. Din beslutning bør afspejle din personlige komfort med økonomisk risiko."
   },
   "loans": {
+    "monthsYears": "Måned/År",
+    "noDataAvailable": "Ingen data tilgængelig",
+    "checkLoanDetails": "Dobbeltcheck dine lån detaljer eller prøv igen senere",
     "countries": {
       "US": {
         "description": "Amerikanske skatte- og finansielle regler"

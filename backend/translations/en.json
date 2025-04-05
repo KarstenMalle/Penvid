@@ -335,6 +335,9 @@
     "balanceExplanation": "Remember that paying down debt offers a guaranteed return equal to the interest rate, while investing provides a potentially higher but uncertain return. Your decision should reflect your personal comfort with financial risk."
   },
   "loans": {
+    "monthsYears": "Month/Year",
+    "noDataAvailable": "No data available",
+    "checkLoanDetails": "Please check your loan details or try again later",
     "loadingLoanData": "Loading loan data...",
     "countries": {
       "US": {
