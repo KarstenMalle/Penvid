@@ -7,6 +7,8 @@ from ..api.user_settings import router as user_settings_router
 from ..api.translations import router as translations_router
 from ..api.loan_calculations import router as loan_calculations_router
 from ..api.recommendations import router as recommendations_router
+from ..api.tax_savings import router as tax_savings_router
+from ..api.debug import router as debug_router
 
 # Export the routers
 loans = loans_router
@@ -17,3 +19,5 @@ user_settings = user_settings_router
 translations = translations_router
 loan_calculations = loan_calculations_router
 recommendations = recommendations_router
+tax_savings = tax_savings_router
+debug = debug_router

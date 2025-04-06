@@ -10,8 +10,11 @@ from app.api import (
     user_settings,
     translations,
     loan_calculations,
-    recommendations
+    recommendations,
+    tax_savings,
+    debug
 )
+from app.middleware import CurrencyMiddleware
 
 # Load environment variables
 load_dotenv()
@@ -35,6 +38,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add currency conversion middleware
+app.add_middleware(CurrencyMiddleware, default_currency="USD")
+
 # Include all API routers
 app.include_router(loans)
 app.include_router(investments)
@@ -44,6 +50,8 @@ app.include_router(user_settings)
 app.include_router(translations)
 app.include_router(loan_calculations)
 app.include_router(recommendations)
+app.include_router(tax_savings)
+app.include_router(debug)
 
 @app.get("/api/health")
 async def health_check():

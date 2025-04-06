@@ -516,22 +516,14 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
       safeOptions.style = formatOptions.style
     }
 
-    // Convert amount if needed - using the synchronous version
-    const convertedAmount =
-      originalCurrency === currency
-        ? amount
-        : convertAmount(amount, originalCurrency, currency)
-
     try {
-      return new Intl.NumberFormat(config.locale, safeOptions).format(
-        convertedAmount
-      )
+      return new Intl.NumberFormat(config.locale, safeOptions).format(amount)
     } catch (error) {
       console.error('Error formatting currency:', error)
       // Fallback to basic formatting
       return currency === 'USD'
-        ? `$${convertedAmount.toFixed(safeOptions.minimumFractionDigits)}`
-        : `${convertedAmount.toFixed(safeOptions.minimumFractionDigits)} ${currency}`
+        ? `$${amount.toFixed(safeOptions.minimumFractionDigits)}`
+        : `${amount.toFixed(safeOptions.minimumFractionDigits)} ${currency}`
     }
   }
 

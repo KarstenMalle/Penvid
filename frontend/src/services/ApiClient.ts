@@ -63,6 +63,12 @@ export class ApiClient {
       'Content-Type': 'application/json',
     }
 
+    // Add currency preference from localStorage if available
+    const currency = localStorage.getItem('currency')
+    if (currency) {
+      headers['X-Currency-Preference'] = currency
+    }
+
     if (requiresAuth) {
       const token = await this.getAuthToken()
       if (token) {

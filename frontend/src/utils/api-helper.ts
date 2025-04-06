@@ -1,273 +1,131 @@
 // frontend/src/utils/api-helper.ts
-
-import axios, { AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios'
-import toast from 'react-hot-toast'
 import { createClient } from '@/lib/supabase-browser'
 
-// Define API response structure
-export interface ApiResponse<T> {
-  data?: T
-  error?: {
-    message: string
-    code?: string
-    details?: any
-  }
-  status: number
-  success: boolean
-}
-
+// API base URL from environment variable
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
-const DEFAULT_TIMEOUT = 30000 // 30 seconds
 
-/**
- * Get authentication token from Supabase
- */
-export async function getAuthToken(): Promise<string | null> {
-  try {
-    const supabase = createClient()
-    const { data } = await supabase.auth.getSession()
-    return data.session?.access_token || null
-  } catch (error) {
-    console.error('Error getting auth token:', error)
-    return null
+// Interface for API request options
+interface ApiRequestOptions {
+  requiresAuth?: boolean
+  headers?: Record<string, string>
+  errorMessage?: string
+}
+
+// Interface for API response
+interface ApiResponse<T> {
+  success: boolean
+  data?: T
+  error?: {
+    status: number
+    message: string
   }
 }
 
 /**
- * Creates a consistent API response format regardless of success or failure
+ * Function to make API requests with proper error handling
+ * and automatic currency header injection
  */
-function createApiResponse<T>(
-  success: boolean,
-  data?: T,
-  error?: Error | AxiosError,
-  status?: number
-): ApiResponse<T> {
-  if (success && data) {
+export async function apiRequest<T>(
+  endpoint: string,
+  method: string,
+  data?: any,
+  options: ApiRequestOptions = {}
+): Promise<ApiResponse<T>> {
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    }
+
+    // Add currency preference header from localStorage if available
+    const currencyPreference = localStorage.getItem('currency')
+    if (currencyPreference) {
+      headers['X-Currency-Preference'] = currencyPreference
+    }
+
+    // Add authorization header if required
+    if (options.requiresAuth) {
+      const supabase = createClient()
+      const { data: authData } = await supabase.auth.getSession()
+
+      if (authData.session?.access_token) {
+        headers['Authorization'] = `Bearer ${authData.session.access_token}`
+      } else {
+        throw new Error('No authentication token available')
+      }
+    }
+
+    const config: RequestInit = {
+      method,
+      headers,
+      credentials: 'include',
+    }
+
+    if (data && (method === 'POST' || method === 'PUT')) {
+      config.body = JSON.stringify(data)
+    }
+
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, config)
+
+    // Try to parse JSON response
+    const responseData = await response.json().catch(() => null)
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: {
+          status: response.status,
+          message:
+            responseData?.error || options.errorMessage || 'An error occurred',
+        },
+      }
+    }
+
     return {
-      data,
       success: true,
-      status: status || 200,
+      data: responseData,
     }
-  }
-
-  // Handle error
-  let errorMessage = 'An unknown error occurred'
-  let errorDetails = undefined
-  let errorCode = undefined
-  let errorStatus = status || 500
-
-  if (error) {
-    // Handle Axios-specific errors
-    if (axios.isAxiosError(error)) {
-      const axiosError = error as AxiosError
-
-      // Connection errors
-      if (!axiosError.response) {
-        errorMessage = axiosError.message || 'Network or connection error'
-        errorStatus = 0
-
-        if (axiosError.code === 'ECONNABORTED') {
-          errorMessage = 'Request timed out'
-          errorStatus = 408
-        }
-      }
-      // Server errors (with response)
-      else {
-        errorStatus = axiosError.response.status
-
-        // Try to parse error from response data
-        const responseData = axiosError.response.data
-
-        if (typeof responseData === 'object' && responseData !== null) {
-          // Handle standard API error format
-          if (responseData.error) {
-            errorMessage =
-              responseData.error.message ||
-              responseData.message ||
-              responseData.error
-            errorDetails = responseData.error.details || responseData.details
-            errorCode = responseData.error.code || responseData.code
-          }
-          // Handle FastAPI error format
-          else if (responseData.detail) {
-            errorMessage =
-              typeof responseData.detail === 'string'
-                ? responseData.detail
-                : JSON.stringify(responseData.detail)
-          }
-          // Fallback to string representation of the object
-          else {
-            errorMessage = JSON.stringify(responseData)
-          }
-        }
-        // Handle plain text error
-        else if (typeof responseData === 'string') {
-          errorMessage = responseData
-        }
-      }
-    }
-    // Handle regular JS Errors
-    else {
-      errorMessage = error.message || errorMessage
-    }
-  }
-
-  return {
-    error: {
-      message: errorMessage,
-      code: errorCode,
-      details: errorDetails,
-    },
-    success: false,
-    status: errorStatus,
-  }
-}
-
-/**
- * Enhanced fetch function with better error handling
- */
-export async function apiRequest<T = any>(
-  endpoint: string,
-  options: {
-    method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH'
-    data?: any
-    params?: Record<string, string | number | boolean | undefined>
-    headers?: Record<string, string>
-    timeout?: number
-    withCredentials?: boolean
-    token?: string
-    requiresAuth?: boolean
-    showErrorToast?: boolean
-    errorMessage?: string
-  } = {}
-): Promise<ApiResponse<T>> {
-  const {
-    method = 'GET',
-    data,
-    params,
-    headers = {},
-    timeout = DEFAULT_TIMEOUT,
-    withCredentials = true,
-    token,
-    requiresAuth = true, // Default to true since most endpoints require auth
-    showErrorToast = true,
-    errorMessage,
-  } = options
-
-  // Prepare full URL with query parameters
-  let url = `${API_BASE_URL}${endpoint}`
-
-  // Set up headers including authorization if token provided
-  const requestHeaders: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...headers,
-  }
-
-  // Get token either from options or from Supabase if requiresAuth is true
-  let authToken = token
-  if (requiresAuth && !authToken) {
-    authToken = await getAuthToken()
-  }
-
-  if (authToken) {
-    requestHeaders['Authorization'] = `Bearer ${authToken}`
-  } else if (requiresAuth) {
-    console.warn(
-      `No auth token available for authenticated request to ${endpoint}`
-    )
-  }
-
-  // Configure axios request
-  const config: AxiosRequestConfig = {
-    method,
-    url,
-    headers: requestHeaders,
-    timeout,
-    withCredentials,
-    params,
-  }
-
-  // Add data to request if it exists
-  if (data) {
-    config.data = data
-  }
-
-  try {
-    const response: AxiosResponse<T> = await axios(config)
-    return createApiResponse<T>(true, response.data, undefined, response.status)
   } catch (error: any) {
-    // Create standardized error response
-    const apiResponse = createApiResponse<T>(false, undefined, error)
+    console.error(`API Error (${endpoint}):`, error)
 
-    // Show error toast if enabled
-    if (showErrorToast) {
-      toast.error(
-        errorMessage || apiResponse.error?.message || 'An error occurred'
-      )
+    return {
+      success: false,
+      error: {
+        status: 500,
+        message: options.errorMessage || error.message || 'An error occurred',
+      },
     }
-
-    // Log detailed error for debugging
-    console.error(`API Error (${method} ${endpoint}):`, {
-      status: apiResponse.status,
-      message: apiResponse.error?.message,
-      details: apiResponse.error?.details,
-      code: apiResponse.error?.code,
-    })
-
-    return apiResponse
   }
 }
 
-/**
- * Convenience method for GET requests
- */
-export function get<T = any>(
+// Convenience methods for common HTTP verbs
+export async function get<T>(
   endpoint: string,
-  options: Omit<Parameters<typeof apiRequest>[1], 'method'> = {}
+  options: ApiRequestOptions = {}
 ): Promise<ApiResponse<T>> {
-  return apiRequest<T>(endpoint, { ...options, method: 'GET' })
+  return apiRequest<T>(endpoint, 'GET', undefined, options)
 }
 
-/**
- * Convenience method for POST requests
- */
-export function post<T = any>(
+export async function post<T>(
   endpoint: string,
-  data?: any,
-  options: Omit<Parameters<typeof apiRequest>[1], 'method' | 'data'> = {}
+  data: any,
+  options: ApiRequestOptions = {}
 ): Promise<ApiResponse<T>> {
-  return apiRequest<T>(endpoint, { ...options, method: 'POST', data })
+  return apiRequest<T>(endpoint, 'POST', data, options)
 }
 
-/**
- * Convenience method for PUT requests
- */
-export function put<T = any>(
+export async function put<T>(
   endpoint: string,
-  data?: any,
-  options: Omit<Parameters<typeof apiRequest>[1], 'method' | 'data'> = {}
+  data: any,
+  options: ApiRequestOptions = {}
 ): Promise<ApiResponse<T>> {
-  return apiRequest<T>(endpoint, { ...options, method: 'PUT', data })
+  return apiRequest<T>(endpoint, 'PUT', data, options)
 }
 
-/**
- * Convenience method for DELETE requests
- */
-export function del<T = any>(
+export async function del<T>(
   endpoint: string,
-  options: Omit<Parameters<typeof apiRequest>[1], 'method'> = {}
+  options: ApiRequestOptions = {}
 ): Promise<ApiResponse<T>> {
-  return apiRequest<T>(endpoint, { ...options, method: 'DELETE' })
-}
-
-/**
- * Convenience method for PATCH requests
- */
-export function patch<T = any>(
-  endpoint: string,
-  data?: any,
-  options: Omit<Parameters<typeof apiRequest>[1], 'method' | 'data'> = {}
-): Promise<ApiResponse<T>> {
-  return apiRequest<T>(endpoint, { ...options, method: 'PATCH', data })
+  return apiRequest<T>(endpoint, 'DELETE', undefined, options)
 }

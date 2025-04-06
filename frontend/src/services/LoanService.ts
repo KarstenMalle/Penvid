@@ -1,43 +1,52 @@
 // frontend/src/services/LoanService.ts
 
-import { createClient } from '@/lib/supabase-browser'
 import { Loan, LoanType } from '@/components/features/wealth-optimizer/types'
-import { FinancialApiService } from './FinancialApiService'
+import { get, post, put, del } from '@/utils/api-helper'
 
 /**
- * Service for managing loans in Supabase
+ * Service for managing loans via backend API
+ * All currency conversion is handled by the backend
  */
 export class LoanService {
   /**
    * Get all loans for a user
+   * Loans will be returned in the user's preferred currency
    */
-  static async getUserLoans(
-    userId: string,
-    currency: string = 'USD'
-  ): Promise<Loan[]> {
+  static async getUserLoans(userId: string): Promise<Loan[]> {
     try {
-      const supabase = createClient()
+      const response = await get<any>(`/api/user/${userId}/loans`, {
+        requiresAuth: true,
+      })
 
-      const { data, error } = await supabase
-        .from('loans')
-        .select('*')
-        .eq('user_id', userId)
-        .order('name')
+      if (!response.success || !response.data) {
+        throw new Error(response.error?.message || 'Failed to fetch loans')
+      }
 
-      if (error) throw error
-
-      // Convert loan data format
-      return data.map((loan) => ({
-        id: loan.loan_id,
-        name: loan.name,
-        balance: loan.balance,
-        interestRate: loan.interest_rate,
-        termYears: loan.term_years,
-        minimumPayment: loan.minimum_payment,
-        loanType: loan.loan_type || LoanType.OTHER,
-      }))
+      // Return the loans - already converted to user's currency by backend
+      return response.data.data
     } catch (error) {
       console.error('Error getting user loans:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Get a specific loan by ID
+   */
+  static async getLoan(userId: string, loanId: number): Promise<Loan> {
+    try {
+      const response = await get<any>(`/api/user/${userId}/loan/${loanId}`, {
+        requiresAuth: true,
+      })
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error?.message || 'Failed to fetch loan')
+      }
+
+      // Return the loan - already converted to user's currency by backend
+      return response.data.data
+    } catch (error) {
+      console.error('Error getting loan:', error)
       throw error
     }
   }
@@ -47,73 +56,12 @@ export class LoanService {
    */
   static async saveUserLoans(userId: string, loans: Loan[]): Promise<void> {
     try {
-      const supabase = createClient()
+      const response = await post<any>(`/api/user/${userId}/loans`, loans, {
+        requiresAuth: true,
+      })
 
-      // Format loans for database
-      const formattedLoans = loans.map((loan) => ({
-        user_id: userId,
-        loan_id: loan.id,
-        name: loan.name,
-        balance: loan.balance,
-        interest_rate: loan.interestRate,
-        term_years: loan.termYears,
-        minimum_payment: loan.minimumPayment,
-        loan_type: loan.loanType || LoanType.OTHER,
-        updated_at: new Date().toISOString(),
-      }))
-
-      // Get existing loan IDs
-      const { data: existingLoans, error: fetchError } = await supabase
-        .from('loans')
-        .select('loan_id')
-        .eq('user_id', userId)
-
-      if (fetchError) throw fetchError
-
-      const existingLoanIds = existingLoans.map((loan) => loan.loan_id)
-
-      // Determine which loans to insert and which to update
-      const loansToInsert = formattedLoans.filter(
-        (loan) => !existingLoanIds.includes(loan.loan_id)
-      )
-      const loansToUpdate = formattedLoans.filter((loan) =>
-        existingLoanIds.includes(loan.loan_id)
-      )
-
-      // Insert new loans
-      if (loansToInsert.length > 0) {
-        const { error: insertError } = await supabase
-          .from('loans')
-          .insert(loansToInsert)
-
-        if (insertError) throw insertError
-      }
-
-      // Update existing loans
-      for (const loan of loansToUpdate) {
-        const { error: updateError } = await supabase
-          .from('loans')
-          .update(loan)
-          .eq('user_id', userId)
-          .eq('loan_id', loan.loan_id)
-
-        if (updateError) throw updateError
-      }
-
-      // Delete loans that are no longer in the list
-      const currentLoanIds = formattedLoans.map((loan) => loan.loan_id)
-      const loanIdsToDelete = existingLoanIds.filter(
-        (id) => !currentLoanIds.includes(id)
-      )
-
-      if (loanIdsToDelete.length > 0) {
-        const { error: deleteError } = await supabase
-          .from('loans')
-          .delete()
-          .eq('user_id', userId)
-          .in('loan_id', loanIdsToDelete)
-
-        if (deleteError) throw deleteError
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Failed to save loans')
       }
     } catch (error) {
       console.error('Error saving user loans:', error)
@@ -122,31 +70,43 @@ export class LoanService {
   }
 
   /**
-   * Update a single loan
+   * Create a new loan
    */
-  static async updateLoan(userId: string, loan: Loan): Promise<void> {
+  static async createLoan(userId: string, loan: Loan): Promise<Loan> {
     try {
-      const supabase = createClient()
+      const response = await post<any>(`/api/user/${userId}/loan`, loan, {
+        requiresAuth: true,
+      })
 
-      const formattedLoan = {
-        user_id: userId,
-        loan_id: loan.id,
-        name: loan.name,
-        balance: loan.balance,
-        interest_rate: loan.interestRate,
-        term_years: loan.termYears,
-        minimum_payment: loan.minimumPayment,
-        loan_type: loan.loanType || LoanType.OTHER,
-        updated_at: new Date().toISOString(),
+      if (!response.success || !response.data) {
+        throw new Error(response.error?.message || 'Failed to create loan')
       }
 
-      const { error } = await supabase
-        .from('loans')
-        .upsert(formattedLoan)
-        .eq('user_id', userId)
-        .eq('loan_id', loan.id)
+      return response.data.data
+    } catch (error) {
+      console.error('Error creating loan:', error)
+      throw error
+    }
+  }
 
-      if (error) throw error
+  /**
+   * Update a single loan
+   */
+  static async updateLoan(userId: string, loan: Loan): Promise<Loan> {
+    try {
+      const response = await put<any>(
+        `/api/user/${userId}/loan/${loan.id}`,
+        loan,
+        {
+          requiresAuth: true,
+        }
+      )
+
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Failed to update loan')
+      }
+
+      return response.data?.data || loan
     } catch (error) {
       console.error('Error updating loan:', error)
       throw error
@@ -158,15 +118,13 @@ export class LoanService {
    */
   static async deleteLoan(userId: string, loanId: number): Promise<void> {
     try {
-      const supabase = createClient()
+      const response = await del<any>(`/api/user/${userId}/loan/${loanId}`, {
+        requiresAuth: true,
+      })
 
-      const { error } = await supabase
-        .from('loans')
-        .delete()
-        .eq('user_id', userId)
-        .eq('loan_id', loanId)
-
-      if (error) throw error
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Failed to delete loan')
+      }
     } catch (error) {
       console.error('Error deleting loan:', error)
       throw error
@@ -178,52 +136,27 @@ export class LoanService {
    */
   static async createDefaultLoan(userId: string): Promise<Loan | null> {
     try {
-      const supabase = createClient()
+      const response = await post<any>(
+        `/api/user/${userId}/loans/default`,
+        {},
+        {
+          requiresAuth: true,
+        }
+      )
 
-      // First check if user already has loans
-      const { data: existingLoans, error: fetchError } = await supabase
-        .from('loans')
-        .select('loan_id')
-        .eq('user_id', userId)
-        .limit(1)
-
-      if (fetchError) throw fetchError
-
-      // If user already has loans, don't create a default
-      if (existingLoans && existingLoans.length > 0) {
-        return null
+      if (!response.success) {
+        throw new Error(
+          response.error?.message || 'Failed to create default loan'
+        )
       }
 
-      // Default loan
-      const defaultLoan = {
-        user_id: userId,
-        loan_id: 1,
-        name: 'Student Loan',
-        balance: 25000,
-        interest_rate: 5.8,
-        term_years: 10,
-        minimum_payment: 275,
-        loan_type: LoanType.STUDENT,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+      // If a loan was created, return it
+      if (response.data?.data) {
+        return response.data.data
       }
 
-      const { error: insertError } = await supabase
-        .from('loans')
-        .insert(defaultLoan)
-
-      if (insertError) throw insertError
-
-      // Return formatted loan for frontend
-      return {
-        id: defaultLoan.loan_id,
-        name: defaultLoan.name,
-        balance: defaultLoan.balance,
-        interestRate: defaultLoan.interest_rate,
-        termYears: defaultLoan.term_years,
-        minimumPayment: defaultLoan.minimum_payment,
-        loanType: defaultLoan.loan_type,
-      }
+      // No loan was created (user already has loans)
+      return null
     } catch (error) {
       console.error('Error creating default loan:', error)
       return null
@@ -235,37 +168,167 @@ export class LoanService {
    */
   static async calculateTaxSavings(
     userId: string,
-    loan: Loan,
+    loanId: number,
     countryCode: string = 'US'
   ): Promise<any> {
-    // This would call an API endpoint to calculate tax savings
-    // For now, return mock data based on loan type and country code
+    try {
+      const response = await post<any>(
+        '/api/loans/tax-savings',
+        {
+          user_id: userId,
+          loan_id: loanId,
+          country_code: countryCode,
+        },
+        {
+          requiresAuth: true,
+        }
+      )
 
-    // This is a temporary implementation that would be replaced with an API call
-    const isDeductible = [
-      'MORTGAGE',
-      'MORTGAGE_BOND',
-      'HOME_LOAN',
-      'STUDENT',
-    ].includes(loan.loanType || 'OTHER')
-    const deductionRate = countryCode === 'DK' ? 0.33 : 0.25
-    const annualInterest = loan.balance * (loan.interestRate / 100)
-    const estimatedSavings = isDeductible ? annualInterest * deductionRate : 0
+      if (!response.success || !response.data) {
+        throw new Error(
+          response.error?.message || 'Failed to calculate tax savings'
+        )
+      }
 
-    return {
-      tax_deductible: isDeductible,
-      deduction_rate: deductionRate,
-      deduction_cap:
-        countryCode === 'US' && loan.loanType === 'MORTGAGE' ? 750000 : null,
-      annual_interest: annualInterest,
-      estimated_tax_savings: estimatedSavings,
-      recommendations: isDeductible
-        ? [
-            'Remember to include loan interest in your tax return',
-            'Keep detailed records of all interest payments',
-            'Consider consulting a tax professional for optimal tax strategies',
-          ]
-        : null,
+      return response.data.data
+    } catch (error) {
+      console.error('Error calculating tax savings:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Get amortization schedule for a loan
+   */
+  static async getAmortizationSchedule(
+    userId: string,
+    loanId: number,
+    extraPayment: number = 0,
+    maxYears: number = 30
+  ): Promise<any> {
+    try {
+      const response = await post<any>(
+        `/api/loans/${loanId}/amortization`,
+        {
+          user_id: userId,
+          extra_payment: extraPayment,
+          max_years: maxYears,
+        },
+        {
+          requiresAuth: true,
+        }
+      )
+
+      if (!response.success || !response.data) {
+        throw new Error(
+          response.error?.message || 'Failed to get amortization schedule'
+        )
+      }
+
+      return response.data.data
+    } catch (error) {
+      console.error('Error getting amortization schedule:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Get detailed payment analysis for a loan
+   */
+  static async getPaymentAnalysis(
+    userId: string,
+    loanId: number,
+    extraPayment: number = 0
+  ): Promise<any> {
+    try {
+      const response = await post<any>(
+        '/api/loans/payment-analysis',
+        {
+          user_id: userId,
+          loan_id: loanId,
+          extra_payment: extraPayment,
+        },
+        {
+          requiresAuth: true,
+        }
+      )
+
+      if (!response.success || !response.data) {
+        throw new Error(
+          response.error?.message || 'Failed to get payment analysis'
+        )
+      }
+
+      return response.data.data
+    } catch (error) {
+      console.error('Error getting payment analysis:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Calculate what-if scenarios for a loan
+   */
+  static async calculateWhatIfScenarios(
+    userId: string,
+    loanId: number,
+    scenarios: any[]
+  ): Promise<any> {
+    try {
+      const response = await post<any>(
+        '/api/loans/what-if-scenarios',
+        {
+          user_id: userId,
+          loan_id: loanId,
+          scenarios: scenarios,
+        },
+        {
+          requiresAuth: true,
+        }
+      )
+
+      if (!response.success || !response.data) {
+        throw new Error(
+          response.error?.message || 'Failed to calculate scenarios'
+        )
+      }
+
+      return response.data.data
+    } catch (error) {
+      console.error('Error calculating what-if scenarios:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Calculate details for multiple loans at once
+   */
+  static async batchCalculateLoans(
+    userId: string,
+    loanIds: number[]
+  ): Promise<any[]> {
+    try {
+      const response = await post<any>(
+        '/api/loans/batch-calculate',
+        {
+          user_id: userId,
+          loan_ids: loanIds,
+        },
+        {
+          requiresAuth: true,
+        }
+      )
+
+      if (!response.success || !response.data) {
+        throw new Error(
+          response.error?.message || 'Failed to calculate loan details'
+        )
+      }
+
+      return response.data.data
+    } catch (error) {
+      console.error('Error batch calculating loans:', error)
+      throw error
     }
   }
 }
