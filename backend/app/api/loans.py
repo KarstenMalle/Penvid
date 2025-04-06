@@ -1,20 +1,24 @@
 # backend/app/api/loans.py
 from fastapi import APIRouter, Depends, HTTPException, Request, Body
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from pydantic import BaseModel
 from ..models import Loan, FinancialOverview, AmortizationRequest, AmortizationResponse
 from ..database import get_supabase_client
 from ..utils.auth import verify_token
 from ..utils.api_util import handle_exceptions, check_supabase_error, standardize_response
 from ..calculations import generate_amortization_schedule
+import logging
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["loans"])
 
 @router.get("/user/{user_id}/loans")
 @handle_exceptions
 async def get_user_loans(
-        user_id: str,
         request: Request,
+        user_id: str,
         authenticated_user_id: str = Depends(verify_token)
 ):
     """
@@ -31,6 +35,7 @@ async def get_user_loans(
         loans_response = supabase.table("loans").select("*").eq("user_id", user_id).order("name").execute()
 
         if loans_response.error:
+            logger.error(f"Database error in get_user_loans: {loans_response.error.message}")
             raise HTTPException(status_code=500, detail=f"Database error: {loans_response.error.message}")
 
         # Format the loans for the response
@@ -51,14 +56,17 @@ async def get_user_loans(
         return standardize_response(data=formatted_loans, request=request)
 
     except Exception as e:
+        logger.error(f"Error retrieving loans: {str(e)}")
+        # Use HTTPException instead of trying to use standardize_response with an error
+        # This ensures the error is properly formatted
         raise HTTPException(status_code=500, detail=f"Error retrieving loans: {str(e)}")
 
 @router.get("/user/{user_id}/loan/{loan_id}")
 @handle_exceptions
 async def get_loan(
+        request: Request,
         user_id: str,
         loan_id: int,
-        request: Request,
         authenticated_user_id: str = Depends(verify_token)
 ):
     """
@@ -103,9 +111,9 @@ async def get_loan(
 @router.post("/user/{user_id}/loans")
 @handle_exceptions
 async def save_user_loans(
+        request: Request,
         user_id: str,
         loans: List[Dict[str, Any]] = Body(...),
-        request: Request,
         authenticated_user_id: str = Depends(verify_token)
 ):
     """
@@ -177,9 +185,9 @@ async def save_user_loans(
 @router.post("/user/{user_id}/loan")
 @handle_exceptions
 async def create_loan(
+        request: Request,
         user_id: str,
         loan: Dict[str, Any] = Body(...),
-        request: Request,
         authenticated_user_id: str = Depends(verify_token)
 ):
     """
@@ -247,10 +255,10 @@ async def create_loan(
 @router.put("/user/{user_id}/loan/{loan_id}")
 @handle_exceptions
 async def update_loan(
+        request: Request,
         user_id: str,
         loan_id: int,
         loan: Dict[str, Any] = Body(...),
-        request: Request,
         authenticated_user_id: str = Depends(verify_token)
 ):
     """
@@ -326,9 +334,9 @@ async def update_loan(
 @router.delete("/user/{user_id}/loan/{loan_id}")
 @handle_exceptions
 async def delete_loan(
+        request: Request,
         user_id: str,
         loan_id: int,
-        request: Request,
         authenticated_user_id: str = Depends(verify_token)
 ):
     """
@@ -366,10 +374,10 @@ async def delete_loan(
 @router.post("/loans/{loan_id}/tax-savings")
 @handle_exceptions
 async def get_loan_tax_savings(
+        request: Request,
         loan_id: int,
         user_id: str = Body(..., embed=True),
         country_code: str = Body("US", embed=True),
-        request: Request,
         authenticated_user_id: str = Depends(verify_token)
 ):
     """
@@ -490,8 +498,8 @@ async def get_loan_tax_savings(
 @router.get("/user/{user_id}/financial-overview")
 @handle_exceptions
 async def get_financial_overview(
-        user_id: str,
         request: Request,
+        user_id: str,
         authenticated_user_id: str = Depends(verify_token)
 ):
     """
@@ -547,11 +555,11 @@ async def get_financial_overview(
 @router.post("/user/{user_id}/loan/{loan_id}/amortization")
 @handle_exceptions
 async def get_loan_amortization(
+        request: Request,
         user_id: str,
         loan_id: int,
         extra_payment: float = Body(0, embed=True),
         max_years: int = Body(30, embed=True),
-        request: Request,
         authenticated_user_id: str = Depends(verify_token)
 ):
     """
@@ -580,9 +588,6 @@ async def get_loan_amortization(
         annual_rate = loan["interest_rate"]
         monthly_payment = loan["minimum_payment"]
 
-        # Log inputs for debugging
-        logger.info(f"Generating amortization schedule: principal={principal}, rate={annual_rate}%, payment={monthly_payment}")
-
         # Generate amortization schedule
         amortization_data = generate_amortization_schedule(
             principal=principal,
@@ -591,9 +596,6 @@ async def get_loan_amortization(
             extra_payment=extra_payment,
             max_years=max_years
         )
-
-        # Log results for debugging
-        logger.info(f"Amortization result: months={amortization_data['months_to_payoff']}, interest={amortization_data['total_interest_paid']}")
 
         # Format response with payment analysis
         response_data = {
@@ -627,8 +629,8 @@ async def get_loan_amortization(
 @router.post("/user/{user_id}/loans/default")
 @handle_exceptions
 async def create_default_loan(
-        user_id: str,
         request: Request,
+        user_id: str,
         authenticated_user_id: str = Depends(verify_token)
 ):
     """

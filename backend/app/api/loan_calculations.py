@@ -1,6 +1,6 @@
 # backend/app/api/loan_calculations.py
 from fastapi import APIRouter, Depends, HTTPException, Body, Request
-from typing import Optional, Dict, Any, List
+from typing import Dict, Any, List
 from pydantic import BaseModel, Field
 from enum import Enum
 import logging
@@ -28,16 +28,16 @@ class Currency(str, Enum):
 
 class CalculationRequest(BaseModel):
     loan_id: int
-    extra_payment: Optional[float] = 0
-    max_years: Optional[int] = 30
+    extra_payment: float = 0
+    max_years: int = 30
 
 @router.post("/loans/calculate")
 @handle_exceptions
 async def calculate_loan_details(
+        request: Request,
         user_id: str = Body(..., embed=True),
         loan_id: int = Body(..., embed=True),
         extra_payment: float = Body(0, embed=True),
-        request: Request = None,
         authenticated_user_id: str = Depends(verify_token)
 ):
     """
@@ -127,11 +127,11 @@ async def calculate_loan_details(
 @router.post("/loans/{loan_id}/amortization")
 @handle_exceptions
 async def get_amortization_schedule(
+        request: Request,
         loan_id: int,
         user_id: str = Body(..., embed=True),
         extra_payment: float = Body(0, embed=True),
         max_years: int = Body(30, embed=True),
-        request: Request = None,
         authenticated_user_id: str = Depends(verify_token)
 ):
     """
@@ -229,10 +229,10 @@ async def get_amortization_schedule(
 @router.post("/loans/payment-analysis")
 @handle_exceptions
 async def payment_analysis(
+        request: Request,
         user_id: str = Body(..., embed=True),
         loan_id: int = Body(..., embed=True),
         extra_payment: float = Body(0, embed=True),
-        request: Request = None,
         authenticated_user_id: str = Depends(verify_token)
 ):
     """
@@ -339,9 +339,9 @@ async def payment_analysis(
 @router.post("/loans/batch-calculate")
 @handle_exceptions
 async def batch_calculate_loans(
+        request: Request,
         user_id: str = Body(..., embed=True),
         loan_ids: List[int] = Body(..., embed=True),
-        request: Request = None,
         authenticated_user_id: str = Depends(verify_token)
 ):
     """
@@ -403,10 +403,10 @@ async def batch_calculate_loans(
 @router.post("/loans/what-if-scenarios")
 @handle_exceptions
 async def what_if_scenarios(
+        request: Request,
         user_id: str = Body(..., embed=True),
         loan_id: int = Body(..., embed=True),
         scenarios: List[Dict[str, Any]] = Body(..., embed=True),
-        request: Request = None,
         authenticated_user_id: str = Depends(verify_token)
 ):
     """

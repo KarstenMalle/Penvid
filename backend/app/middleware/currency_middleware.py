@@ -107,6 +107,7 @@ class CurrencyMiddleware:
                         data = json.loads(body_str)
 
                         # Only convert if it's a success response with data
+                        # Make sure we check if 'status' key exists to avoid KeyError
                         if isinstance(data, dict) and data.get("status") == "success" and "data" in data:
                             # Convert the data
                             converted_data = self._convert_currency_values(

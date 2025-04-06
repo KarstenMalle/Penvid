@@ -1,7 +1,7 @@
 // frontend/src/services/LoanCalculationService.ts
 
 import { Loan } from '@/components/features/wealth-optimizer/types'
-import { get, post, put, del } from '@/utils/api-helper'
+import { ApiClient } from './ApiClient'
 
 /**
  * Interfaces for loan calculation API
@@ -97,7 +97,7 @@ export const LoanCalculationService = {
     extraPayment: number = 0
   ): Promise<LoanCalculationResponse> {
     try {
-      const response = await post<any>(
+      const response = await ApiClient.post<any>(
         '/api/loans/calculate',
         {
           user_id: userId,
@@ -106,18 +106,17 @@ export const LoanCalculationService = {
         },
         {
           requiresAuth: true,
-          errorMessage: 'Failed to calculate loan details',
         }
       )
 
-      if (!response.success || !response.data) {
+      if (response.status === 'error' || !response.data) {
         throw new Error(
           response.error?.message || 'Failed to calculate loan details'
         )
       }
 
       // No currency conversion needed - backend handles it
-      return response.data.data
+      return response.data
     } catch (error) {
       console.error('Error calculating loan details:', error)
       throw error
@@ -139,27 +138,25 @@ export const LoanCalculationService = {
     payment_analysis: any
   }> {
     try {
-      const response = await post<any>(
-        `/api/loans/${loanId}/amortization`,
+      const response = await ApiClient.post<any>(
+        `/api/user/${userId}/loan/${loanId}/amortization`,
         {
-          user_id: userId,
           extra_payment: extraPayment,
           max_years: maxYears,
         },
         {
           requiresAuth: true,
-          errorMessage: 'Failed to generate amortization schedule',
         }
       )
 
-      if (!response.success || !response.data) {
+      if (response.status === 'error' || !response.data) {
         throw new Error(
           response.error?.message || 'Failed to fetch amortization schedule'
         )
       }
 
       // No currency conversion needed - backend handles it
-      return response.data.data
+      return response.data
     } catch (error) {
       console.error('Error getting amortization schedule:', error)
       throw error
@@ -175,7 +172,7 @@ export const LoanCalculationService = {
     extraPayment: number = 0
   ): Promise<PaymentAnalysis> {
     try {
-      const response = await post<any>(
+      const response = await ApiClient.post<any>(
         '/api/loans/payment-analysis',
         {
           user_id: userId,
@@ -184,18 +181,17 @@ export const LoanCalculationService = {
         },
         {
           requiresAuth: true,
-          errorMessage: 'Failed to get payment analysis',
         }
       )
 
-      if (!response.success || !response.data) {
+      if (response.status === 'error' || !response.data) {
         throw new Error(
           response.error?.message || 'Failed to get payment analysis'
         )
       }
 
       // No currency conversion needed - backend handles it
-      return response.data.data
+      return response.data
     } catch (error) {
       console.error('Error getting payment analysis:', error)
       throw error
@@ -211,7 +207,7 @@ export const LoanCalculationService = {
     monthly_available: number
   }): Promise<Recommendation[]> {
     try {
-      const response = await post<any>(
+      const response = await ApiClient.post<any>(
         '/api/recommendations',
         {
           user_id: params.userId,
@@ -220,18 +216,17 @@ export const LoanCalculationService = {
         },
         {
           requiresAuth: true,
-          errorMessage: 'Failed to generate recommendations',
         }
       )
 
-      if (!response.success || !response.data) {
+      if (response.status === 'error' || !response.data) {
         throw new Error(
           response.error?.message || 'Failed to generate recommendations'
         )
       }
 
       // No currency conversion needed - backend handles it
-      return response.data.data
+      return response.data
     } catch (error) {
       console.error('Error generating recommendations:', error)
       throw error
@@ -247,7 +242,7 @@ export const LoanCalculationService = {
     scenarios: WhatIfScenario[]
   ): Promise<any> {
     try {
-      const response = await post<any>(
+      const response = await ApiClient.post<any>(
         '/api/loans/what-if-scenarios',
         {
           user_id: userId,
@@ -256,18 +251,17 @@ export const LoanCalculationService = {
         },
         {
           requiresAuth: true,
-          errorMessage: 'Failed to calculate what-if scenarios',
         }
       )
 
-      if (!response.success || !response.data) {
+      if (response.status === 'error' || !response.data) {
         throw new Error(
           response.error?.message || 'Failed to calculate what-if scenarios'
         )
       }
 
       // No currency conversion needed - backend handles it
-      return response.data.data
+      return response.data
     } catch (error) {
       console.error('Error calculating what-if scenarios:', error)
       throw error
@@ -283,7 +277,7 @@ export const LoanCalculationService = {
     monthlyBudget: number
   ): Promise<any> {
     try {
-      const response = await post<any>(
+      const response = await ApiClient.post<any>(
         '/api/financial-strategy/optimize',
         {
           user_id: userId,
@@ -292,18 +286,17 @@ export const LoanCalculationService = {
         },
         {
           requiresAuth: true,
-          errorMessage: 'Failed to calculate optimal strategy',
         }
       )
 
-      if (!response.success || !response.data) {
+      if (response.status === 'error' || !response.data) {
         throw new Error(
           response.error?.message || 'Failed to calculate optimal strategy'
         )
       }
 
       // No currency conversion needed - backend handles it
-      return response.data.data
+      return response.data
     } catch (error) {
       console.error('Error calculating optimal strategy:', error)
       throw error
@@ -315,7 +308,7 @@ export const LoanCalculationService = {
    */
   async batchCalculateLoans(userId: string, loanIds: number[]): Promise<any[]> {
     try {
-      const response = await post<any>(
+      const response = await ApiClient.post<any>(
         '/api/loans/batch-calculate',
         {
           user_id: userId,
@@ -323,18 +316,17 @@ export const LoanCalculationService = {
         },
         {
           requiresAuth: true,
-          errorMessage: 'Failed to calculate loan details',
         }
       )
 
-      if (!response.success || !response.data) {
+      if (response.status === 'error' || !response.data) {
         throw new Error(
           response.error?.message || 'Failed to calculate loan details'
         )
       }
 
       // No currency conversion needed - backend handles it
-      return response.data.data
+      return response.data
     } catch (error) {
       console.error('Error batch calculating loans:', error)
       throw error

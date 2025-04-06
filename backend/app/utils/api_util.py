@@ -47,10 +47,6 @@ class APIResponse:
 
         return result
 
-    @property
-    def has_error(self) -> bool:
-        return self.error is not None
-
 def handle_exceptions(func: Callable[..., T]) -> Callable[..., T]:
     """Decorator to handle exceptions in API endpoint functions"""
     @wraps(func)  # Add this to preserve function metadata
@@ -98,13 +94,15 @@ def standardize_response(
         data: Any = None,
         error: Optional[str] = None,
         message: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        request: Optional[Request] = None
 ) -> Dict[str, Any]:
     """Create a standardized API response"""
-    return APIResponse(
+    api_response = APIResponse(
         data=data,
         error=error,
         status="error" if error else "success",
         message=message,
         metadata=metadata
-    ).to_dict()
+    )
+    return api_response.to_dict()

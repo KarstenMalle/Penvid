@@ -1,23 +1,11 @@
-// frontend/src/services/CurrencyService.ts - Updated to rely on backend conversion
+// frontend/src/services/CurrencyService.ts
+// Simplified service that only handles currency formatting, not conversion
 
 import { Currency } from '@/i18n/config'
-import { ApiClient } from './ApiClient'
-
-interface ConversionResponse {
-  original_amount: number
-  original_currency: string
-  converted_amount: number
-  converted_currency: string
-}
-
-interface ExchangeRateResponse {
-  rates: Record<string, number>
-}
 
 /**
- * Service for currency management
- * Now primarily used for display formatting, not conversion
- * (Conversion is handled by the backend currency middleware)
+ * Service for currency formatting only
+ * No conversion logic - all conversion is handled by the backend
  */
 export const CurrencyService = {
   /**
@@ -86,40 +74,5 @@ export const CurrencyService = {
 
     // Reload the page to refresh all data with the new currency
     window.location.reload()
-  },
-
-  /**
-   * DEPRECATED - Use only for display purposes, not calculation
-   * (All calculations should now use data from APIs that's already converted)
-   *
-   * Convert amount between currencies using approximate rates
-   * This is only for UI display when API data isn't available yet
-   */
-  approximateConversion(
-    amount: number,
-    fromCurrency: Currency = 'USD',
-    toCurrency: Currency = this.getCurrentCurrency()
-  ): number {
-    if (!amount || isNaN(amount) || fromCurrency === toCurrency) return amount
-
-    // Approximate conversion rates (as of 2025)
-    const rates = {
-      USD: 1.0,
-      DKK: 6.9, // Danish Krone to USD
-      EUR: 0.93, // Euro to USD
-    }
-
-    // Convert to USD first if not already
-    let amountInUsd = amount
-    if (fromCurrency !== 'USD') {
-      amountInUsd = amount / (rates[fromCurrency] || 1.0)
-    }
-
-    // Convert from USD to target currency
-    if (toCurrency === 'USD') {
-      return amountInUsd
-    }
-
-    return amountInUsd * (rates[toCurrency] || 1.0)
   },
 }

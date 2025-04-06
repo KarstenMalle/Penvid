@@ -1,7 +1,7 @@
 // frontend/src/services/LoanService.ts
 
 import { Loan, LoanType } from '@/components/features/wealth-optimizer/types'
-import { get, post, put, del } from '@/utils/api-helper'
+import { ApiClient } from './ApiClient'
 
 /**
  * Service for managing loans via backend API
@@ -14,16 +14,23 @@ export class LoanService {
    */
   static async getUserLoans(userId: string): Promise<Loan[]> {
     try {
-      const response = await get<any>(`/api/user/${userId}/loans`, {
-        requiresAuth: true,
-      })
+      const response = await ApiClient.get<Loan[]>(
+        `/api/user/${userId}/loans`,
+        {
+          requiresAuth: true,
+        }
+      )
 
-      if (!response.success || !response.data) {
-        throw new Error(response.error?.message || 'Failed to fetch loans')
+      if (response.status === 'error' || !response.data) {
+        throw new Error(
+          typeof response.error === 'string'
+            ? response.error
+            : response.error?.message || 'Failed to fetch loans'
+        )
       }
 
       // Return the loans - already converted to user's currency by backend
-      return response.data.data
+      return response.data
     } catch (error) {
       console.error('Error getting user loans:', error)
       throw error
@@ -35,16 +42,23 @@ export class LoanService {
    */
   static async getLoan(userId: string, loanId: number): Promise<Loan> {
     try {
-      const response = await get<any>(`/api/user/${userId}/loan/${loanId}`, {
-        requiresAuth: true,
-      })
+      const response = await ApiClient.get<Loan>(
+        `/api/user/${userId}/loan/${loanId}`,
+        {
+          requiresAuth: true,
+        }
+      )
 
-      if (!response.success || !response.data) {
-        throw new Error(response.error?.message || 'Failed to fetch loan')
+      if (response.status === 'error' || !response.data) {
+        throw new Error(
+          typeof response.error === 'string'
+            ? response.error
+            : response.error?.message || 'Failed to fetch loan'
+        )
       }
 
       // Return the loan - already converted to user's currency by backend
-      return response.data.data
+      return response.data
     } catch (error) {
       console.error('Error getting loan:', error)
       throw error
@@ -56,12 +70,20 @@ export class LoanService {
    */
   static async saveUserLoans(userId: string, loans: Loan[]): Promise<void> {
     try {
-      const response = await post<any>(`/api/user/${userId}/loans`, loans, {
-        requiresAuth: true,
-      })
+      const response = await ApiClient.post<any>(
+        `/api/user/${userId}/loans`,
+        loans,
+        {
+          requiresAuth: true,
+        }
+      )
 
-      if (!response.success) {
-        throw new Error(response.error?.message || 'Failed to save loans')
+      if (response.status === 'error') {
+        throw new Error(
+          typeof response.error === 'string'
+            ? response.error
+            : response.error?.message || 'Failed to save loans'
+        )
       }
     } catch (error) {
       console.error('Error saving user loans:', error)
@@ -74,15 +96,23 @@ export class LoanService {
    */
   static async createLoan(userId: string, loan: Loan): Promise<Loan> {
     try {
-      const response = await post<any>(`/api/user/${userId}/loan`, loan, {
-        requiresAuth: true,
-      })
+      const response = await ApiClient.post<Loan>(
+        `/api/user/${userId}/loan`,
+        loan,
+        {
+          requiresAuth: true,
+        }
+      )
 
-      if (!response.success || !response.data) {
-        throw new Error(response.error?.message || 'Failed to create loan')
+      if (response.status === 'error' || !response.data) {
+        throw new Error(
+          typeof response.error === 'string'
+            ? response.error
+            : response.error?.message || 'Failed to create loan'
+        )
       }
 
-      return response.data.data
+      return response.data
     } catch (error) {
       console.error('Error creating loan:', error)
       throw error
@@ -94,7 +124,7 @@ export class LoanService {
    */
   static async updateLoan(userId: string, loan: Loan): Promise<Loan> {
     try {
-      const response = await put<any>(
+      const response = await ApiClient.put<Loan>(
         `/api/user/${userId}/loan/${loan.id}`,
         loan,
         {
@@ -102,11 +132,15 @@ export class LoanService {
         }
       )
 
-      if (!response.success) {
-        throw new Error(response.error?.message || 'Failed to update loan')
+      if (response.status === 'error') {
+        throw new Error(
+          typeof response.error === 'string'
+            ? response.error
+            : response.error?.message || 'Failed to update loan'
+        )
       }
 
-      return response.data?.data || loan
+      return response.data || loan
     } catch (error) {
       console.error('Error updating loan:', error)
       throw error
@@ -118,12 +152,19 @@ export class LoanService {
    */
   static async deleteLoan(userId: string, loanId: number): Promise<void> {
     try {
-      const response = await del<any>(`/api/user/${userId}/loan/${loanId}`, {
-        requiresAuth: true,
-      })
+      const response = await ApiClient.delete<any>(
+        `/api/user/${userId}/loan/${loanId}`,
+        {
+          requiresAuth: true,
+        }
+      )
 
-      if (!response.success) {
-        throw new Error(response.error?.message || 'Failed to delete loan')
+      if (response.status === 'error') {
+        throw new Error(
+          typeof response.error === 'string'
+            ? response.error
+            : response.error?.message || 'Failed to delete loan'
+        )
       }
     } catch (error) {
       console.error('Error deleting loan:', error)
@@ -136,7 +177,7 @@ export class LoanService {
    */
   static async createDefaultLoan(userId: string): Promise<Loan | null> {
     try {
-      const response = await post<any>(
+      const response = await ApiClient.post<Loan>(
         `/api/user/${userId}/loans/default`,
         {},
         {
@@ -144,15 +185,17 @@ export class LoanService {
         }
       )
 
-      if (!response.success) {
+      if (response.status === 'error') {
         throw new Error(
-          response.error?.message || 'Failed to create default loan'
+          typeof response.error === 'string'
+            ? response.error
+            : response.error?.message || 'Failed to create default loan'
         )
       }
 
       // If a loan was created, return it
-      if (response.data?.data) {
-        return response.data.data
+      if (response.data) {
+        return response.data
       }
 
       // No loan was created (user already has loans)
@@ -172,7 +215,7 @@ export class LoanService {
     countryCode: string = 'US'
   ): Promise<any> {
     try {
-      const response = await post<any>(
+      const response = await ApiClient.post<any>(
         '/api/loans/tax-savings',
         {
           user_id: userId,
@@ -184,13 +227,15 @@ export class LoanService {
         }
       )
 
-      if (!response.success || !response.data) {
+      if (response.status === 'error' || !response.data) {
         throw new Error(
-          response.error?.message || 'Failed to calculate tax savings'
+          typeof response.error === 'string'
+            ? response.error
+            : response.error?.message || 'Failed to calculate tax savings'
         )
       }
 
-      return response.data.data
+      return response.data
     } catch (error) {
       console.error('Error calculating tax savings:', error)
       throw error
@@ -207,10 +252,9 @@ export class LoanService {
     maxYears: number = 30
   ): Promise<any> {
     try {
-      const response = await post<any>(
-        `/api/loans/${loanId}/amortization`,
+      const response = await ApiClient.post<any>(
+        `/api/user/${userId}/loan/${loanId}/amortization`,
         {
-          user_id: userId,
           extra_payment: extraPayment,
           max_years: maxYears,
         },
@@ -219,13 +263,15 @@ export class LoanService {
         }
       )
 
-      if (!response.success || !response.data) {
+      if (response.status === 'error' || !response.data) {
         throw new Error(
-          response.error?.message || 'Failed to get amortization schedule'
+          typeof response.error === 'string'
+            ? response.error
+            : response.error?.message || 'Failed to get amortization schedule'
         )
       }
 
-      return response.data.data
+      return response.data
     } catch (error) {
       console.error('Error getting amortization schedule:', error)
       throw error
@@ -241,7 +287,7 @@ export class LoanService {
     extraPayment: number = 0
   ): Promise<any> {
     try {
-      const response = await post<any>(
+      const response = await ApiClient.post<any>(
         '/api/loans/payment-analysis',
         {
           user_id: userId,
@@ -253,13 +299,15 @@ export class LoanService {
         }
       )
 
-      if (!response.success || !response.data) {
+      if (response.status === 'error' || !response.data) {
         throw new Error(
-          response.error?.message || 'Failed to get payment analysis'
+          typeof response.error === 'string'
+            ? response.error
+            : response.error?.message || 'Failed to get payment analysis'
         )
       }
 
-      return response.data.data
+      return response.data
     } catch (error) {
       console.error('Error getting payment analysis:', error)
       throw error
@@ -275,7 +323,7 @@ export class LoanService {
     scenarios: any[]
   ): Promise<any> {
     try {
-      const response = await post<any>(
+      const response = await ApiClient.post<any>(
         '/api/loans/what-if-scenarios',
         {
           user_id: userId,
@@ -287,13 +335,15 @@ export class LoanService {
         }
       )
 
-      if (!response.success || !response.data) {
+      if (response.status === 'error' || !response.data) {
         throw new Error(
-          response.error?.message || 'Failed to calculate scenarios'
+          typeof response.error === 'string'
+            ? response.error
+            : response.error?.message || 'Failed to calculate scenarios'
         )
       }
 
-      return response.data.data
+      return response.data
     } catch (error) {
       console.error('Error calculating what-if scenarios:', error)
       throw error
@@ -308,7 +358,7 @@ export class LoanService {
     loanIds: number[]
   ): Promise<any[]> {
     try {
-      const response = await post<any>(
+      const response = await ApiClient.post<any[]>(
         '/api/loans/batch-calculate',
         {
           user_id: userId,
@@ -319,13 +369,15 @@ export class LoanService {
         }
       )
 
-      if (!response.success || !response.data) {
+      if (response.status === 'error' || !response.data) {
         throw new Error(
-          response.error?.message || 'Failed to calculate loan details'
+          typeof response.error === 'string'
+            ? response.error
+            : response.error?.message || 'Failed to calculate loan details'
         )
       }
 
-      return response.data.data
+      return response.data
     } catch (error) {
       console.error('Error batch calculating loans:', error)
       throw error

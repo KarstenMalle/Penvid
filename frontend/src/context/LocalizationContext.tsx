@@ -118,27 +118,6 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // Load currency conversion rates when currency changes
-  const loadConversionRates = useCallback(async () => {
-    if (isLoadingRates) return
-
-    setIsLoadingRates(true)
-    try {
-      // Get exchange rates for current currency
-      const rates = await CurrencyService.getExchangeRates()
-      setConversionRates(rates || {})
-
-      // Reset the conversion cache when rates change
-      Object.keys(conversionCache).forEach((key) => {
-        delete conversionCache[key]
-      })
-    } catch (error) {
-      console.error('Error loading conversion rates:', error)
-    } finally {
-      setIsLoadingRates(false)
-    }
-  }, [isLoadingRates])
-
   // Load user's language, currency, and country preferences
   useEffect(() => {
     async function loadPreferences() {
@@ -244,11 +223,6 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     loadTranslations(locale)
   }, [locale, loadTranslations])
-
-  // Load conversion rates when currency changes
-  useEffect(() => {
-    loadConversionRates()
-  }, [currency, loadConversionRates])
 
   // Function to refresh translations manually
   const refreshTranslations = async () => {
