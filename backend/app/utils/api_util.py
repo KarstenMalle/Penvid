@@ -28,6 +28,10 @@ class APIResponse:
         self.message = message
         self.metadata = metadata or {}
 
+    def has_error(self) -> bool:
+        """Check if response contains an error"""
+        return self.error is not None
+
     def to_dict(self) -> Dict[str, Any]:
         result = {
             "status": self.status,
@@ -81,13 +85,32 @@ def extract_auth_user(request: Request) -> str:
 
 def check_supabase_error(response, error_message: str = "Database error"):
     """Check for errors in Supabase response and raise appropriate exception"""
-    if hasattr(response, 'error') and response.error:
-        logger.error(f"Supabase error: {response.error.message}")
+    # First check if response is None
+    if response is None:
+        logger.error("Supabase returned None response")
         raise HTTPException(
             status_code=500,
-            detail=f"{error_message}: {response.error.message}"
+            detail=f"{error_message}: No response from database"
         )
-
+    
+    # Check for error attribute
+    if hasattr(response, 'error') and response.error:
+        error_detail = str(response.error)
+        logger.error(f"Supabase error: {error_detail}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"{error_message}: {error_detail}"
+        )
+    
+    # Check for data being None/empty when we expect it not to be
+    if not hasattr(response, 'data'):
+        logger.error(f"Supabase response has no data attribute")
+        raise HTTPException(
+            status_code=500,
+            detail=f"{error_message}: Invalid response format"
+        )
+    
+    # Valid response
     return response
 
 def standardize_response(
@@ -98,6 +121,22 @@ def standardize_response(
         request: Optional[Request] = None
 ) -> Dict[str, Any]:
     """Create a standardized API response"""
+    # Create metadata if not provided
+    if metadata is None:
+        metadata = {}
+    
+    # Add request info to metadata if available
+    if request is not None:
+        # Get user_id from state if available
+        user_id = getattr(request.state, "user_id", None)
+        if user_id:
+            metadata["user_id"] = user_id
+        
+        # Get currency preference from state if available
+        currency_pref = getattr(request.state, "currency_preference", None)
+        if currency_pref:
+            metadata["currency"] = currency_pref
+    
     api_response = APIResponse(
         data=data,
         error=error,

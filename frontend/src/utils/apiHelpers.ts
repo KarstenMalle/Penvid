@@ -1,4 +1,4 @@
-// frontend/src/utils/api-helper.ts
+// frontend/src/utils/apiHelpers.ts
 import { createClient } from '@/lib/supabase-browser'
 
 // API base URL from environment variable
@@ -96,6 +96,25 @@ export async function apiRequest<T>(
         message: options.errorMessage || error.message || 'An error occurred',
       },
     }
+  }
+}
+
+export async function checkApiConnection(): Promise<boolean> {
+  try {
+    const response = await fetch(
+      `${process.env.NEXT_PUBLIC_API_BASE_URL || ''}/api/health`,
+      {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        // Short timeout for quick response
+        signal: AbortSignal.timeout(5000),
+      }
+    )
+
+    return response.ok
+  } catch (error) {
+    console.error('API connectivity check failed:', error)
+    return false
   }
 }
 

@@ -6,13 +6,66 @@ from ..models import Loan, FinancialOverview, AmortizationRequest, AmortizationR
 from ..database import get_supabase_client
 from ..utils.auth import verify_token
 from ..utils.api_util import handle_exceptions, check_supabase_error, standardize_response
-from ..calculations import generate_amortization_schedule
+from ..calculations import generate_amortization_schedule, convert_currency
 import logging
+import traceback
+import uuid
 
 # Set up logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["loans"])
+
+async def get_user_currency_preference(user_id: str) -> str:
+    """Get user's currency preference from the profiles table consistently"""
+    try:
+        logger.info(f"Getting currency preference for user: {user_id}")
+        supabase = get_supabase_client()
+
+        # Get currency preference from profiles table
+        profile_response = supabase.table("profiles").select("currency_preference").eq("id", user_id).execute()
+        
+        # Log the response for debugging
+        logger.info(f"Currency preference query response: {profile_response}")
+        
+        # If we have data with currency preference, use it
+        if (profile_response.data and 
+            len(profile_response.data) > 0 and
+            profile_response.data[0].get("currency_preference")):
+            
+            currency = profile_response.data[0]["currency_preference"]
+            logger.info(f"Found currency preference for user {user_id}: {currency}")
+            return currency
+        
+        # If not found, try using loan data for currency preference
+        logger.info(f"No currency preference in profile, checking HTTP headers")
+        
+        # Use header info stored in the request state - will be passed by middleware
+        # This is handled externally and will be assigned by the currency middleware
+
+        logger.info(f"No currency preference found for user {user_id}, defaulting to USD")
+        return "USD"
+    except Exception as e:
+        logger.error(f"Error getting user currency preference: {str(e)}")
+        return "USD"  # Default to USD on error
+
+def convert_loan_currency(loan_data, from_currency, to_currency="USD"):
+    """Convert loan monetary values between currencies"""
+    if from_currency == to_currency:
+        return loan_data
+
+    result = loan_data.copy()
+
+    # Convert monetary fields
+    monetary_fields = ['balance', 'minimumPayment']
+    for field in monetary_fields:
+        if field in result and isinstance(result[field], (int, float)):
+            try:
+                result[field] = convert_currency(result[field], from_currency, to_currency)
+            except Exception as e:
+                logger.error(f"Error converting loan field {field}: {str(e)}")
+
+    return result
 
 @router.get("/user/{user_id}/loans")
 @handle_exceptions
@@ -22,43 +75,53 @@ async def get_user_loans(
         authenticated_user_id: str = Depends(verify_token)
 ):
     """
-    Get all loans for a user with proper currency conversion
+    Get all loans for a user
     """
-    # Ensure user is accessing their own data
-    if user_id != authenticated_user_id:
-        raise HTTPException(status_code=403, detail="Access denied")
-
     try:
+        # Verify user can only access their own data
+        if user_id != authenticated_user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to access this user's loans")
+
+        # Get Supabase client
         supabase = get_supabase_client()
 
-        # Query loans from database
+        # Fetch loans from database
         loans_response = supabase.table("loans").select("*").eq("user_id", user_id).order("name").execute()
 
-        if loans_response.error:
-            logger.error(f"Database error in get_user_loans: {loans_response.error.message}")
-            raise HTTPException(status_code=500, detail=f"Database error: {loans_response.error.message}")
+        # Check if we got a valid response with data
+        if not loans_response or not loans_response.data:
+            logger.warning(f"No loans found for user {user_id}")
+            return standardize_response(
+                data=[],
+                message="No loans found",
+                request=request
+            )
 
         # Format the loans for the response
-        formatted_loans = [
-            {
+        formatted_loans = []
+        for loan in loans_response.data:
+            formatted_loan = {
                 "id": loan["loan_id"],
                 "name": loan["name"],
                 "balance": loan["balance"],
                 "interestRate": loan["interest_rate"],
                 "termYears": loan["term_years"],
                 "minimumPayment": loan["minimum_payment"],
-                "loanType": loan.get("loan_type", "OTHER")
+                "loanType": loan["loan_type"],
+                "createdAt": loan["created_at"],
+                "updatedAt": loan["updated_at"]
             }
-            for loan in loans_response.data
-        ]
+            formatted_loans.append(formatted_loan)
 
-        # Return the loans - middleware will handle currency conversion
-        return standardize_response(data=formatted_loans, request=request)
+        logger.info(f"Retrieved {len(formatted_loans)} loans for user {user_id}")
+        return standardize_response(
+            data=formatted_loans,
+            message=f"Successfully retrieved {len(formatted_loans)} loans",
+            request=request
+        )
 
     except Exception as e:
         logger.error(f"Error retrieving loans: {str(e)}")
-        # Use HTTPException instead of trying to use standardize_response with an error
-        # This ensures the error is properly formatted
         raise HTTPException(status_code=500, detail=f"Error retrieving loans: {str(e)}")
 
 @router.get("/user/{user_id}/loan/{loan_id}")
@@ -118,68 +181,68 @@ async def save_user_loans(
 ):
     """
     Save multiple loans for a user
-    API handles currency conversion - loan values should be in the user's preferred currency
     """
-    # Ensure user is updating their own data
-    if user_id != authenticated_user_id:
-        raise HTTPException(status_code=403, detail="Access denied")
-
     try:
+        # Verify user can only access their own data
+        if user_id != authenticated_user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to access this user's loans")
+
+        # Get Supabase client
         supabase = get_supabase_client()
 
-        # Get user's currency preference from request header
-        currency_preference = request.headers.get("X-Currency-Preference", "USD")
-
-        # Format loans for database, converting to USD if needed
+        # Format loans for database
         formatted_loans = []
         for loan in loans:
-            # Convert values from user's currency to USD for storage
-            loan_data = {
+            formatted_loan = {
                 "user_id": user_id,
-                "loan_id": loan.get("id"),
-                "name": loan.get("name"),
-                "balance": loan.get("balance"),
-                "interest_rate": loan.get("interestRate"),
-                "term_years": loan.get("termYears"),
-                "minimum_payment": loan.get("minimumPayment"),
+                "name": loan["name"],
+                "balance": loan["balance"],
+                "interest_rate": loan["interestRate"],
+                "term_years": loan["termYears"],
+                "minimum_payment": loan["minimumPayment"],
                 "loan_type": loan.get("loanType", "OTHER"),
-                "updated_at": "now()"
+                "priority": loan.get("priority", "MEDIUM")
             }
-            formatted_loans.append(loan_data)
+            formatted_loans.append(formatted_loan)
 
-        # Get existing loan IDs
-        existing_loans_response = supabase.table("loans").select("loan_id").eq("user_id", user_id).execute()
+        # Delete existing loans
+        delete_response = supabase.table("loans").delete().eq("user_id", user_id).execute()
+        
+        # Insert new loans
+        insert_response = supabase.table("loans").insert(formatted_loans).execute()
 
-        if existing_loans_response.error:
-            raise HTTPException(status_code=500, detail=f"Database error: {existing_loans_response.error.message}")
+        # Check if insert was successful
+        if not insert_response or not insert_response.data:
+            logger.error("Failed to insert loans into database")
+            raise HTTPException(status_code=500, detail="Failed to save loans")
 
-        existing_loan_ids = [loan["loan_id"] for loan in existing_loans_response.data]
+        # Format response
+        saved_loans = []
+        for loan in insert_response.data:
+            saved_loan = {
+                "id": loan["id"],
+                "loanId": loan["loan_id"],
+                "name": loan["name"],
+                "balance": loan["balance"],
+                "interestRate": loan["interest_rate"],
+                "termYears": loan["term_years"],
+                "minimumPayment": loan["minimum_payment"],
+                "loanType": loan["loan_type"],
+                "priority": loan["priority"],
+                "createdAt": loan["created_at"],
+                "updatedAt": loan["updated_at"]
+            }
+            saved_loans.append(saved_loan)
 
-        # Determine which loans to insert/update/delete
-        current_loan_ids = [loan["loan_id"] for loan in formatted_loans]
-        loan_ids_to_delete = [id for id in existing_loan_ids if id not in current_loan_ids]
-
-        # Upsert all loans
-        if formatted_loans:
-            upsert_response = supabase.table("loans").upsert(formatted_loans).execute()
-            if upsert_response.error:
-                raise HTTPException(status_code=500, detail=f"Database error: {upsert_response.error.message}")
-
-        # Delete loans that were removed
-        if loan_ids_to_delete:
-            delete_response = supabase.table("loans").delete().eq("user_id", user_id).in_("loan_id", loan_ids_to_delete).execute()
-            if delete_response.error:
-                raise HTTPException(status_code=500, detail=f"Database error: {delete_response.error.message}")
-
+        logger.info(f"Successfully saved {len(saved_loans)} loans for user {user_id}")
         return standardize_response(
-            data={"saved": len(formatted_loans), "deleted": len(loan_ids_to_delete)},
-            message="Loans saved successfully",
+            data=saved_loans,
+            message=f"Successfully saved {len(saved_loans)} loans",
             request=request
         )
 
-    except HTTPException:
-        raise
     except Exception as e:
+        logger.error(f"Error saving loans: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error saving loans: {str(e)}")
 
 @router.post("/user/{user_id}/loan")
@@ -200,6 +263,13 @@ async def create_loan(
 
     try:
         supabase = get_supabase_client()
+
+        # Get user's currency preference from database
+        currency_preference = await get_user_currency_preference(user_id)
+
+        # Convert values from user's currency to USD for storage
+        if currency_preference != "USD":
+            loan = convert_loan_currency(loan, currency_preference, "USD")
 
         # Find the next available loan ID
         max_id_response = supabase.table("loans").select("loan_id").eq("user_id", user_id).execute()
@@ -280,6 +350,13 @@ async def update_loan(
 
         if not check_response.data:
             raise HTTPException(status_code=404, detail="Loan not found")
+
+        # Get user's currency preference from database
+        currency_preference = await get_user_currency_preference(user_id)
+
+        # Convert values from user's currency to USD for storage
+        if currency_preference != "USD":
+            loan = convert_loan_currency(loan, currency_preference, "USD")
 
         # Format the loan for database
         formatted_loan = {
@@ -634,63 +711,15 @@ async def create_default_loan(
         authenticated_user_id: str = Depends(verify_token)
 ):
     """
-    Create a default loan for a user if they have none
+    This function is disabled as per requirements
     """
     # Ensure user is accessing their own data
     if user_id != authenticated_user_id:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    try:
-        supabase = get_supabase_client()
-
-        # Check if user already has loans
-        existing_loans_response = supabase.table("loans").select("loan_id").eq("user_id", user_id).limit(1).execute()
-
-        if existing_loans_response.error:
-            raise HTTPException(status_code=500, detail=f"Database error: {existing_loans_response.error.message}")
-
-        if existing_loans_response.data and len(existing_loans_response.data) > 0:
-            return standardize_response(
-                message="User already has loans",
-                data={"loan_exists": True},
-                request=request
-            )
-
-        # Create default loan
-        default_loan = {
-            "user_id": user_id,
-            "loan_id": 1,
-            "name": "Student Loan",
-            "balance": 25000,
-            "interest_rate": 5.8,
-            "term_years": 10,
-            "minimum_payment": 275,
-            "loan_type": "STUDENT",
-            "created_at": "now()",
-            "updated_at": "now()"
-        }
-
-        insert_response = supabase.table("loans").insert(default_loan).execute()
-
-        if insert_response.error:
-            raise HTTPException(status_code=500, detail=f"Database error: {insert_response.error.message}")
-
-        # Format response
-        created_loan = {
-            "id": default_loan["loan_id"],
-            "name": default_loan["name"],
-            "balance": default_loan["balance"],
-            "interestRate": default_loan["interest_rate"],
-            "termYears": default_loan["term_years"],
-            "minimumPayment": default_loan["minimum_payment"],
-            "loanType": default_loan["loan_type"]
-        }
-
-        return standardize_response(
-            data=created_loan,
-            message="Default loan created successfully",
-            request=request
-        )
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error creating default loan: {str(e)}")
+    logger.info(f"Default loan creation is disabled")
+    return standardize_response(
+        message="Default loan creation is disabled. Please create loans manually.",
+        data={"disabled": True},
+        request=request
+    )

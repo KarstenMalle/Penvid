@@ -1,7 +1,7 @@
 // frontend/src/components/debug/CurrencyDebugger.tsx
 
 import React, { useState } from 'react'
-import { post } from '@/utils/api-helper'
+import { post } from '@/utils/apiHelpers'
 
 /**
  * Debug component to test currency conversion

@@ -13,7 +13,8 @@ from ..calculations import (
     calculate_loan_term,
     calculate_total_interest_paid,
     calculate_extra_payment_impact,
-    generate_amortization_schedule
+    generate_amortization_schedule,
+    convert_currency
 )
 from ..utils.api_util import handle_exceptions, standardize_response
 
@@ -30,6 +31,23 @@ class CalculationRequest(BaseModel):
     loan_id: int
     extra_payment: float = 0
     max_years: int = 30
+
+async def get_user_currency_preference(user_id: str) -> str:
+    """Get user's currency preference from the profiles table consistently"""
+    try:
+        supabase = get_supabase_client()
+
+        # Get currency preference from profiles table
+        profile_response = supabase.table("profiles").select("currency_preference").eq("id", user_id).execute()
+
+        if profile_response.data and profile_response.data[0].get("currency_preference"):
+            return profile_response.data[0]["currency_preference"]
+
+        # Default to USD if not found
+        return "USD"
+    except Exception as e:
+        logger.error(f"Error getting user currency preference: {str(e)}")
+        return "USD"  # Default to USD on error
 
 @router.post("/loans/calculate")
 @handle_exceptions
@@ -429,6 +447,9 @@ async def what_if_scenarios(
         if not loan_response.data:
             raise HTTPException(status_code=404, detail="Loan not found")
 
+        # Get user's currency preference
+        currency_preference = await get_user_currency_preference(user_id)
+
         # Get base loan details
         loan = loan_response.data[0]
         base_principal = loan["balance"]
@@ -443,6 +464,15 @@ async def what_if_scenarios(
             rate = scenario.get("interest_rate", base_rate)
             payment = scenario.get("monthly_payment", base_payment)
             extra = scenario.get("extra_payment", 0)
+
+            # Convert any parameters that might be in user's currency to USD for calculations
+            if currency_preference != "USD":
+                if "principal" in scenario:
+                    principal = convert_currency(principal, currency_preference, "USD")
+                if "monthly_payment" in scenario:
+                    payment = convert_currency(payment, currency_preference, "USD")
+                if "extra_payment" in scenario:
+                    extra = convert_currency(extra, currency_preference, "USD")
 
             # Calculate results for this scenario
             term_result = calculate_loan_term(principal, rate, payment)

@@ -1,11 +1,9 @@
 // frontend/src/services/CurrencyService.ts
-// Simplified service that only handles currency formatting, not conversion
-
 import { Currency } from '@/i18n/config'
 
 /**
- * Service for currency formatting only
- * No conversion logic - all conversion is handled by the backend
+ * Service for currency formatting
+ * All conversion is handled by the backend
  */
 export const CurrencyService = {
   /**
@@ -15,7 +13,7 @@ export const CurrencyService = {
     amount: number,
     currency: Currency = 'USD',
     minimumFractionDigits: number = 0,
-    maximumFractionDigits: number = 0
+    maximumFractionDigits: number = 2
   ): string {
     if (amount === undefined || amount === null || isNaN(amount)) {
       return '—'
@@ -71,8 +69,5 @@ export const CurrencyService = {
    */
   setCurrentCurrency(currency: Currency): void {
     localStorage.setItem('currency', currency)
-
-    // Reload the page to refresh all data with the new currency
-    window.location.reload()
   },
 }

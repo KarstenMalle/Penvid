@@ -98,52 +98,19 @@ export default function LoanManagementPage() {
 
         if (userLoans.length > 0) {
           setLoans(userLoans)
+          // Calculate initial strategies and set payment history
+          setPaymentHistory(getMockPaymentHistory(userLoans))
+          calculateInitialStrategies(userLoans, monthlyBudget)
         } else {
-          // Create a default loan if user has none
-          const defaultLoan = await LoanService.createDefaultLoan(user.id)
-          if (defaultLoan) {
-            setLoans([defaultLoan])
-          } else {
-            // Fallback to a local default if we couldn't create in the database
-            setLoans([
-              {
-                id: 1,
-                name: 'Student Loan',
-                balance: 25000,
-                interestRate: 5.8,
-                termYears: 10,
-                minimumPayment: 275,
-                loanType: LoanType.STUDENT,
-              },
-            ])
-          }
+          // No loans found - show empty state
+          setLoans([])
+          setPaymentHistory([])
         }
-
-        // In a real implementation, we'd also load payment history from API
-        // For now, use a mock history
-        setPaymentHistory(getMockPaymentHistory(userLoans))
-
-        // Calculate initial strategies
-        calculateInitialStrategies(userLoans, monthlyBudget)
       } catch (error) {
         console.error('Error loading user data:', error)
         toast.error('Failed to load your loan data')
-
-        // Fallback to default loans
-        const defaultLoans = [
-          {
-            id: 1,
-            name: 'Student Loan',
-            balance: 25000,
-            interestRate: 5.8,
-            termYears: 10,
-            minimumPayment: 275,
-            loanType: LoanType.STUDENT,
-          },
-        ]
-        setLoans(defaultLoans)
-        setPaymentHistory(getMockPaymentHistory(defaultLoans))
-        calculateInitialStrategies(defaultLoans, monthlyBudget)
+        setLoans([])
+        setPaymentHistory([])
       } finally {
         setIsLoading(false)
       }

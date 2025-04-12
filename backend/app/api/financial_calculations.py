@@ -1,3 +1,29 @@
+from fastapi import APIRouter, Depends, HTTPException, Body, Request
+from typing import Dict, Any, List
+from pydantic import BaseModel, Field
+from enum import Enum
+import logging
+from ..utils.auth import verify_token
+from ..utils.api_util import handle_exceptions, standardize_response
+from ..database import get_supabase_client
+
+# Set up logging
+logger = logging.getLogger(__name__)
+
+# Create router
+router = APIRouter(prefix="/api", tags=["financial-calculations"])
+
+class Currency(str, Enum):
+    USD = "USD"
+    EUR = "EUR"
+    GBP = "GBP"
+    DKK = "DKK"
+
+class CalculationRequest(BaseModel):
+    loan_id: int
+    extra_payment: float = 0
+    max_years: int = 30
+
 @router.post("/financial-calculations/risk-scenarios", response_model=Dict[str, Any])
 @handle_exceptions
 async def get_risk_scenarios(

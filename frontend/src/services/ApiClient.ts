@@ -38,17 +38,17 @@ export class ApiClient {
       'Content-Type': 'application/json',
     }
 
-    // Add currency preference from localStorage if available
-    const currency = localStorage.getItem('currency')
-    if (currency) {
-      headers['X-Currency-Preference'] = currency
-    }
-
     if (requiresAuth) {
       const token = await this.getAuthToken()
       if (token) {
         headers['Authorization'] = `Bearer ${token}`
       }
+    }
+
+    // Add currency preference header if available in localStorage
+    const currencyPreference = localStorage.getItem('currency')
+    if (currencyPreference) {
+      headers['X-Currency-Preference'] = currencyPreference
     }
 
     return headers
@@ -58,15 +58,40 @@ export class ApiClient {
     response: Response
   ): Promise<ApiResponse<T>> {
     try {
-      const data = await response.json()
+      // First get the raw text to avoid parsing errors
+      const text = await response.text();
+      console.log(`Raw response text: ${text.substring(0, 200)}${text.length > 200 ? '...' : ''}`);
+      
+      let data;
+      try {
+        // Try to parse the text as JSON
+        data = text ? JSON.parse(text) : {};
+      } catch (parseError) {
+        console.error('Error parsing JSON response:', parseError);
+        return {
+          status: 'error',
+          error: {
+            status: response.status,
+            message: `Failed to parse response as JSON: ${text.substring(0, 100)}...`,
+          },
+        };
+      }
 
       // Check for error responses
       if (!response.ok) {
+        console.error('API error response:', data);
+        
         if (data.detail) {
           // FastAPI error format
           return {
             status: 'error',
             error: data.detail,
+          }
+        } else if (data.error) {
+          // Our custom error format
+          return {
+            status: 'error',
+            error: data.error,
           }
         } else {
           // Generic error
@@ -74,13 +99,15 @@ export class ApiClient {
             status: 'error',
             error: {
               status: response.status,
-              message: response.statusText,
+              message: response.statusText || 'Unknown error',
             },
           }
         }
       }
 
       // Handle backend standardized response format
+      console.log('Parsed API response:', data);
+      
       return {
         status: data.status || 'success',
         data: data.data,
@@ -89,12 +116,12 @@ export class ApiClient {
         metadata: data.metadata,
       }
     } catch (error) {
-      console.error('Error parsing API response:', error)
+      console.error('Error processing API response:', error)
       return {
         status: 'error',
         error: {
           status: 500,
-          message: 'Failed to parse response',
+          message: error instanceof Error ? error.message : 'Failed to process response',
         },
       }
     }
@@ -154,8 +181,10 @@ export class ApiClient {
     const { requiresAuth = false } = options
 
     try {
+      console.log(`POST request to ${endpoint}`, { data })
       // Get headers with auth token if needed
       const headers = await this.getHeaders(requiresAuth)
+      console.log(`Headers for ${endpoint}:`, headers)
 
       // Make the request
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
@@ -164,6 +193,7 @@ export class ApiClient {
         body: JSON.stringify(data),
       })
 
+      console.log(`Response status for ${endpoint}:`, response.status)
       // Process the response
       return await this.processResponse<T>(response)
     } catch (error: any) {

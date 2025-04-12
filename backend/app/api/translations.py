@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import logging
+import time
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -14,8 +15,12 @@ router = APIRouter(prefix="/api", tags=["translations"])
 # Load translation files
 TRANSLATIONS_DIR = Path(__file__).parent.parent.parent / "translations"
 
+# Initialize translations cache
+TRANSLATIONS = {}
+
 def load_translations():
     """Load all available translation files"""
+    global TRANSLATIONS
     translations = {}
 
     if not TRANSLATIONS_DIR.exists():
@@ -37,6 +42,7 @@ def load_translations():
             logger.error(f"Error loading translation file {file_path}: {e}")
             translations[locale] = {}
 
+    TRANSLATIONS = translations
     return translations
 
 def create_default_translations():
@@ -248,9 +254,13 @@ def create_default_translations():
         json.dump(default_da, f, indent=2, ensure_ascii=False)
         logger.info(f"Created default Danish translations at {da_path}")
 
+# Load translations on module import
+load_translations()
+
 # Initialize translations
 TRANSLATIONS = load_translations()
 AVAILABLE_LOCALES = list(TRANSLATIONS.keys())
+LAST_MODIFIED = {}  # Track when each locale was last modified
 
 @router.get("/translations")
 async def get_available_translations():
@@ -261,48 +271,32 @@ async def get_available_translations():
 @router.get("/translations/{locale}")
 async def get_translations(locale: str, namespace: Optional[str] = Query(None), request: Request = None):
     """
-    Get translations for a specific locale, optionally filtered by namespace
-
-    Args:
-        locale: The locale code (e.g., 'en', 'da')
-        namespace: Optional namespace to filter translations (e.g., 'common', 'auth')
-        request: FastAPI request object for logging
-
-    Returns:
-        Dictionary of translations
+    Get translations for a specific locale and optional namespace
     """
-    client_ip = request.client.host if request else "unknown"
-    locale = locale.lower()  # Normalize locale to lowercase
-
-    logger.info(f"Translations requested for locale '{locale}' from {client_ip}")
-
-    # Reload translations to ensure we have the latest version
-    global TRANSLATIONS
-    TRANSLATIONS = load_translations()
-
-    if locale not in TRANSLATIONS:
-        logger.warning(f"Translations for locale '{locale}' not found, available: {AVAILABLE_LOCALES}")
-        raise HTTPException(status_code=404, detail=f"Translations for locale '{locale}' not found")
-
-    # If loan translations are missing, add them from defaults
-    if 'loans' not in TRANSLATIONS[locale] and locale in ['en', 'da']:
-        logger.warning(f"Loan translations missing for {locale}, recreating defaults")
-        create_default_translations()
-        TRANSLATIONS = load_translations()
-
-    if namespace:
-        if namespace in TRANSLATIONS[locale]:
-            logger.info(f"Returning namespace '{namespace}' for locale '{locale}'")
-            return {namespace: TRANSLATIONS[locale][namespace]}
-        else:
-            logger.warning(f"Namespace '{namespace}' not found in locale '{locale}'")
-            raise HTTPException(status_code=404, detail=f"Namespace '{namespace}' not found in locale '{locale}'")
-
-    # Log the size of the translations being returned
-    namespaces = TRANSLATIONS[locale].keys()
-    logger.info(f"Returning full translations for locale '{locale}', namespaces: {namespaces}")
-
-    return TRANSLATIONS[locale]
+    try:
+        logger.info(f"Translations requested for locale '{locale}' from {request.client.host if request else 'unknown'}")
+        
+        # Ensure translations are loaded
+        if not TRANSLATIONS:
+            load_translations()
+            
+        if locale not in TRANSLATIONS:
+            logger.warning(f"Locale '{locale}' not found in translations")
+            return {"error": f"Translations not found for locale: {locale}"}
+            
+        translations = TRANSLATIONS[locale]
+        
+        if namespace:
+            if namespace not in translations:
+                logger.warning(f"Namespace '{namespace}' not found in translations for locale '{locale}'")
+                return {"error": f"Namespace '{namespace}' not found in translations"}
+            translations = translations[namespace]
+            
+        return translations
+        
+    except Exception as e:
+        logger.error(f"Error getting translations: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting translations: {str(e)}")
 
 @router.post("/translations/{locale}")
 async def update_translations(locale: str, translations: Dict[str, Any], request: Request = None):
@@ -315,7 +309,6 @@ async def update_translations(locale: str, translations: Dict[str, Any], request
 
     logger.info(f"Update translations requested for locale '{locale}' from {client_ip}")
 
-    # In a real implementation, this would have auth checks
     try:
         file_path = TRANSLATIONS_DIR / f"{locale}.json"
 
@@ -341,9 +334,11 @@ async def update_translations(locale: str, translations: Dict[str, Any], request
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(updated_translations, f, indent=2, ensure_ascii=False)
 
-        # Reload translations
+        # Update cache and track modification time
         global TRANSLATIONS, AVAILABLE_LOCALES
         TRANSLATIONS[locale] = updated_translations
+        LAST_MODIFIED[locale] = time.time()
+        
         if locale not in AVAILABLE_LOCALES:
             AVAILABLE_LOCALES.append(locale)
 

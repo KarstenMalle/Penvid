@@ -44,7 +44,7 @@ import { CurrencyFormatter } from '@/components/ui/currency-formatter'
 import { useLocalization } from '@/context/LocalizationContext'
 import { CurrencySwitch } from '@/components/ui/currency-switch'
 import LoanTaxOptimization from '@/components/features/loans/LoanTaxOptimization'
-import { post } from '@/utils/api-helper'
+import { post } from '@/utils/apiHelper'
 
 // Update loan types mapping to use translated values
 const LOAN_TYPE_CONFIG: Record<LoanType, { color: string }> = {

@@ -4,8 +4,11 @@ import requests
 from typing import List, Dict, Any, Optional
 from cachetools import cached, TTLCache
 from datetime import datetime, timedelta
+import logging
+import math
 
-from app.utils.api_util import logger
+# Set up module-level logger
+calc_logger = logging.getLogger(__name__)
 
 # Cache for exchange rates, with 24-hour TTL
 exchange_rate_cache = TTLCache(maxsize=100, ttl=86400)
@@ -55,7 +58,6 @@ def calculate_loan_term(principal: float, annual_rate: float, monthly_payment: f
     # Calculate using standard formula
     # n = -log(1 - (P*r)/PMT) / log(1+r)
     # where: n = number of payments, P = principal, r = monthly rate, PMT = payment
-    import math
     n = -math.log(1 - (principal * monthly_rate) / monthly_payment) / math.log(1 + monthly_rate)
 
     # Round up to nearest month
@@ -344,20 +346,45 @@ def get_exchange_rates(base_currency="USD"):
 
 def convert_currency(amount: float, from_currency: str = "USD", to_currency: str = "USD") -> float:
     """Convert amount between currencies"""
-    if from_currency == to_currency:
+    try:
+        # If currencies are the same, just return the original amount
+        if from_currency == to_currency:
+            return amount
+
+        # Get exchange rates (cached)
+        rates = get_exchange_rates(base_currency="USD")
+        
+        # Log the rates and currencies for debugging
+        calc_logger.debug(f"Converting {amount} from {from_currency} to {to_currency}")
+        calc_logger.debug(f"Available rates: {sorted(rates.keys())}")
+        
+        # Convert to USD as an intermediate step if needed
+        if from_currency != "USD":
+            if from_currency not in rates:
+                calc_logger.warning(f"No rate found for {from_currency}, using 1.0")
+                from_rate = 1.0
+            else:
+                from_rate = rates.get(from_currency)
+            
+            amount = amount / from_rate
+            calc_logger.debug(f"Converted to USD: {amount}")
+
+        # Convert from USD to target currency
+        if to_currency != "USD":
+            if to_currency not in rates:
+                calc_logger.warning(f"No rate found for {to_currency}, using 1.0")
+                to_rate = 1.0
+            else:
+                to_rate = rates.get(to_currency)
+                
+            amount = amount * to_rate
+            calc_logger.debug(f"Converted from USD to {to_currency}: {amount}")
+            
         return amount
-
-    rates = get_exchange_rates(base_currency="USD")
-
-    # Convert to USD as an intermediate step if needed
-    if from_currency != "USD":
-        amount = amount / rates.get(from_currency, 1.0)
-
-    # Convert from USD to target currency
-    if to_currency != "USD":
-        amount = amount * rates.get(to_currency, 1.0)
-
-    return amount
+    except Exception as e:
+        calc_logger.error(f"Error in currency conversion: {str(e)}")
+        # In case of error, return the original amount
+        return amount
 
 
 
@@ -1010,6 +1037,6 @@ def get_exchange_rates(base_currency="USD"):
         data = response.json()
         return data.get('rates', {"USD": 1.0, "DKK": 6.8991310126})
     except Exception as e:
-        logger.error(f"Error fetching exchange rates: {e}")
+        calc_logger.error(f"Error fetching exchange rates: {e}")
         # Fallback rates
         return {"USD": 1.0, "DKK": 6.8991310126}

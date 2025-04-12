@@ -8,32 +8,127 @@ import { ApiClient } from './ApiClient'
  * All currency conversion is handled by the backend
  */
 export class LoanService {
+  // Cache for loan data with a longer timeout (5 minutes)
+  private static loanCache: { [userId: string]: { data: Loan[], timestamp: number } } = {};
+  private static CACHE_TIMEOUT = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+  // Track pending requests to avoid duplicate calls
+  private static pendingLoansRequest: { [userId: string]: Promise<Loan[]> } = {};
+
   /**
    * Get all loans for a user
    * Loans will be returned in the user's preferred currency
    */
-  static async getUserLoans(userId: string): Promise<Loan[]> {
-    try {
-      const response = await ApiClient.get<Loan[]>(
-        `/api/user/${userId}/loans`,
-        {
-          requiresAuth: true,
-        }
-      )
+  static async getUserLoans(userId: string, currency?: string): Promise<Loan[]> {
+    // Check cache first
+    const cachedData = this.loanCache[userId];
+    if (cachedData && Date.now() - cachedData.timestamp < this.CACHE_TIMEOUT) {
+      console.log(`Using cached loans for user ${userId}`);
+      return cachedData.data;
+    }
 
-      if (response.status === 'error' || !response.data) {
-        throw new Error(
-          typeof response.error === 'string'
-            ? response.error
-            : response.error?.message || 'Failed to fetch loans'
-        )
+    // If there's already a pending request for this user, return it
+    if (userId in this.pendingLoansRequest) {
+      console.log(`Using existing request for user ${userId}`);
+      return this.pendingLoansRequest[userId];
+    }
+
+    try {
+      // Create the promise for this request
+      this.pendingLoansRequest[userId] = this.fetchUserLoans(userId, currency);
+      
+      // Wait for the request to complete
+      const result = await this.pendingLoansRequest[userId];
+      
+      // Update cache with new data
+      this.loanCache[userId] = {
+        data: result,
+        timestamp: Date.now()
+      };
+      
+      return result;
+    } catch (error) {
+      // Clear the pending request on error
+      delete this.pendingLoansRequest[userId];
+      console.error('Error getting user loans:', error);
+      throw error;
+    } finally {
+      // Clear the pending request after a short delay
+      setTimeout(() => {
+        delete this.pendingLoansRequest[userId];
+      }, 1000); // Increased to 1 second
+    }
+  }
+
+  // Actual fetch implementation with improved error handling
+  private static async fetchUserLoans(userId: string, currency?: string): Promise<Loan[]> {
+    try {
+      // Add retry logic for network issues
+      const maxRetries = 3;
+      let currentRetry = 0;
+      let lastError;
+
+      while (currentRetry < maxRetries) {
+        try {
+          const response = await ApiClient.get<Loan[]>(
+            `/api/user/${userId}/loans`,
+            {
+              requiresAuth: true,
+            }
+          );
+
+          // Check if response is valid
+          if (!response || typeof response !== 'object') {
+            throw new Error('Invalid API response format');
+          }
+
+          // Check for error in response
+          if (response.status === 'error' || response.error) {
+            throw new Error(
+              typeof response.error === 'string'
+                ? response.error
+                : response.error?.message || 'Failed to fetch loans'
+            );
+          }
+
+          // Ensure data is an array
+          if (!Array.isArray(response.data)) {
+            throw new Error('Invalid loans data format');
+          }
+
+          // Successfully fetched loans
+          return response.data;
+        } catch (error) {
+          lastError = error;
+          console.warn(`Retry ${currentRetry + 1}/${maxRetries} failed:`, error);
+          currentRetry++;
+
+          // Wait before retry (exponential backoff)
+          if (currentRetry < maxRetries) {
+            await new Promise((resolve) =>
+              setTimeout(resolve, 1000 * Math.pow(2, currentRetry))
+            );
+          }
+        }
       }
 
-      // Return the loans - already converted to user's currency by backend
-      return response.data
+      // If we got here, all retries failed
+      console.error('Error getting user loans after retries:', lastError);
+      throw lastError;
     } catch (error) {
-      console.error('Error getting user loans:', error)
-      throw error
+      console.error('Error getting user loans:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Clear the loan cache for a specific user
+   */
+  static clearCache(userId?: string) {
+    if (userId) {
+      delete this.loanCache[userId];
+    } else {
+      this.loanCache = {};
     }
   }
 
@@ -177,6 +272,8 @@ export class LoanService {
    */
   static async createDefaultLoan(userId: string): Promise<Loan | null> {
     try {
+      console.log(`Attempting to create default loan for user ${userId}`)
+      
       const response = await ApiClient.post<Loan>(
         `/api/user/${userId}/loans/default`,
         {},
@@ -185,7 +282,10 @@ export class LoanService {
         }
       )
 
+      console.log(`Default loan creation response:`, response)
+
       if (response.status === 'error') {
+        console.error('Error creating default loan:', response.error)
         throw new Error(
           typeof response.error === 'string'
             ? response.error
@@ -195,13 +295,16 @@ export class LoanService {
 
       // If a loan was created, return it
       if (response.data) {
+        console.log(`Default loan created successfully:`, response.data)
         return response.data
       }
 
       // No loan was created (user already has loans)
+      console.log('Default loan not created, user may already have loans')
       return null
     } catch (error) {
       console.error('Error creating default loan:', error)
+      // Return null instead of throwing to make error handling easier
       return null
     }
   }

@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS public.loans (
     interest_rate DECIMAL(6, 3) NOT NULL,
     term_years INTEGER NOT NULL,
     minimum_payment DECIMAL(12, 2) NOT NULL,
+    loan_type TEXT DEFAULT 'OTHER',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     UNIQUE(user_id, loan_id)

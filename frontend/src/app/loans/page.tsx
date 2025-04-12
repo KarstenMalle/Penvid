@@ -33,9 +33,21 @@ export default function LoansPage() {
 
       setIsLoading(true)
       try {
+        console.log(`Fetching loans for user ${user.id} with currency preference: ${currency}`)
+        
         // Fetch user's loans
         const userLoans = await LoanService.getUserLoans(user.id, currency)
-        setLoans(userLoans.length > 0 ? userLoans : [])
+        
+        console.log(`Received ${userLoans?.length || 0} loans:`, userLoans)
+        
+        if (userLoans && userLoans.length > 0) {
+          // Set loans if found
+          setLoans(userLoans)
+        } else {
+          console.log('No loans found, showing empty state')
+          // No loans found - show empty state instead of creating default
+          setLoans([])
+        }
       } catch (error) {
         console.error('Error loading loans:', error)
         toast.error('Failed to load your loan data')

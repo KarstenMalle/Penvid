@@ -31,6 +31,13 @@ interface FormatCurrencyOptions extends Intl.NumberFormatOptions {
   originalCurrency?: Currency
 }
 
+// Add type for profile preferences
+interface ProfilePreferences {
+  language_preference: string | null
+  currency_preference: string | null
+  country_preference: string | null
+}
+
 type LocalizationContextType = {
   locale: Locale
   setLocale: (locale: Locale) => Promise<void>
@@ -63,17 +70,17 @@ const initialTranslations = {
 // Cache for currency conversions to avoid duplicate API calls
 const conversionCache: Record<string, number> = {}
 
+// Cache for translations to avoid duplicate API calls
+const translationCache: Record<string, Record<string, any>> = {}
+
 export function LocalizationProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
   const [locale, setLocaleState] = useState<Locale>(defaultLocale)
   const [currency, setCurrencyState] = useState<Currency>(defaultCurrency)
   const [country, setCountryState] = useState<Country>(defaultCountry)
-  const [translations, setTranslations] =
-    useState<Record<string, any>>(initialTranslations)
+  const [translations, setTranslations] = useState<Record<string, any>>(initialTranslations)
   const [isLoadingTranslations, setIsLoadingTranslations] = useState(true)
-  const [conversionRates, setConversionRates] = useState<
-    Record<string, number>
-  >({})
+  const [conversionRates, setConversionRates] = useState<Record<string, number>>({})
   const [isLoadingRates, setIsLoadingRates] = useState(false)
   const supabase = createClient()
 
@@ -83,22 +90,10 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     console.log(`Loading translations for locale: ${currentLocale}`)
 
     try {
-      // Force a refresh of the translations when explicitly loading
-      const translationsData = await TranslationService.getTranslations(
-        currentLocale,
-        true
-      )
-
-      // Log what we received to help debug
-      console.log(`Received translations for ${currentLocale}:`, {
-        hasLoans: !!translationsData.loans,
-        namespaces: Object.keys(translationsData),
-        loanKeys: translationsData.loans
-          ? Object.keys(translationsData.loans).slice(0, 5)
-          : [],
-      })
-
+      const translationsData = await TranslationService.getTranslations(currentLocale)
       setTranslations(translationsData)
+      // Update the cache in the service
+      TranslationService.cache[currentLocale] = translationsData
     } catch (error) {
       console.error(`Error loading translations for ${currentLocale}:`, error)
 
@@ -106,9 +101,10 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
       if (currentLocale !== 'en') {
         try {
           console.log(`Falling back to English translations due to error`)
-          const fallbackTranslations =
-            await TranslationService.getTranslations('en')
+          const fallbackTranslations = await TranslationService.getTranslations('en')
           setTranslations(fallbackTranslations)
+          // Update the cache in the service
+          TranslationService.cache['en'] = fallbackTranslations
         } catch (fallbackError) {
           console.error('Error loading fallback translations:', fallbackError)
         }
@@ -116,7 +112,12 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoadingTranslations(false)
     }
-  }, [])
+  }, []) // Remove translations from dependencies
+
+  // Load translations when locale changes
+  useEffect(() => {
+    loadTranslations(locale)
+  }, [locale, loadTranslations])
 
   // Load user's language, currency, and country preferences
   useEffect(() => {
@@ -133,10 +134,7 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
         setLocaleState(storedLocale)
       }
 
-      if (
-        storedCurrency &&
-        Object.keys(currencyConfig).includes(storedCurrency)
-      ) {
+      if (storedCurrency && Object.keys(currencyConfig).includes(storedCurrency)) {
         setCurrencyState(storedCurrency)
       }
 
@@ -149,35 +147,24 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
         try {
           const { data, error } = await supabase
             .from('profiles')
-            .select(
-              'language_preference, currency_preference, country_preference'
-            )
+            .select('language_preference, currency_preference, country_preference')
             .eq('id', user.id)
             .single()
 
           if (error) throw error
 
-          if (
-            data?.language_preference &&
-            Object.keys(languages).includes(data.language_preference)
-          ) {
+          if (data?.language_preference && Object.keys(languages).includes(data.language_preference)) {
             newLocale = data.language_preference as Locale
             setLocaleState(newLocale)
             localStorage.setItem('locale', data.language_preference)
           }
 
-          if (
-            data?.currency_preference &&
-            Object.keys(currencyConfig).includes(data.currency_preference)
-          ) {
+          if (data?.currency_preference && Object.keys(currencyConfig).includes(data.currency_preference)) {
             setCurrencyState(data.currency_preference as Currency)
             localStorage.setItem('currency', data.currency_preference)
           }
 
-          if (
-            data?.country_preference &&
-            Object.keys(countryConfig).includes(data.country_preference)
-          ) {
+          if (data?.country_preference && Object.keys(countryConfig).includes(data.country_preference)) {
             setCountryState(data.country_preference as Country)
             localStorage.setItem('country', data.country_preference)
           }
@@ -192,7 +179,6 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
         if (Object.keys(languages).includes(browserLang)) {
           newLocale = browserLang as Locale
           setLocaleState(browserLang)
-          localStorage.setItem('locale', browserLang)
         }
       }
 
@@ -212,21 +198,16 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // Load translations for the determined locale
+      // Load initial translations
       await loadTranslations(newLocale)
     }
 
     loadPreferences()
   }, [user, supabase, loadTranslations])
 
-  // Reload translations when locale changes
-  useEffect(() => {
-    loadTranslations(locale)
-  }, [locale, loadTranslations])
-
   // Function to refresh translations manually
   const refreshTranslations = async () => {
-    TranslationService.clearCache() // Clear the cache to force a fresh load
+    TranslationService.clearCache()
     await loadTranslations(locale)
   }
 
@@ -266,24 +247,35 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     // Update local state
     setCurrencyState(newCurrency)
 
-    // Save to localStorage
+    // Save to localStorage as fallback
     localStorage.setItem('currency', newCurrency)
 
     // If authenticated, save to database
     if (user) {
       try {
-        const { error } = await supabase
+        // Update in profiles table (using profiles consistently)
+        const { error: profileError } = await supabase
           .from('profiles')
           .update({ currency_preference: newCurrency })
           .eq('id', user.id)
 
-        if (error) throw error
+        if (profileError) {
+          console.error('Error updating profile currency:', profileError)
+          toast.error('Failed to save currency preference')
+          return
+        }
 
         toast.success(`Currency changed to ${currencyConfig[newCurrency].name}`)
+
+        // Refresh the page to ensure all data is displayed in the correct currency
+        window.location.reload()
       } catch (error) {
         console.error('Error saving currency preference:', error)
         toast.error('Failed to save currency preference')
       }
+    } else {
+      // If no user, still refresh the page for currency update
+      window.location.reload()
     }
   }
 
@@ -329,57 +321,30 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  // Translation function - improved to better handle missing translations
-  const t = (key: string, params?: Record<string, any>) => {
-    // Short circuit for empty key
-    if (!key) return ''
-
-    // Split the key into path segments
+  // Translation function with proper typing
+  const t = (key: string, params?: Record<string, any>): string => {
+    // First try to get from local state
     const keys = key.split('.')
-
-    // Navigate through the translations object
     let value: any = translations
+
     for (const k of keys) {
       if (!value || typeof value !== 'object') {
-        // Use TranslationService's sync method to get a better fallback
-        return TranslationService.getTranslationSync(locale, key, params)
+        break
       }
-
       value = value[k]
+    }
 
-      if (value === undefined) {
-        // Use TranslationService's sync method for better fallbacks
-        return TranslationService.getTranslationSync(locale, key, params)
+    if (typeof value === 'string') {
+      if (params) {
+        return Object.entries(params).reduce((str, [paramKey, paramValue]) => {
+          return str.replace(new RegExp(`{${paramKey}}`, 'g'), String(paramValue))
+        }, value)
       }
+      return value
     }
 
-    // If the value is not a string, or is empty, use TranslationService
-    if (typeof value !== 'string' || !value) {
-      return TranslationService.getTranslationSync(locale, key, params)
-    }
-
-    // Replace parameters if provided
-    if (params) {
-      return Object.entries(params).reduce((str, [paramKey, paramValue]) => {
-        // For React elements, we need special handling
-        if (React.isValidElement(paramValue)) {
-          // Create parts by splitting on the parameter placeholder
-          const parts = str.toString().split(new RegExp(`{${paramKey}}`, 'g'))
-
-          // Interleave parts with the React element
-          const result = parts.reduce((acc: any[], part, index) => {
-            if (index === 0) return [part]
-            return [...acc, paramValue, part]
-          }, [])
-
-          return result
-        }
-
-        return str.replace(new RegExp(`{${paramKey}}`, 'g'), String(paramValue))
-      }, value)
-    }
-
-    return value
+    // If not found in local state, try the service cache
+    return TranslationService.getTranslationSync(locale, key, params)
   }
 
   // Convert amount between currencies - non-async version that uses the cached rates

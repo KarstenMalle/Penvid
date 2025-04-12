@@ -1,7 +1,7 @@
 // frontend/src/components/debug/PaymentAnalysisDebugger.tsx
 
 import React, { useState, useEffect } from 'react'
-import { post } from '@/utils/api-helper'
+import { post } from '@/utils/apiHelpers'
 
 /**
  * Debug component specifically for diagnosing payment analysis currency issues

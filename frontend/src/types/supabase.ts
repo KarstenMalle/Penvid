@@ -14,6 +14,9 @@ export interface Database {
           id: string
           name: string | null
           avatar_url: string | null
+          language_preference: string | null
+          currency_preference: string | null
+          country_preference: string | null
           created_at: string
           updated_at: string
         }
@@ -21,6 +24,9 @@ export interface Database {
           id: string
           name?: string | null
           avatar_url?: string | null
+          language_preference?: string | null
+          currency_preference?: string | null
+          country_preference?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -28,6 +34,9 @@ export interface Database {
           id?: string
           name?: string | null
           avatar_url?: string | null
+          language_preference?: string | null
+          currency_preference?: string | null
+          country_preference?: string | null
           created_at?: string
           updated_at?: string
         }
