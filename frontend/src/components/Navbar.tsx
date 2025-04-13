@@ -5,11 +5,14 @@ import { usePathname } from 'next/navigation'
 import Image from 'next/image'
 import { useTheme } from 'next-themes'
 import { useAuth } from '@/context/AuthContext'
+import CurrencySelector from './CurrencySelector'
+import { Button } from './ui/button'
+import { LogOutIcon } from 'lucide-react'
 
 export default function Navbar() {
   const pathname = usePathname()
   const { theme, setTheme } = useTheme()
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, logout, loading } = useAuth()
 
   const navLinks = isAuthenticated
     ? [
@@ -22,6 +25,10 @@ export default function Navbar() {
         { name: 'What is Penvid', href: '/what-is-penvid' },
         { name: 'Pricing', href: '/pricing' },
       ]
+
+  const handleLogout = async () => {
+    await logout()
+  }
 
   return (
     <nav className="bg-white dark:bg-gray-800 shadow-md">
@@ -57,17 +64,36 @@ export default function Navbar() {
             </div>
           </div>
           <div className="absolute inset-y-0 right-0 flex items-center space-x-4 pr-2 sm:static sm:inset-auto sm:ml-6 sm:pr-0">
-            <Link
-              href="/login"
-              className="text-lg font-medium text-gray-800 dark:text-white transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-600 dark:hover:text-gray-300 px-3 py-2 rounded-md"
-            >
-              Log In
-            </Link>
-            <Link href="/register">
-              <button className="px-4 py-2 bg-blue-900 text-white font-medium rounded-md hover:bg-blue-800 active:bg-blue-700 transition-colors">
-                Start Your Free Trial
-              </button>
-            </Link>
+            {/* Currency Selector (only when authenticated) */}
+            {isAuthenticated && <CurrencySelector />}
+
+            {isAuthenticated ? (
+              <Button
+                onClick={handleLogout}
+                variant="ghost"
+                size="sm"
+                disabled={loading}
+                className="flex items-center gap-1"
+              >
+                <LogOutIcon size={18} />
+                <span className="hidden md:inline">Logout</span>
+              </Button>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className="text-lg font-medium text-gray-800 dark:text-white transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-600 dark:hover:text-gray-300 px-3 py-2 rounded-md"
+                >
+                  Log In
+                </Link>
+                <Link href="/register">
+                  <Button className="px-4 py-2 bg-blue-900 text-white font-medium rounded-md hover:bg-blue-800 active:bg-blue-700 transition-colors">
+                    Start Your Free Trial
+                  </Button>
+                </Link>
+              </>
+            )}
+
             <button
               onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
               className="p-2 rounded-full"

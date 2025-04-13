@@ -51,3 +51,4 @@ out/
 .env
 /backend/app/__pycache__
 *.pyc
+/backend/node_modules
