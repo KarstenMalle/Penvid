@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import supabase from '../config/supabase';
 import logger from '../utils/logger';
+import { ApiError } from './errorMiddleware';
 
 // Extend Express Request with user property
 export interface AuthRequest extends Request {
@@ -24,47 +25,68 @@ export async function authenticate(
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      logger.warn('Missing or invalid authorization token');
-      return res.status(401).json({ error: 'Missing or invalid authorization token' });
+      throw new ApiError(401, 'Missing or invalid authorization token');
     }
 
     const token = authHeader.split(' ')[1];
-
-    // For debugging
-    logger.info('Authenticating request with token');
 
     // Verify the token with Supabase
     const { data, error } = await supabase.auth.getUser(token);
 
     if (error || !data.user) {
       logger.warn('Authentication failed:', error?.message);
-      return res.status(401).json({ error: 'Invalid or expired authorization token' });
+      throw new ApiError(401, 'Invalid or expired authorization token');
     }
 
     // Store user data in request for controller use
     req.user = {
       id: data.user.id,
       email: data.user.email,
-      role: data.user.role || 'user',
+      role: data.user.app_metadata?.role || 'user',
     };
 
     logger.info(`User authenticated: ${req.user.id}`);
     next();
   } catch (error) {
-    logger.error('Error in authentication middleware:', error);
-    return res.status(500).json({ error: 'Authentication error' });
+    if (error instanceof ApiError) {
+      next(error);
+    } else {
+      logger.error('Error in authentication middleware:', error);
+      next(new ApiError(500, 'Authentication error'));
+    }
   }
 }
 
-// Alternative function for debugging that always authenticates with a mock user
-// Only for development use when Supabase auth is not available
+/**
+ * Middleware to check if a user has admin role
+ */
+export function requireAdmin(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
+  if (!req.user) {
+    next(new ApiError(401, 'Authentication required'));
+    return;
+  }
+
+  if (req.user.role !== 'admin') {
+    next(new ApiError(403, 'Admin access required'));
+    return;
+  }
+
+  next();
+}
+
+// For development use only when Supabase auth is not available
 export function mockAuthenticate(
   req: AuthRequest,
   res: Response,
   next: NextFunction
 ) {
   if (process.env.NODE_ENV !== 'development') {
-    return res.status(401).json({ error: 'Mock authentication only available in development' });
+    next(new ApiError(401, 'Mock authentication only available in development'));
+    return;
   }
 
   // Create a mock user for testing
@@ -80,5 +102,6 @@ export function mockAuthenticate(
 
 export default {
   authenticate,
+  requireAdmin,
   mockAuthenticate,
 };

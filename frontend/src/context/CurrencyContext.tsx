@@ -9,9 +9,10 @@ import {
 } from 'react'
 import { useAuth } from './AuthContext'
 import apiService from '@/lib/api-client'
+import toast from 'react-hot-toast'
 
 // Define the supported currencies
-export type SupportedCurrency = 'USD' | 'DKK'
+export type SupportedCurrency = 'USD' | 'DKK' | 'EUR'
 
 // Define the context type
 interface CurrencyContextType {
@@ -33,7 +34,7 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
   const [currency, setCurrencyState] = useState<SupportedCurrency>('USD')
   const [supportedCurrencies, setSupportedCurrencies] = useState<
     SupportedCurrency[]
-  >(['USD', 'DKK'])
+  >(['USD', 'DKK', 'EUR'])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -46,6 +47,8 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
       } catch (err) {
         console.error('Failed to load supported currencies:', err)
         setError('Failed to load supported currencies')
+      } finally {
+        setLoading(false)
       }
     }
 
@@ -75,7 +78,9 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    loadUserCurrency()
+    if (isAuthenticated) {
+      loadUserCurrency()
+    }
   }, [isAuthenticated])
 
   // Function to update currency
@@ -88,12 +93,14 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
         await apiService.updateProfile({
           currency_preference: newCurrency,
         })
+        toast.success(`Currency changed to ${newCurrency}`)
       }
     } catch (err) {
       console.error('Failed to update currency preference:', err)
       setError('Failed to update currency preference')
       // Revert to previous currency on error
       setCurrencyState(currency)
+      toast.error('Failed to update currency preference')
       throw err
     }
   }

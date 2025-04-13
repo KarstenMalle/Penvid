@@ -2,6 +2,7 @@ import { Express } from 'express';
 import profileRoutes from './profileRoutes';
 import currencyRoutes from './currencyRoutes';
 import financialRoutes from './financialRoutes';
+import authRoutes from './authRoutes';
 import { notFound, errorHandler } from '../middleware/errorMiddleware';
 
 /**
@@ -9,6 +10,7 @@ import { notFound, errorHandler } from '../middleware/errorMiddleware';
  */
 export function setupRoutes(app: Express) {
   // API routes
+  app.use('/api/auth', authRoutes);
   app.use('/api/profile', profileRoutes);
   app.use('/api/currencies', currencyRoutes);
   app.use('/api/financial', financialRoutes);

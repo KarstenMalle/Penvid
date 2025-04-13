@@ -1,29 +1,17 @@
 import axios, { AxiosError, AxiosResponse } from 'axios'
+import {
+  ProfileUpdate,
+  Profile,
+  Account,
+  Transaction,
+  Goal,
+  Investment,
+} from './api-types'
 
-// Define interface for profile data
-export interface Profile {
-  id: string
-  name: string | null
-  avatar_url: string | null
-  language_preference: string | null
-  currency_preference: string
-  country_preference: string | null
-  created_at: string
-  updated_at: string | null
-}
-
-// Define interface for profile update data
-export interface ProfileUpdate {
-  name?: string | null
-  avatar_url?: string | null
-  language_preference?: string | null
-  currency_preference?: string
-  country_preference?: string | null
-}
+// Define API base URL
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api'
 
 // Create a base API instance
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
-
 const api = axios.create({
   baseURL: API_URL,
   headers: {
@@ -103,28 +91,57 @@ async function apiRequest<T>(
   }
 }
 
-// API service functions
-export const apiService = {
+// API service object with all endpoints
+const apiService = {
   // Profile endpoints
-  getProfile: () => apiRequest<Profile>('GET', '/api/profile'),
+  getProfile: () => apiRequest<Profile>('GET', '/profile'),
   updateProfile: (data: ProfileUpdate) =>
-    apiRequest<Profile>('PATCH', '/api/profile', data),
+    apiRequest<Profile>('PATCH', '/profile', data),
 
   // Currency endpoints
-  getSupportedCurrencies: () => apiRequest<string[]>('GET', '/api/currencies'),
+  getSupportedCurrencies: () => apiRequest<string[]>('GET', '/currencies'),
   convertCurrency: (amount: number, fromCurrency: string, toCurrency: string) =>
-    apiRequest('POST', '/api/currencies/convert', {
+    apiRequest('POST', '/currencies/convert', {
       amount,
       fromCurrency,
       toCurrency,
     }),
 
   // Financial endpoints
-  getAccounts: () => apiRequest('GET', '/api/financial/accounts'),
-  getTransactions: () => apiRequest('GET', '/api/financial/transactions'),
-  getLoans: () => apiRequest('GET', '/api/financial/loans'),
-  getInvestments: () => apiRequest('GET', '/api/financial/investments'),
-  getGoals: () => apiRequest('GET', '/api/financial/goals'),
+  getAccounts: () => apiRequest<Account[]>('GET', '/financial/accounts'),
+  getTransactions: () =>
+    apiRequest<Transaction[]>('GET', '/financial/transactions'),
+  getLoans: () => apiRequest<any[]>('GET', '/financial/loans'),
+  getInvestments: () =>
+    apiRequest<Investment[]>('GET', '/financial/investments'),
+  getGoals: () => apiRequest<Goal[]>('GET', '/financial/goals'),
+
+  // Create sample data
+  createSampleData: () => apiRequest<boolean>('POST', '/financial/sample-data'),
+
+  // Account operations
+  createAccount: (data: Partial<Account>) =>
+    apiRequest<Account>('POST', '/financial/accounts', data),
+  updateAccount: (id: string, data: Partial<Account>) =>
+    apiRequest<Account>('PUT', `/financial/accounts/${id}`, data),
+  deleteAccount: (id: string) =>
+    apiRequest<void>('DELETE', `/financial/accounts/${id}`),
+
+  // Transaction operations
+  createTransaction: (data: Partial<Transaction>) =>
+    apiRequest<Transaction>('POST', '/financial/transactions', data),
+  updateTransaction: (id: string, data: Partial<Transaction>) =>
+    apiRequest<Transaction>('PUT', `/financial/transactions/${id}`, data),
+  deleteTransaction: (id: string) =>
+    apiRequest<void>('DELETE', `/financial/transactions/${id}`),
+
+  // Goal operations
+  createGoal: (data: Partial<Goal>) =>
+    apiRequest<Goal>('POST', '/financial/goals', data),
+  updateGoal: (id: string, data: Partial<Goal>) =>
+    apiRequest<Goal>('PUT', `/financial/goals/${id}`, data),
+  deleteGoal: (id: string) =>
+    apiRequest<void>('DELETE', `/financial/goals/${id}`),
 }
 
 export default apiService

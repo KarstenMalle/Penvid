@@ -6,7 +6,7 @@
     "version": "1.0.0"
   },
   "basePath": "/api",
-  "schemes": ["http"],
+  "schemes": ["http", "https"],
   "consumes": ["application/json"],
   "produces": ["application/json"],
   "securityDefinitions": {
@@ -18,6 +18,10 @@
     }
   },
   "tags": [
+    {
+      "name": "Auth",
+      "description": "Authentication operations"
+    },
     {
       "name": "Profile",
       "description": "User profile operations"
@@ -32,6 +36,156 @@
     }
   ],
   "paths": {
+    "/auth/register": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Register a new user",
+        "description": "Creates a new user account",
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "description": "User registration details",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/RegisterRequest"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "User registered successfully",
+            "schema": {
+              "$ref": "#/definitions/AuthResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "409": {
+            "description": "Email already in use"
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Login a user",
+        "description": "Authenticates a user and returns a token",
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "description": "User login credentials",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/LoginRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Login successful",
+            "schema": {
+              "$ref": "#/definitions/AuthResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Invalid credentials"
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Logout a user",
+        "description": "Invalidates the user's session",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Logout successful"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/auth/forgot-password": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Request password reset",
+        "description": "Sends a password reset email to the user",
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "description": "User email",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": ["email"],
+              "properties": {
+                "email": {
+                  "type": "string",
+                  "format": "email"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Password reset email sent"
+          },
+          "400": {
+            "description": "Invalid input"
+          }
+        }
+      }
+    },
+    "/auth/reset-password": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Reset password",
+        "description": "Resets the user's password using a token",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "description": "New password",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": ["password"],
+              "properties": {
+                "password": {
+                  "type": "string",
+                  "minLength": 6
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Password reset successful"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Invalid or expired token"
+          }
+        }
+      }
+    },
     "/profile": {
       "get": {
         "tags": ["Profile"],
@@ -260,6 +414,68 @@
     }
   },
   "definitions": {
+    "RegisterRequest": {
+      "type": "object",
+      "required": ["email", "password"],
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email"
+        },
+        "password": {
+          "type": "string",
+          "minLength": 6
+        }
+      }
+    },
+    "LoginRequest": {
+      "type": "object",
+      "required": ["email", "password"],
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email"
+        },
+        "password": {
+          "type": "string"
+        }
+      }
+    },
+    "AuthResponse": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "user": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "email": {
+              "type": "string",
+              "format": "email"
+            }
+          }
+        },
+        "session": {
+          "type": "object",
+          "properties": {
+            "access_token": {
+              "type": "string"
+            },
+            "refresh_token": {
+              "type": "string"
+            },
+            "expires_at": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
     "Profile": {
       "type": "object",
       "properties": {
@@ -278,7 +494,7 @@
         },
         "currency_preference": {
           "type": "string",
-          "enum": ["USD", "DKK"]
+          "enum": ["USD", "DKK", "EUR"]
         },
         "country_preference": {
           "type": "string"
@@ -304,7 +520,7 @@
         },
         "currency_preference": {
           "type": "string",
-          "enum": ["USD", "DKK"]
+          "enum": ["USD", "DKK", "EUR"]
         },
         "country_preference": {
           "type": "string"
@@ -321,11 +537,11 @@
         },
         "fromCurrency": {
           "type": "string",
-          "enum": ["USD", "DKK"]
+          "enum": ["USD", "DKK", "EUR"]
         },
         "toCurrency": {
           "type": "string",
-          "enum": ["USD", "DKK"]
+          "enum": ["USD", "DKK", "EUR"]
         }
       }
     },

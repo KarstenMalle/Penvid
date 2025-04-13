@@ -9,6 +9,7 @@ const currencyCache = new NodeCache({ stdTTL: 86400 });
 export enum SupportedCurrency {
   USD = 'USD',
   DKK = 'DKK',
+  EUR = 'EUR',
 }
 
 // The base currency used across the system (all conversions will be to/from this)
@@ -41,6 +42,7 @@ async function fetchLatestRates(): Promise<CurrencyRates> {
     return {
       [SupportedCurrency.USD]: 1,
       [SupportedCurrency.DKK]: 6.8, // Fallback approximate value
+      [SupportedCurrency.EUR]: 0.92, // Fallback approximate value
     };
   }
 }

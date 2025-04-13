@@ -8,13 +8,8 @@ import React, {
   ReactNode,
 } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@supabase/supabase-js'
-import apiService from '@/lib/api-client'
-
-// Create a Supabase client
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
+import { authService } from '@/lib/auth-api'
+import toast from 'react-hot-toast'
 
 // Define interface for user
 interface User {
@@ -45,68 +40,49 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     const checkAuthState = async () => {
       try {
-        // Check if there's an active session
-        const { data, error } = await supabase.auth.getSession()
+        // Check if there's an auth token in local storage
+        const authToken = localStorage.getItem('auth_token')
+        const authFlag = localStorage.getItem('auth')
 
-        if (error) {
-          throw error
-        }
+        if (authToken && authFlag === 'true') {
+          // For simplicity, we'll just check if the token exists
+          // In a real app, you might want to validate the token with the backend
 
-        if (data.session) {
-          const { access_token, user } = data.session
+          // Get the user ID from local storage or decode it from the JWT
+          const userId = localStorage.getItem('user_id')
+          const userEmail = localStorage.getItem('user_email')
 
-          if (user) {
-            localStorage.setItem('auth', 'true')
-            localStorage.setItem('auth_token', access_token)
-
+          if (userId) {
             setUser({
-              id: user.id,
-              email: user.email,
+              id: userId,
+              email: userEmail || undefined,
             })
             setIsAuthenticated(true)
+
+            // Debug log to confirm authentication state
+            console.log('User authenticated from stored credentials')
           }
+        } else {
+          // Clear authentication state if no valid token
+          setIsAuthenticated(false)
+          setUser(null)
+          console.log('No valid authentication token found')
         }
       } catch (error) {
         console.error('Error checking auth state:', error)
         // Clear any stale auth data
         localStorage.removeItem('auth')
         localStorage.removeItem('auth_token')
+        localStorage.removeItem('user_id')
+        localStorage.removeItem('user_email')
+        setIsAuthenticated(false)
+        setUser(null)
       } finally {
         setLoading(false)
       }
     }
 
     checkAuthState()
-
-    // Subscribe to auth changes
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (event === 'SIGNED_IN' && session) {
-          localStorage.setItem('auth', 'true')
-          localStorage.setItem('auth_token', session.access_token)
-
-          setUser({
-            id: session.user.id,
-            email: session.user.email,
-          })
-          setIsAuthenticated(true)
-        }
-
-        if (event === 'SIGNED_OUT') {
-          localStorage.removeItem('auth')
-          localStorage.removeItem('auth_token')
-          setUser(null)
-          setIsAuthenticated(false)
-        }
-      }
-    )
-
-    // Cleanup subscription
-    return () => {
-      if (authListener && authListener.subscription) {
-        authListener.subscription.unsubscribe()
-      }
-    }
   }, [])
 
   // Login method
@@ -115,21 +91,39 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setError(null)
       setLoading(true)
 
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      const response = await authService.login({ email, password })
+
+      // Store auth info in localStorage
+      localStorage.setItem('auth', 'true')
+      localStorage.setItem('auth_token', response.session?.access_token || '')
+      localStorage.setItem('user_id', response.user.id)
+      localStorage.setItem('user_email', response.user.email)
+
+      // Update state
+      setUser({
+        id: response.user.id,
+        email: response.user.email,
       })
+      setIsAuthenticated(true)
 
-      if (error) {
-        throw error
-      }
+      console.log('Login successful, redirecting to dashboard...')
+      toast.success('Login successful')
 
-      if (data && data.user) {
+      // Use a timeout to ensure state has updated before navigation
+      setTimeout(() => {
         router.push('/dashboard')
-      }
+
+        // As a fallback, force page navigation if needed
+        setTimeout(() => {
+          if (window.location.pathname !== '/dashboard') {
+            window.location.href = '/dashboard'
+          }
+        }, 300)
+      }, 100)
     } catch (error: any) {
       console.error('Login error:', error)
       setError(error.message || 'Failed to login')
+      toast.error(error.message || 'Failed to login')
       throw error
     } finally {
       setLoading(false)
@@ -140,16 +134,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const logout = async () => {
     try {
       setLoading(true)
-      const { error } = await supabase.auth.signOut()
+      await authService.logout()
 
-      if (error) {
-        throw error
-      }
+      // Clear auth data
+      localStorage.removeItem('auth')
+      localStorage.removeItem('auth_token')
+      localStorage.removeItem('user_id')
+      localStorage.removeItem('user_email')
 
+      // Update state
+      setUser(null)
+      setIsAuthenticated(false)
+
+      toast.success('Logged out successfully')
       router.push('/')
     } catch (error: any) {
       console.error('Logout error:', error)
       setError(error.message || 'Failed to logout')
+      toast.error('Failed to logout')
     } finally {
       setLoading(false)
     }

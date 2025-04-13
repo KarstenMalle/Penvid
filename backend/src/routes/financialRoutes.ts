@@ -6,6 +6,7 @@ import {
   getInvestments,
   getGoals
 } from '../controllers/financialController';
+import { createSampleData } from '../controllers/sampleDataController';
 import { authenticate } from '../middleware/authMiddleware';
 
 const router = express.Router();
@@ -34,5 +35,8 @@ router.get('/investments', getInvestments);
 
 // GET /api/financial/goals - Get user goals
 router.get('/goals', getGoals);
+
+// POST /api/financial/sample-data - Create sample data for new users
+router.post('/sample-data', createSampleData);
 
 export default router;
