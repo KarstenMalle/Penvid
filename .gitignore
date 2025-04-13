@@ -49,3 +49,5 @@ out/
 /.idea/
 /node_modules/
 .env
+/backend/app/__pycache__
+*.pyc
