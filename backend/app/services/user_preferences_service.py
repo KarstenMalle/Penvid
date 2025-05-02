@@ -8,15 +8,16 @@ logger = logging.getLogger(__name__)
 
 class UserPreferencesService:
     """
-    Service for managing user preferences including language, currency, and country
+    Service for managing user preferences including language, currency, country and theme
     """
 
     DEFAULT_LANGUAGE = "en"
     DEFAULT_CURRENCY = "USD"
     DEFAULT_COUNTRY = "US"
+    DEFAULT_THEME = "light"
 
     @staticmethod
-    async def get_user_preferences(user_id: str) -> Dict[str, str]:
+    async def get_user_preferences(user_id: str) -> Dict[str, Any]:
         """
         Get a user's preferences
 
@@ -24,14 +25,14 @@ class UserPreferencesService:
             user_id: The user's ID
 
         Returns:
-            Dictionary with language, currency, and country preferences
+            Dictionary with language, currency, country and theme preferences
         """
         try:
             supabase = get_supabase_client()
 
             # Query the profiles table
             response = supabase.table("profiles").select(
-                "language_preference, currency_preference, country_preference"
+                "language_preference, currency_preference, country_preference, theme_preference"
             ).eq("id", user_id).execute()
 
             if response.error:
@@ -39,7 +40,8 @@ class UserPreferencesService:
                 return {
                     "language": UserPreferencesService.DEFAULT_LANGUAGE,
                     "currency": UserPreferencesService.DEFAULT_CURRENCY,
-                    "country": UserPreferencesService.DEFAULT_COUNTRY
+                    "country": UserPreferencesService.DEFAULT_COUNTRY,
+                    "theme": UserPreferencesService.DEFAULT_THEME
                 }
 
             if not response.data:
@@ -47,7 +49,8 @@ class UserPreferencesService:
                 return {
                     "language": UserPreferencesService.DEFAULT_LANGUAGE,
                     "currency": UserPreferencesService.DEFAULT_CURRENCY,
-                    "country": UserPreferencesService.DEFAULT_COUNTRY
+                    "country": UserPreferencesService.DEFAULT_COUNTRY,
+                    "theme": UserPreferencesService.DEFAULT_THEME
                 }
 
             user_data = response.data[0]
@@ -56,7 +59,8 @@ class UserPreferencesService:
             return {
                 "language": user_data.get("language_preference") or UserPreferencesService.DEFAULT_LANGUAGE,
                 "currency": user_data.get("currency_preference") or UserPreferencesService.DEFAULT_CURRENCY,
-                "country": user_data.get("country_preference") or UserPreferencesService.DEFAULT_COUNTRY
+                "country": user_data.get("country_preference") or UserPreferencesService.DEFAULT_COUNTRY,
+                "theme": user_data.get("theme_preference") or UserPreferencesService.DEFAULT_THEME
             }
 
         except Exception as e:
@@ -64,20 +68,21 @@ class UserPreferencesService:
             return {
                 "language": UserPreferencesService.DEFAULT_LANGUAGE,
                 "currency": UserPreferencesService.DEFAULT_CURRENCY,
-                "country": UserPreferencesService.DEFAULT_COUNTRY
+                "country": UserPreferencesService.DEFAULT_COUNTRY,
+                "theme": UserPreferencesService.DEFAULT_THEME
             }
 
     @staticmethod
     async def update_user_preferences(
             user_id: str,
-            preferences: Dict[str, str]
+            preferences: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
         Update a user's preferences
 
         Args:
             user_id: The user's ID
-            preferences: Dictionary containing language, currency, and/or country preferences
+            preferences: Dictionary containing language, currency, country, and/or theme preferences
 
         Returns:
             Dictionary with success status and updated preferences
@@ -96,6 +101,9 @@ class UserPreferencesService:
 
             if "country" in preferences:
                 update_data["country_preference"] = preferences["country"]
+
+            if "theme" in preferences:
+                update_data["theme_preference"] = preferences["theme"]
 
             # Add updated_at timestamp
             update_data["updated_at"] = "now()"

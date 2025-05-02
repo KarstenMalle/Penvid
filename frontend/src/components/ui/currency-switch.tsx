@@ -1,72 +1,85 @@
-// src/components/ui/currency-switch.tsx
-
+// frontend/src/components/ui/currency-switch.tsx
 'use client'
 
-import React, { useState } from 'react'
-import { Button } from '@/components/ui/button'
+import React from 'react'
+import { usePathname } from 'next/navigation'
+import { useLocalization } from '@/context/LocalizationContext'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { useLocalization } from '@/context/LocalizationContext'
-import { Currency } from '@/i18n/config'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 interface CurrencySwitchProps {
   minimal?: boolean
-  variant?: 'default' | 'outline' | 'ghost'
-  size?: 'sm' | 'default' | 'lg' | 'icon'
+  size?: 'default' | 'sm' | 'lg'
+  variant?: 'default' | 'ghost'
 }
 
 export function CurrencySwitch({
   minimal = false,
-  variant = 'outline',
   size = 'default',
+  variant = 'default',
 }: CurrencySwitchProps) {
-  const { currency, setCurrency, currencies, t } = useLocalization()
-  const [isChanging, setIsChanging] = useState(false)
+  const { currency, setCurrency, currencies } = useLocalization()
+  const pathname = usePathname()
 
-  const handleCurrencyChange = async (newCurrency: Currency) => {
-    if (newCurrency === currency || isChanging) return
+  // Check if we're in the settings page
+  const isSettingsPage = pathname?.includes('/settings/currency')
 
-    setIsChanging(true)
-    try {
-      await setCurrency(newCurrency)
-    } catch (error) {
-      console.error('Failed to change currency:', error)
-    } finally {
-      setIsChanging(false)
-    }
+  // If not in settings page and not minimal, don't render
+  if (!isSettingsPage && !minimal) {
+    return null
+  }
+
+  // If not in settings page, render as read-only
+  if (!isSettingsPage) {
+    return (
+      <Button
+        variant={variant}
+        size={size}
+        className={cn(
+          'flex items-center gap-1',
+          minimal && 'text-sm px-2 py-1 h-auto min-h-0'
+        )}
+        disabled
+      >
+        <span>{currencies[currency].flag}</span>
+        {!minimal && <span>{currencies[currency].displayName}</span>}
+      </Button>
+    )
   }
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant={variant} size={size} disabled={isChanging}>
-          {minimal ? (
-            <>
-              {currencies[currency].flag}
-              {isChanging && <span className="ml-1 animate-spin">⟳</span>}
-            </>
-          ) : (
-            <>
-              {currencies[currency].flag} {currencies[currency].displayName}
-              {isChanging && <span className="ml-2 animate-spin">⟳</span>}
-            </>
+        <Button
+          variant={variant}
+          size={size}
+          className={cn(
+            'flex items-center gap-1',
+            minimal && 'text-sm px-2 py-1 h-auto min-h-0'
           )}
+        >
+          <span>{currencies[currency].flag}</span>
+          {!minimal && <span>{currencies[currency].displayName}</span>}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        {Object.entries(currencies).map(([code, currencyInfo]) => (
+        {Object.entries(currencies).map(([code, info]) => (
           <DropdownMenuItem
             key={code}
-            onClick={() => handleCurrencyChange(code as Currency)}
-            className="cursor-pointer"
+            onClick={() => setCurrency(code as any)}
+            className={cn(
+              'flex items-center gap-2',
+              currency === code && 'bg-accent text-accent-foreground'
+            )}
           >
-            <span className="mr-2">{currencyInfo.flag}</span>
-            <span>{currencyInfo.displayName}</span>
-            {code === currency && <span className="ml-2 text-blue-600">✓</span>}
+            <span>{info.flag}</span>
+            <span>{info.displayName}</span>
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>

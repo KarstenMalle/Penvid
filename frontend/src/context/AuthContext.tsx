@@ -11,6 +11,7 @@ import { createClient } from '@/lib/supabase-browser'
 import { User } from '@supabase/supabase-js'
 import toast from 'react-hot-toast'
 import { apiClient } from '@/services/api'
+import { UserPreferencesService } from '@/services/UserPreferencesService'
 
 // Define types for the context and state
 interface AuthContextType {
@@ -77,6 +78,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           }
 
           setProfile(tempProfile)
+
+          // Initialize user preferences in local storage (moved from LocalizationContext)
+          const userPrefs = await UserPreferencesService.getUserPreferences(
+            data.session.user.id
+          )
+          localStorage.setItem('user_preferences', JSON.stringify(userPrefs))
+
           return true
         } else {
           console.log('No session found')

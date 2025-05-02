@@ -1,10 +1,12 @@
+// frontend/src/app/layout.tsx
 'use client'
 
 import { AuthProvider } from '@/context/AuthContext'
 import { ThemeProvider } from '@/components/ThemeProvider'
 import { LocalizationProvider } from '@/context/LocalizationContext'
+import { UserPreferencesProvider } from '@/context/UserPreferencesContext'
 import Navbar from '@/components/Navbar'
-import { usePathname, useParams, useSearchParams } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { Suspense, useEffect, useState } from 'react'
 import { Toaster } from 'react-hot-toast'
 import './globals.css'
@@ -57,37 +59,39 @@ export default function RootLayout({
       <body className="font-['Overpass'] min-h-screen" suppressHydrationWarning>
         <Suspense fallback={<LoadingSpinner />}>
           <AuthProvider>
-            <LocalizationProvider>
-              {isClient ? (
-                <ThemeProvider>
-                  {showNavbar && <Navbar />}
-                  <main
-                    className={
-                      showNavbar ? 'min-h-[calc(100vh-4rem)]' : 'min-h-screen'
-                    }
-                  >
-                    {children}
-                  </main>
-                  <Toaster
-                    position="top-right"
-                    toastOptions={{
-                      duration: 5000,
-                      style: {
-                        borderRadius: '8px',
-                        padding: '16px',
-                        backgroundColor: '#333',
-                        color: '#fff',
-                      },
-                    }}
-                  />
-                </ThemeProvider>
-              ) : (
-                <div className="opacity-0">
-                  {showNavbar && <Navbar />}
-                  <main className="min-h-screen">{children}</main>
-                </div>
-              )}
-            </LocalizationProvider>
+            <UserPreferencesProvider>
+              <LocalizationProvider>
+                {isClient ? (
+                  <ThemeProvider>
+                    {showNavbar && <Navbar />}
+                    <main
+                      className={
+                        showNavbar ? 'min-h-[calc(100vh-4rem)]' : 'min-h-screen'
+                      }
+                    >
+                      {children}
+                    </main>
+                    <Toaster
+                      position="top-right"
+                      toastOptions={{
+                        duration: 5000,
+                        style: {
+                          borderRadius: '8px',
+                          padding: '16px',
+                          backgroundColor: '#333',
+                          color: '#fff',
+                        },
+                      }}
+                    />
+                  </ThemeProvider>
+                ) : (
+                  <div className="opacity-0">
+                    {showNavbar && <Navbar />}
+                    <main className="min-h-screen">{children}</main>
+                  </div>
+                )}
+              </LocalizationProvider>
+            </UserPreferencesProvider>
           </AuthProvider>
         </Suspense>
       </body>

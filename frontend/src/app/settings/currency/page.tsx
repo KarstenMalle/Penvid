@@ -1,5 +1,4 @@
-// src/app/settings/currency/page.tsx
-
+// frontend/src/app/settings/currency/page.tsx
 'use client'
 
 import {
@@ -24,6 +23,7 @@ export default function CurrencySettingsPage() {
 
     setIsChanging(true)
     try {
+      // This now updates both local storage and the database through the UserPreferencesContext
       await setCurrency(newCurrency)
     } finally {
       setIsChanging(false)
