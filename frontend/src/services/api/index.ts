@@ -192,11 +192,3 @@ function formatError(error: any): ApiResponse {
     status: 500,
   }
 }
-
-/**
- * Helper function to retrieve auth token
- */
-export async function getAuthToken(): Promise<string | null> {
-  // Implementation from auth.ts
-  return null
-}

@@ -330,12 +330,30 @@ def calculate_investment_projection(
 
 
 def get_exchange_rates(base_currency="USD"):
-    """Wrapper around CurrencyService for backward compatibility"""
+    """
+    Wrapper around CurrencyService for backward compatibility
+
+    Args:
+        base_currency: Base currency for exchange rates
+
+    Returns:
+        Dictionary of exchange rates
+    """
     return CurrencyService.get_exchange_rates(base_currency)
 
 
 def convert_currency(amount: float, from_currency: str = "USD", to_currency: str = "USD") -> float:
-    """Wrapper around CurrencyService for backward compatibility"""
+    """
+    Wrapper around CurrencyService for backward compatibility
+
+    Args:
+        amount: Amount to convert
+        from_currency: Source currency code
+        to_currency: Target currency code
+
+    Returns:
+        Converted amount
+    """
     return CurrencyService.convert_currency(amount, from_currency, to_currency)
 
 
