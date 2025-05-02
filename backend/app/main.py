@@ -10,7 +10,8 @@ from app.api import (
     user_settings,
     translations,
     loan_calculations,
-    recommendations
+    recommendations,
+    user_preferences
 )
 
 # Load environment variables
@@ -44,6 +45,7 @@ app.include_router(user_settings)
 app.include_router(translations)
 app.include_router(loan_calculations)
 app.include_router(recommendations)
+app.include_router(user_preferences.router)
 
 @app.get("/api/health")
 async def health_check():

@@ -1,22 +1,11 @@
 // frontend/src/services/LoanCalculationService.ts
 
-import { Loan } from '@/components/features/wealth-optimizer/types'
-import { apiRequest, get, post } from '@/utils/api-helper'
+import { apiClient } from './api'
+import { Currency } from '@/i18n/config'
 
 /**
- * Interfaces for loan calculation API
+ * Interface for loan calculation request
  */
-
-// Interface for AmortizationRequest to help with typechecking
-export interface AmortizationRequest {
-  principal: number
-  annual_rate: number
-  monthly_payment: number
-  extra_payment?: number
-  max_years?: number
-  currency?: string
-}
-
 export interface LoanCalculationRequest {
   principal: number
   annual_rate: number
@@ -26,18 +15,17 @@ export interface LoanCalculationRequest {
   currency?: string
 }
 
+/**
+ * Interface for loan term response
+ */
 export interface LoanTerm {
   months: number
   years: number
 }
 
-export interface ExtraPaymentImpact {
-  original_term: LoanTerm
-  new_term: LoanTerm
-  months_saved: number
-  interest_saved: number
-}
-
+/**
+ * Interface for amortization schedule entry
+ */
 export interface AmortizationEntry {
   month: number
   payment_date: string
@@ -48,18 +36,20 @@ export interface AmortizationEntry {
   remaining_balance: number
 }
 
+/**
+ * Interface for loan calculation response
+ */
 export interface LoanCalculationResponse {
   monthly_payment: number
   loan_term: LoanTerm
   total_interest: number
-  extra_payment_impact?: ExtraPaymentImpact
+  extra_payment_impact?: {
+    original_term: LoanTerm
+    new_term: LoanTerm
+    months_saved: number
+    interest_saved: number
+  }
   amortization?: AmortizationEntry[]
-}
-
-export interface Recommendation {
-  title: string
-  description: string
-  priority: 'high' | 'medium' | 'low'
 }
 
 /**
@@ -72,19 +62,9 @@ export const LoanCalculationService = {
   async calculateLoanDetails(
     request: LoanCalculationRequest
   ): Promise<LoanCalculationResponse> {
-    // IMPORTANT: Backend expects annual_rate as percentage (e.g., 5.0 for 5%)
-    // NOT as decimal (0.05), so we don't divide by 100 here
-    const response = await post<any>(
+    const response = await apiClient.post<LoanCalculationResponse>(
       '/api/loans/calculate',
-      {
-        ...request,
-        // Make sure annual_rate is passed as percentage
-        annual_rate: request.annual_rate,
-      },
-      {
-        requiresAuth: true,
-        errorMessage: 'Failed to calculate loan details',
-      }
+      request
     )
 
     if (!response.success || !response.data) {
@@ -93,8 +73,12 @@ export const LoanCalculationService = {
       )
     }
 
-    // Extract just the data from the response
-    return response.data.data
+    // Extract data from the standardized response format
+    if (response.data.data) {
+      return response.data.data
+    }
+
+    return response.data
   },
 
   /**
@@ -102,52 +86,43 @@ export const LoanCalculationService = {
    */
   async getAmortizationSchedule(
     loanId: number,
-    request: AmortizationRequest
+    request: {
+      principal: number
+      annual_rate: number
+      monthly_payment: number
+      extra_payment?: number
+      max_years?: number
+      currency?: Currency
+    }
   ): Promise<{
     schedule: AmortizationEntry[]
     total_interest_paid: number
     months_to_payoff: number
   }> {
-    // IMPORTANT: Pass annualRate as percentage (5.0), not decimal (0.05)
-    const response = await post<any>(
+    const response = await apiClient.post<any>(
       `/api/loans/${loanId}/amortization`,
-      {
-        principal: request.principal,
-        annual_rate: request.annual_rate, // Pass as percentage
-        monthly_payment: request.monthly_payment,
-        extra_payment: request.extra_payment || 0,
-        currency: request.currency || 'USD',
-      },
-      {
-        requiresAuth: true, // Make sure we're sending the auth token
-        errorMessage: 'Failed to generate amortization schedule',
-      }
+      request
     )
 
     if (!response.success || !response.data) {
       throw new Error(
-        response.error?.message || 'Failed to fetch amortization schedule'
+        response.error?.message || 'Failed to generate amortization schedule'
       )
     }
 
-    // Extract just the data from the response
-    return response.data.data
+    // Extract data from the standardized response format
+    if (response.data.data) {
+      return response.data.data
+    }
+
+    return response.data
   },
 
   /**
    * Generate personalized financial recommendations
    */
-  async generateRecommendations(params: {
-    loans: Loan[]
-    monthly_available: number
-    results?: any
-    optimal_strategy?: any
-    loan_comparisons?: any[]
-  }): Promise<Recommendation[]> {
-    const response = await post<any>('/api/recommendations', params, {
-      requiresAuth: true,
-      errorMessage: 'Failed to generate recommendations',
-    })
+  async generateRecommendations(params: any): Promise<any> {
+    const response = await apiClient.post<any>('/api/recommendations', params)
 
     if (!response.success || !response.data) {
       throw new Error(
@@ -155,26 +130,26 @@ export const LoanCalculationService = {
       )
     }
 
-    // Extract just the data from the response
-    return response.data.data
+    // Extract data from the standardized response format
+    if (response.data.data) {
+      return response.data.data
+    }
+
+    return response.data
   },
 
   /**
    * Calculate optimal debt payoff strategy
    */
   async calculateOptimalStrategy(
-    loans: Loan[],
+    loans: any[],
     monthlyBudget: number
   ): Promise<any> {
-    const response = await post<any>(
+    const response = await apiClient.post<any>(
       '/api/financial-strategy/optimize',
       {
         loans,
         monthly_budget: monthlyBudget,
-      },
-      {
-        requiresAuth: true,
-        errorMessage: 'Failed to calculate optimal strategy',
       }
     )
 
@@ -184,7 +159,11 @@ export const LoanCalculationService = {
       )
     }
 
-    // Extract just the data from the response
-    return response.data.data
+    // Extract data from the standardized response format
+    if (response.data.data) {
+      return response.data.data
+    }
+
+    return response.data
   },
 }

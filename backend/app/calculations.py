@@ -4,6 +4,7 @@ import requests
 from typing import List, Dict, Any, Optional
 from cachetools import cached, TTLCache
 from datetime import datetime, timedelta
+from app.services.currency_service import CurrencyService
 
 from app.utils.api_util import logger
 
@@ -328,36 +329,14 @@ def calculate_investment_projection(
     }
 
 
-@cached(cache=exchange_rate_cache)
 def get_exchange_rates(base_currency="USD"):
-    """Fetch exchange rates from an API with caching"""
-    try:
-        url = f"https://api.exchangerate-api.com/v4/latest/{base_currency}"
-        response = requests.get(url, timeout=5)
-        data = response.json()
-        return data.get('rates', {"USD": 1.0, "DKK": 6.8991310126})
-    except Exception as e:
-        print(f"Error fetching exchange rates: {e}")
-        # Fallback rates
-        return {"USD": 1.0, "DKK": 6.8991310126}
+    """Wrapper around CurrencyService for backward compatibility"""
+    return CurrencyService.get_exchange_rates(base_currency)
 
 
 def convert_currency(amount: float, from_currency: str = "USD", to_currency: str = "USD") -> float:
-    """Convert amount between currencies"""
-    if from_currency == to_currency:
-        return amount
-
-    rates = get_exchange_rates(base_currency="USD")
-
-    # Convert to USD as an intermediate step if needed
-    if from_currency != "USD":
-        amount = amount / rates.get(from_currency, 1.0)
-
-    # Convert from USD to target currency
-    if to_currency != "USD":
-        amount = amount * rates.get(to_currency, 1.0)
-
-    return amount
+    """Wrapper around CurrencyService for backward compatibility"""
+    return CurrencyService.convert_currency(amount, from_currency, to_currency)
 
 
 

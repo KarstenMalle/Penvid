@@ -1,21 +1,21 @@
 # backend/app/api/loan_calculations.py
+# (Update the existing file)
+
 from fastapi import APIRouter, Depends, HTTPException, Body
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 from enum import Enum
 import logging
 
 from ..utils.auth import verify_token
-# Fix the import - ensure all required functions are properly imported
-from app.calculations import (
+from ..calculations import (
     calculate_monthly_payment,
     calculate_loan_term,
     calculate_total_interest_paid,
     calculate_extra_payment_impact,
-    generate_amortization_schedule,
-    convert_currency
+    generate_amortization_schedule
 )
-
+from ..services.currency_service import CurrencyService
 from ..utils.api_util import handle_exceptions, standardize_response
 
 # Configure logging for this module
@@ -23,49 +23,39 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["loan_calculations"])
 
-
 class Currency(str, Enum):
     USD = "USD"
     DKK = "DKK"
 
+# Add a new function to handle conversion of all monetary fields in amortization data
+def convert_amortization_data(data: Dict[str, Any], from_currency: str, to_currency: str) -> Dict[str, Any]:
+    """Convert all monetary values in amortization data from one currency to another"""
+    result = {**data}
 
-class LoanCalculationRequest(BaseModel):
-    principal: float
-    annual_rate: float
-    term_years: Optional[float] = None
-    monthly_payment: Optional[float] = None
-    extra_payment: Optional[float] = 0
-    currency: Currency = Currency.USD
+    # Convert total interest paid
+    if "total_interest_paid" in result:
+        result["total_interest_paid"] = CurrencyService.convert_currency(
+            result["total_interest_paid"], from_currency, to_currency
+        )
 
+    # Convert schedule entries
+    if "schedule" in result:
+        for entry in result["schedule"]:
+            monetary_fields = ["payment", "principal_payment", "interest_payment",
+                               "extra_payment", "remaining_balance"]
 
-class AmortizationRequest(BaseModel):
-    principal: float
-    annual_rate: float
-    monthly_payment: float
-    extra_payment: float = 0
-    max_years: int = 30
-    currency: Currency = Currency.USD
+            for field in monetary_fields:
+                if field in entry:
+                    entry[field] = CurrencyService.convert_currency(
+                        entry[field], from_currency, to_currency
+                    )
 
-
-class ExtraPaymentImpact(BaseModel):
-    original_term: Dict[str, int]
-    new_term: Dict[str, int]
-    months_saved: int
-    interest_saved: float
-
-
-class LoanCalculationResponse(BaseModel):
-    monthly_payment: float
-    loan_term: Dict[str, float]
-    total_interest: float
-    extra_payment_impact: Optional[ExtraPaymentImpact] = None
-    amortization: Optional[list] = None
-
+    return result
 
 @router.post("/loans/calculate")
 @handle_exceptions
 async def calculate_loan_details(
-        request: LoanCalculationRequest,
+        request: Dict[str, Any] = Body(...),
         authenticated_user_id: str = Depends(verify_token)
 ):
     """
@@ -73,20 +63,20 @@ async def calculate_loan_details(
     """
     try:
         # Extract request data
-        principal = request.principal
-        annual_rate = request.annual_rate  # As percentage (e.g., 5.0 for 5%)
-        term_years = request.term_years
-        monthly_payment = request.monthly_payment
-        extra_payment = request.extra_payment or 0
-        currency = request.currency
+        principal = request.get("principal", 0)
+        annual_rate = request.get("annual_rate", 0)  # As percentage (e.g., 5.0 for 5%)
+        term_years = request.get("term_years")
+        monthly_payment = request.get("monthly_payment")
+        extra_payment = request.get("extra_payment", 0)
+        currency = request.get("currency", "USD")
 
-        # If values need to be converted from user currency to USD
-        if currency != Currency.USD:
-            principal = convert_currency(principal, currency, "USD")
+        # If values need to be converted to USD for calculation
+        if currency != "USD":
+            principal = CurrencyService.convert_currency(principal, currency, "USD")
             if monthly_payment:
-                monthly_payment = convert_currency(monthly_payment, currency, "USD")
+                monthly_payment = CurrencyService.convert_currency(monthly_payment, currency, "USD")
             if extra_payment:
-                extra_payment = convert_currency(extra_payment, currency, "USD")
+                extra_payment = CurrencyService.convert_currency(extra_payment, currency, "USD")
 
         # Validate the input data
         if principal <= 0:
@@ -122,22 +112,32 @@ async def calculate_loan_details(
             )
             amortization_data = schedule_data["schedule"]
 
-            # Convert monetary values back to user's currency if needed
-            if currency != Currency.USD:
+        # Convert results back to requested currency if needed
+        if currency != "USD":
+            # Convert calculated monthly payment
+            calculated_monthly_payment = CurrencyService.convert_currency(
+                calculated_monthly_payment, "USD", currency
+            )
+
+            # Convert total interest
+            total_interest = CurrencyService.convert_currency(
+                total_interest, "USD", currency
+            )
+
+            # Convert extra payment impact if it exists
+            if extra_payment_impact:
+                extra_payment_impact["interest_saved"] = CurrencyService.convert_currency(
+                    extra_payment_impact["interest_saved"], "USD", currency
+                )
+
+            # Convert amortization data
+            if amortization_data:
                 for entry in amortization_data:
-                    entry["payment"] = convert_currency(entry["payment"], "USD", currency)
-                    entry["principal_payment"] = convert_currency(entry["principal_payment"], "USD", currency)
-                    entry["interest_payment"] = convert_currency(entry["interest_payment"], "USD", currency)
-                    entry["extra_payment"] = convert_currency(entry["extra_payment"], "USD", currency)
-                    entry["remaining_balance"] = convert_currency(entry["remaining_balance"], "USD", currency)
-
-                total_interest = convert_currency(total_interest, "USD", currency)
-                calculated_monthly_payment = convert_currency(calculated_monthly_payment, "USD", currency)
-
-                if extra_payment_impact:
-                    extra_payment_impact["interest_saved"] = convert_currency(
-                        extra_payment_impact["interest_saved"], "USD", currency
-                    )
+                    entry["payment"] = CurrencyService.convert_currency(entry["payment"], "USD", currency)
+                    entry["principal_payment"] = CurrencyService.convert_currency(entry["principal_payment"], "USD", currency)
+                    entry["interest_payment"] = CurrencyService.convert_currency(entry["interest_payment"], "USD", currency)
+                    entry["extra_payment"] = CurrencyService.convert_currency(entry["extra_payment"], "USD", currency)
+                    entry["remaining_balance"] = CurrencyService.convert_currency(entry["remaining_balance"], "USD", currency)
 
         # Return the calculated values
         return standardize_response(data={
@@ -149,18 +149,15 @@ async def calculate_loan_details(
         })
 
     except Exception as e:
-        import traceback
-        traceback.print_exc()  # Print full traceback for debugging
         logger.error(f"Error calculating loan details: {str(e)}")
         return standardize_response(
             error=f"Error calculating loan details: {str(e)}"
         )
 
-
 @router.post("/loans/amortization")
 @handle_exceptions
 async def get_amortization_schedule(
-        request: AmortizationRequest,
+        request: Dict[str, Any] = Body(...),
         authenticated_user_id: str = Depends(verify_token)
 ):
     """
@@ -168,12 +165,12 @@ async def get_amortization_schedule(
     """
     try:
         # Extract parameters from request
-        principal = request.principal
-        annual_rate = request.annual_rate
-        monthly_payment = request.monthly_payment
-        extra_payment = request.extra_payment
-        max_years = request.max_years
-        currency = request.currency
+        principal = request.get("principal", 0)
+        annual_rate = request.get("annual_rate", 0)
+        monthly_payment = request.get("monthly_payment", 0)
+        extra_payment = request.get("extra_payment", 0)
+        max_years = request.get("max_years", 30)
+        currency = request.get("currency", "USD")
 
         # Validate required parameters
         if principal <= 0 or monthly_payment <= 0:
@@ -181,12 +178,12 @@ async def get_amortization_schedule(
                 error="Principal and monthly payment must be greater than zero."
             )
 
-        # If values need to be converted from user currency to USD
-        if currency != Currency.USD:
-            principal = convert_currency(principal, currency, "USD")
-            monthly_payment = convert_currency(monthly_payment, currency, "USD")
+        # Convert values to USD for calculation if needed
+        if currency != "USD":
+            principal = CurrencyService.convert_currency(principal, currency, "USD")
+            monthly_payment = CurrencyService.convert_currency(monthly_payment, currency, "USD")
             if extra_payment:
-                extra_payment = convert_currency(extra_payment, currency, "USD")
+                extra_payment = CurrencyService.convert_currency(extra_payment, currency, "USD")
 
         # Generate amortization schedule
         amortization_data = generate_amortization_schedule(
@@ -198,107 +195,14 @@ async def get_amortization_schedule(
         )
 
         # Convert monetary values back to user's currency if needed
-        if currency != Currency.USD:
-            # Convert schedule entries
-            for entry in amortization_data["schedule"]:
-                entry["payment"] = convert_currency(entry["payment"], "USD", currency)
-                entry["principal_payment"] = convert_currency(entry["principal_payment"], "USD", currency)
-                entry["interest_payment"] = convert_currency(entry["interest_payment"], "USD", currency)
-                entry["extra_payment"] = convert_currency(entry["extra_payment"], "USD", currency)
-                entry["remaining_balance"] = convert_currency(entry["remaining_balance"], "USD", currency)
-
-            # Convert summary values
-            amortization_data["total_interest_paid"] = convert_currency(
-                amortization_data["total_interest_paid"], "USD", currency
-            )
+        if currency != "USD":
+            amortization_data = convert_amortization_data(amortization_data, "USD", currency)
 
         # Return the amortization schedule
         return standardize_response(data=amortization_data)
 
     except Exception as e:
-        import traceback
-        traceback.print_exc()  # Print full traceback for debugging
         logger.error(f"Error generating amortization schedule: {str(e)}")
         return standardize_response(
             error=f"Error generating amortization schedule: {str(e)}"
-        )
-
-
-# Add the endpoint for loan-specific amortization schedule
-@router.post("/loans/{loan_id}/amortization")
-@handle_exceptions
-async def get_loan_amortization_schedule(
-        loan_id: int,
-        request: AmortizationRequest,
-        authenticated_user_id: str = Depends(verify_token)
-):
-    """
-    Generate a detailed amortization schedule for a specific loan
-    """
-    try:
-        # Extract parameters from request
-        principal = request.principal
-        annual_rate = request.annual_rate  # Already as percentage (e.g., 5.0 for 5%)
-        monthly_payment = request.monthly_payment
-        extra_payment = request.extra_payment
-        max_years = request.max_years
-        currency = request.currency
-
-        # Validate required parameters
-        if principal <= 0:
-            return standardize_response(
-                error="Principal must be greater than zero."
-            )
-
-        if monthly_payment <= 0:
-            return standardize_response(
-                error="Monthly payment must be greater than zero."
-            )
-
-        # Convert values to USD for calculation if needed
-        if currency != "USD":
-            principal = convert_currency(principal, currency, "USD")
-            monthly_payment = convert_currency(monthly_payment, currency, "USD")
-            if extra_payment:
-                extra_payment = convert_currency(extra_payment, currency, "USD")
-
-        # Log the received parameters for debugging
-        logger.info(f"Generating amortization schedule: principal={principal}, rate={annual_rate}%, payment={monthly_payment}")
-
-        # Generate amortization schedule
-        amortization_data = generate_amortization_schedule(
-            principal=principal,
-            annual_rate=annual_rate,  # Pass the rate as percentage
-            monthly_payment=monthly_payment,
-            extra_payment=extra_payment,
-            max_years=max_years
-        )
-
-        # Log the calculation results
-        logger.info(f"Amortization result: months={amortization_data['months_to_payoff']}, interest={amortization_data['total_interest_paid']}")
-
-        # Convert monetary values back to user's currency if needed
-        if currency != "USD":
-            # Convert schedule entries
-            for entry in amortization_data["schedule"]:
-                entry["payment"] = convert_currency(entry["payment"], "USD", currency)
-                entry["principal_payment"] = convert_currency(entry["principal_payment"], "USD", currency)
-                entry["interest_payment"] = convert_currency(entry["interest_payment"], "USD", currency)
-                entry["extra_payment"] = convert_currency(entry["extra_payment"], "USD", currency)
-                entry["remaining_balance"] = convert_currency(entry["remaining_balance"], "USD", currency)
-
-            # Convert summary values
-            amortization_data["total_interest_paid"] = convert_currency(
-                amortization_data["total_interest_paid"], "USD", currency
-            )
-
-        # Return the amortization schedule
-        return standardize_response(data=amortization_data)
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()  # Print full traceback for debugging
-        logger.error(f"Error generating loan amortization schedule: {str(e)}")
-        return standardize_response(
-            error=f"Error generating loan amortization schedule: {str(e)}"
         )
