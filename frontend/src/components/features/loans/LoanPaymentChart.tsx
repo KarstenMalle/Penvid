@@ -269,24 +269,16 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
     )
   }
 
-  // Format value as currency (using CurrencyFormatter to render in the correct span)
-  const CustomizedAxisTick = (props: any) => {
+  // Custom YAxis tick component to properly format currency values
+  const CustomYAxisTick = (props: any) => {
     const { x, y, payload } = props
     return (
       <g transform={`translate(${x},${y})`}>
-        <text
-          x={0}
-          y={0}
-          dy={16}
-          textAnchor="end"
-          fill="#666"
-          transform="rotate(-35)"
-        >
-          <CurrencyFormatter
-            value={payload.value}
-            maximumFractionDigits={0}
-            minimumFractionDigits={0}
-          />
+        <text x={0} y={0} dy={5} textAnchor="end" fill="#666" fontSize={12}>
+          {formatCurrency(payload.value, {
+            maximumFractionDigits: 0,
+            minimumFractionDigits: 0,
+          })}
         </text>
       </g>
     )
@@ -338,12 +330,10 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
             {t('loans.balanceOverTime')}
           </h3>
           <div className="h-72">
-            {' '}
-            {/* Increased height for better visualization */}
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
                 data={prepareBalanceChartData()}
-                margin={{ top: 10, right: 30, left: 70, bottom: 20 }} // Increased left margin for currency
+                margin={{ top: 10, right: 30, left: 70, bottom: 20 }}
               >
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis
@@ -354,35 +344,15 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
                     offset: -10,
                   }}
                 />
-                <YAxis
-                  width={70} // Fixed width for y-axis to prevent cutoff
-                  tickMargin={5} // Add space between tick and axis line
-                  // Use CurrencyFormatter via formatter function
-                  tickFormatter={(value) => {
-                    // Convert to correct currency if needed
-                    return new Intl.NumberFormat(
-                      locale === 'da' ? 'da-DK' : 'en-US',
-                      {
-                        style: 'currency',
-                        currency: currency,
-                        maximumFractionDigits: 0,
-                        minimumFractionDigits: 0,
-                      }
-                    ).format(value)
-                  }}
-                />
+                <YAxis width={70} tickMargin={5} tick={<CustomYAxisTick />} />
                 <Tooltip
-                  formatter={(value: number) => {
-                    // Use CurrencyFormatter via custom tooltip
-                    return [
-                      <CurrencyFormatter
-                        value={value}
-                        maximumFractionDigits={2}
-                        minimumFractionDigits={2}
-                      />,
-                      t('loans.balance'),
-                    ]
-                  }}
+                  formatter={(value: number) => [
+                    formatCurrency(value, {
+                      maximumFractionDigits: 2,
+                      minimumFractionDigits: 2,
+                    }),
+                    t('loans.balance'),
+                  ]}
                 />
                 <Legend />
                 <Line
@@ -409,44 +379,22 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
             {t('loans.paymentBreakdown')}
           </h3>
           <div className="h-72">
-            {' '}
-            {/* Increased height */}
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={preparePaymentChartData()}
-                margin={{ top: 20, right: 30, left: 70, bottom: 10 }} // Increased left margin for currency
+                margin={{ top: 20, right: 30, left: 70, bottom: 10 }}
               >
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="year" />
-                <YAxis
-                  width={70} // Fixed width for y-axis to prevent cutoff
-                  tickMargin={5} // Add space between tick and axis line
-                  // Use CurrencyFormatter via formatter function
-                  tickFormatter={(value) => {
-                    // Convert to correct currency if needed
-                    return new Intl.NumberFormat(
-                      locale === 'da' ? 'da-DK' : 'en-US',
-                      {
-                        style: 'currency',
-                        currency: currency,
-                        maximumFractionDigits: 0,
-                        minimumFractionDigits: 0,
-                      }
-                    ).format(value)
-                  }}
-                />
+                <YAxis width={70} tickMargin={5} tick={<CustomYAxisTick />} />
                 <Tooltip
-                  formatter={(value: number) => {
-                    // Use CurrencyFormatter via custom tooltip
-                    return [
-                      <CurrencyFormatter
-                        value={value}
-                        maximumFractionDigits={2}
-                        minimumFractionDigits={2}
-                      />,
-                      null,
-                    ]
-                  }}
+                  formatter={(value: number) => [
+                    formatCurrency(value, {
+                      maximumFractionDigits: 2,
+                      minimumFractionDigits: 2,
+                    }),
+                    null,
+                  ]}
                 />
                 <Legend />
                 <Bar
@@ -470,8 +418,6 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
             {t('loans.interestAnalysis')}
           </h3>
           <div className="h-72">
-            {' '}
-            {/* Increased height */}
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
                 data={prepareInterestAnalysisData()}
@@ -513,8 +459,6 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
             {t('loans.principalVsInterest')}
           </h3>
           <div className="h-72 flex items-center justify-center">
-            {' '}
-            {/* Increased height */}
             <ResponsiveContainer width="80%" height="100%">
               <PieChart>
                 <Pie
@@ -522,7 +466,7 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
                   cx="50%"
                   cy="50%"
                   labelLine={true}
-                  outerRadius={100} // Increased size
+                  outerRadius={100}
                   fill="#8884d8"
                   dataKey="value"
                   nameKey="name"
@@ -535,16 +479,13 @@ const LoanPaymentChart: React.FC<LoanPaymentChartProps> = ({ loan }) => {
                   ))}
                 </Pie>
                 <Tooltip
-                  formatter={(value: number) => {
-                    return [
-                      <CurrencyFormatter
-                        value={value}
-                        maximumFractionDigits={2}
-                        minimumFractionDigits={2}
-                      />,
-                      null,
-                    ]
-                  }}
+                  formatter={(value: number) => [
+                    formatCurrency(value, {
+                      maximumFractionDigits: 2,
+                      minimumFractionDigits: 2,
+                    }),
+                    null,
+                  ]}
                 />
                 <Legend />
               </PieChart>

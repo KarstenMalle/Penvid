@@ -65,3 +65,5 @@ backend/app/api/__pycache__/loan_calculations.cpython-311.pyc
 /backend/app/__pycache__
 *.pyc
 /backend/node_modules
+*.pyc
+/backend/app/__pycache__

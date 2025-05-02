@@ -166,4 +166,61 @@ export const LoanCalculationService = {
 
     return response.data
   },
+
+  /**
+   * Calculate monthly payment for a loan
+   */
+  async calculateMonthlyPayment(
+    principal: number,
+    annualRate: number,
+    years: number,
+    currency: Currency = 'USD'
+  ): Promise<number> {
+    const response = await this.calculateLoanDetails({
+      principal,
+      annual_rate: annualRate,
+      term_years: years,
+      currency,
+    })
+
+    return response.monthly_payment
+  },
+
+  /**
+   * Calculate loan term
+   */
+  async calculateLoanTerm(
+    principal: number,
+    annualRate: number,
+    monthlyPayment: number,
+    currency: Currency = 'USD'
+  ): Promise<LoanTerm> {
+    const response = await this.calculateLoanDetails({
+      principal,
+      annual_rate: annualRate,
+      monthly_payment: monthlyPayment,
+      currency,
+    })
+
+    return response.loan_term
+  },
+
+  /**
+   * Calculate total interest paid
+   */
+  async calculateTotalInterestPaid(
+    principal: number,
+    annualRate: number,
+    monthlyPayment: number,
+    currency: Currency = 'USD'
+  ): Promise<number> {
+    const response = await this.calculateLoanDetails({
+      principal,
+      annual_rate: annualRate,
+      monthly_payment: monthlyPayment,
+      currency,
+    })
+
+    return response.total_interest
+  },
 }
