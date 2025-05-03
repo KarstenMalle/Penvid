@@ -54,6 +54,8 @@ const LocalizationContext = createContext<LocalizationContextType | undefined>(
   undefined
 )
 
+const PREFS_STORAGE_KEY = 'user_preferences'
+
 // Basic fallback translations for initial rendering
 const initialTranslations = {
   common: {
@@ -65,6 +67,18 @@ const initialTranslations = {
 // Cache for currency conversions to avoid duplicate API calls
 const conversionCache: Record<string, number> = {}
 
+// Helper function to get auth token
+const getAuthToken = async (): Promise<string | null> => {
+  try {
+    const supabase = createClient()
+    const { data } = await supabase.auth.getSession()
+    return data.session?.access_token || null
+  } catch (error) {
+    console.error('Error getting auth token:', error)
+    return null
+  }
+}
+
 export function LocalizationProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, user, loading: authLoading, profile } = useAuth()
   const [translations, setTranslations] =
@@ -74,6 +88,7 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     Record<string, number>
   >({})
   const [isLoadingRates, setIsLoadingRates] = useState(false)
+  const [isUpdatingPreferences, setIsUpdatingPreferences] = useState(false)
   const profileLoaded = useRef<boolean>(false)
   const supabase = createClient()
 
@@ -101,6 +116,42 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     }
     return defaultCountry
   })
+
+  // Load directly from storage first to avoid blank screen
+  useEffect(() => {
+    const loadFromStorage = () => {
+      try {
+        // Load preferences from storage
+        const storedPrefs = localStorage.getItem(PREFS_STORAGE_KEY)
+        if (storedPrefs) {
+          console.log('Loading preferences from local storage')
+          const prefs = JSON.parse(storedPrefs)
+          if (
+            prefs.language &&
+            Object.keys(languages).includes(prefs.language)
+          ) {
+            setLocaleState(prefs.language)
+          }
+          if (
+            prefs.currency &&
+            Object.keys(currencyConfig).includes(prefs.currency)
+          ) {
+            setCurrencyState(prefs.currency)
+          }
+          if (
+            prefs.country &&
+            Object.keys(countryConfig).includes(prefs.country)
+          ) {
+            setCountryState(prefs.country)
+          }
+        }
+      } catch (error) {
+        console.error('Error loading preferences from storage:', error)
+      }
+    }
+
+    loadFromStorage()
+  }, [])
 
   // Use profile preferences when available
   useEffect(() => {
@@ -157,6 +208,22 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
 
           if (prefsChanged) {
             console.log('Preferences updated from profile')
+
+            // Also update the user_preferences in localStorage
+            try {
+              const newPrefs = {
+                language: profile.language_preference || defaultLocale,
+                currency: profile.currency_preference || defaultCurrency,
+                country: profile.country_preference || defaultCountry,
+                theme: profile.theme_preference || 'light',
+              }
+              localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify(newPrefs))
+            } catch (error) {
+              console.error(
+                'Error saving updated preferences to localStorage:',
+                error
+              )
+            }
           }
 
           profileLoaded.current = true
@@ -254,54 +321,46 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     await loadTranslations(locale)
   }
 
-  // Update profile in Supabase directly
-  const updateProfilePreferences = async (
-    updates: Partial<{
-      language: Locale
-      currency: Currency
-      country: Country
-      theme?: string
-    }>
-  ) => {
-    if (!isAuthenticated || !user) return false
+  // Make direct API call to update preferences
+  const updatePreferencesViaApi = async (
+    updatedPrefs: Record<string, any>
+  ): Promise<boolean> => {
+    if (!isAuthenticated || !user) {
+      console.log('Not authenticated, skipping API call')
+      return false
+    }
 
+    console.log('Updating preferences via API:', updatedPrefs)
     try {
-      // Create the update object with the correct column names
-      const updateData: any = {}
-
-      if (updates.language) {
-        updateData.language_preference = updates.language
-      }
-
-      if (updates.currency) {
-        updateData.currency_preference = updates.currency
-      }
-
-      if (updates.country) {
-        updateData.country_preference = updates.country
-      }
-
-      if (updates.theme) {
-        updateData.theme_preference = updates.theme
-      }
-
-      // Always include updated timestamp
-      updateData.updated_at = new Date().toISOString()
-
-      // Update profile in Supabase
-      const { error } = await supabase
-        .from('profiles')
-        .update(updateData)
-        .eq('id', user.id)
-
-      if (error) {
-        console.error('Error updating profile preferences:', error)
+      const token = await getAuthToken()
+      if (!token) {
+        console.error('No auth token available')
         return false
       }
 
-      return true
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/api/user/${user.id}/preferences`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(updatedPrefs),
+        }
+      )
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('Error response from API:', errorText)
+        return false
+      }
+
+      const result = await response.json()
+      console.log('API response:', result)
+      return result.status === 'success'
     } catch (error) {
-      console.error('Error updating profile preferences:', error)
+      console.error('Error updating preferences via API:', error)
       return false
     }
   }
@@ -314,11 +373,29 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     setLocaleState(newLocale)
     localStorage.setItem('locale', newLocale)
 
+    // Update user_preferences in localStorage
+    try {
+      const storedPrefs = localStorage.getItem(PREFS_STORAGE_KEY)
+      const prefs = storedPrefs ? JSON.parse(storedPrefs) : {}
+      prefs.language = newLocale
+      localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify(prefs))
+    } catch (error) {
+      console.error('Error updating localStorage preferences:', error)
+    }
+
     // Update profile if authenticated
     if (isAuthenticated && user) {
-      const success = await updateProfilePreferences({ language: newLocale })
-      if (!success) {
-        toast.error('Failed to update language preference on server')
+      setIsUpdatingPreferences(true)
+      try {
+        const success = await updatePreferencesViaApi({ language: newLocale })
+        if (!success) {
+          toast.error('Failed to update language preference on server')
+        }
+      } catch (error) {
+        console.error('Error updating language:', error)
+        toast.error('Failed to update language preference')
+      } finally {
+        setIsUpdatingPreferences(false)
       }
     }
 
@@ -337,15 +414,73 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     setCurrencyState(newCurrency)
     localStorage.setItem('currency', newCurrency)
 
-    // Update profile if authenticated
-    if (isAuthenticated && user) {
-      const success = await updateProfilePreferences({ currency: newCurrency })
-      if (!success) {
-        toast.error('Failed to update currency preference on server')
-      }
+    // Update user_preferences in localStorage
+    try {
+      const storedPrefs = localStorage.getItem(PREFS_STORAGE_KEY)
+      const prefs = storedPrefs ? JSON.parse(storedPrefs) : {}
+      prefs.currency = newCurrency
+      localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify(prefs))
+    } catch (error) {
+      console.error('Error updating localStorage preferences:', error)
     }
 
-    toast.success(`Currency changed to ${currencyConfig[newCurrency].name}`)
+    // Update profile if authenticated
+    if (isAuthenticated && user) {
+      setIsUpdatingPreferences(true)
+      try {
+        const token = await getAuthToken()
+
+        if (!token) {
+          console.warn(
+            'No auth token available for updating currency preference'
+          )
+          setIsUpdatingPreferences(false)
+          toast.error('Authentication error - please try again later')
+          return
+        }
+
+        console.log('Making API call to update currency preference')
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/api/user/${user.id}/preferences`,
+          {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ currency: newCurrency }),
+          }
+        )
+
+        if (!response.ok) {
+          const text = await response.text()
+          console.error('Error updating currency preference:', text)
+          toast.error('Failed to update currency preference')
+          setIsUpdatingPreferences(false)
+          return
+        }
+
+        const result = await response.json()
+        console.log('Currency update API response:', result)
+
+        if (result.status === 'success') {
+          toast.success(
+            `Currency changed to ${currencyConfig[newCurrency].name}`
+          )
+        } else {
+          console.error('API returned error:', result.error)
+          toast.error(result.error || 'Failed to update currency preference')
+        }
+      } catch (error) {
+        console.error('Error updating currency preference:', error)
+        toast.error('Failed to update currency preference')
+      } finally {
+        setIsUpdatingPreferences(false)
+      }
+    } else {
+      // Not authenticated, just show success for local change
+      toast.success(`Currency changed to ${currencyConfig[newCurrency].name}`)
+    }
   }
 
   // Function to change country - update profile and local state
@@ -356,11 +491,29 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     setCountryState(newCountry)
     localStorage.setItem('country', newCountry)
 
+    // Update user_preferences in localStorage
+    try {
+      const storedPrefs = localStorage.getItem(PREFS_STORAGE_KEY)
+      const prefs = storedPrefs ? JSON.parse(storedPrefs) : {}
+      prefs.country = newCountry
+      localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify(prefs))
+    } catch (error) {
+      console.error('Error updating localStorage preferences:', error)
+    }
+
     // Update profile if authenticated
     if (isAuthenticated && user) {
-      const success = await updateProfilePreferences({ country: newCountry })
-      if (!success) {
-        toast.error('Failed to update country preference on server')
+      setIsUpdatingPreferences(true)
+      try {
+        const success = await updatePreferencesViaApi({ country: newCountry })
+        if (!success) {
+          toast.error('Failed to update country preference on server')
+        }
+      } catch (error) {
+        console.error('Error updating country:', error)
+        toast.error('Failed to update country preference')
+      } finally {
+        setIsUpdatingPreferences(false)
       }
     }
 

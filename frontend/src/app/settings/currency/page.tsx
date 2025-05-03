@@ -12,21 +12,33 @@ import { useLocalization } from '@/context/LocalizationContext'
 import { Currency } from '@/i18n/config'
 import { useState } from 'react'
 import { Icons } from '@/components/ui/icons'
+import { useAuth } from '@/context/AuthContext'
+import toast from 'react-hot-toast'
 
 export default function CurrencySettingsPage() {
+  const { user, isAuthenticated } = useAuth()
   const { currency, setCurrency, t, currencies, formatCurrency } =
     useLocalization()
   const [isChanging, setIsChanging] = useState(false)
+  const [selectedCurrency, setSelectedCurrency] = useState<Currency | null>(
+    null
+  )
 
   const handleCurrencyChange = async (newCurrency: Currency) => {
     if (newCurrency === currency) return
 
     setIsChanging(true)
+    setSelectedCurrency(newCurrency)
+
     try {
-      // This now updates both local storage and the database through the UserPreferencesContext
+      // Call the setCurrency function from context
       await setCurrency(newCurrency)
+    } catch (error) {
+      console.error('Error changing currency:', error)
+      toast.error('Failed to change currency. Please try again.')
     } finally {
       setIsChanging(false)
+      setSelectedCurrency(null)
     }
   }
 
@@ -58,14 +70,20 @@ export default function CurrencySettingsPage() {
                     </div>
                   </div>
                 </div>
-                {currency === code && (
-                  <span className="h-2 w-2 rounded-full bg-blue-600"></span>
+                {(currency === code || selectedCurrency === code) && (
+                  <>
+                    {isChanging && selectedCurrency === code ? (
+                      <Icons.spinner className="h-5 w-5 animate-spin text-blue-600" />
+                    ) : (
+                      <span className="h-2 w-2 rounded-full bg-blue-600"></span>
+                    )}
+                  </>
                 )}
               </div>
             ))}
           </div>
 
-          {isChanging && (
+          {isChanging && !selectedCurrency && (
             <div className="flex items-center justify-center">
               <Icons.spinner className="h-5 w-5 animate-spin text-blue-600" />
               <span className="ml-2">{t('common.loading')}</span>

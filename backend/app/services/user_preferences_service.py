@@ -38,6 +38,7 @@ class UserPreferencesService:
 
         try:
             supabase = get_supabase_client()
+            logger.info(f"Getting preferences for user {user_id}")
 
             # Query directly from the profiles table
             response = supabase.table("profiles").select(
@@ -54,7 +55,31 @@ class UserPreferencesService:
                 }
 
             if not response.data:
-                logger.warning(f"No profile found for user {user_id}")
+                logger.warning(f"No profile found for user {user_id}, creating a new profile")
+
+                # Create default profile for user
+                default_profile = {
+                    "id": user_id,
+                    "language_preference": UserPreferencesService.DEFAULT_LANGUAGE,
+                    "currency_preference": UserPreferencesService.DEFAULT_CURRENCY,
+                    "country_preference": UserPreferencesService.DEFAULT_COUNTRY,
+                    "theme_preference": UserPreferencesService.DEFAULT_THEME,
+                    "created_at": "now()",
+                    "updated_at": "now()"
+                }
+
+                create_response = supabase.table("profiles").insert(default_profile).execute()
+
+                if create_response.error:
+                    logger.error(f"Error creating default profile: {create_response.error.message}")
+                    return {
+                        "language": UserPreferencesService.DEFAULT_LANGUAGE,
+                        "currency": UserPreferencesService.DEFAULT_CURRENCY,
+                        "country": UserPreferencesService.DEFAULT_COUNTRY,
+                        "theme": UserPreferencesService.DEFAULT_THEME
+                    }
+
+                logger.info(f"Created default profile for user {user_id}")
                 return {
                     "language": UserPreferencesService.DEFAULT_LANGUAGE,
                     "currency": UserPreferencesService.DEFAULT_CURRENCY,
@@ -63,6 +88,7 @@ class UserPreferencesService:
                 }
 
             user_data = response.data[0]
+            logger.info(f"Found preferences for user {user_id}: {user_data}")
 
             # Return user preferences, falling back to defaults if not set
             return {
@@ -73,7 +99,7 @@ class UserPreferencesService:
             }
 
         except Exception as e:
-            logger.error(f"Error in get_user_preferences: {str(e)}")
+            logger.exception(f"Error in get_user_preferences: {str(e)}")
             return {
                 "language": UserPreferencesService.DEFAULT_LANGUAGE,
                 "currency": UserPreferencesService.DEFAULT_CURRENCY,
@@ -105,6 +131,7 @@ class UserPreferencesService:
 
         try:
             supabase = get_supabase_client()
+            logger.info(f"Updating preferences for user {user_id}: {preferences}")
 
             # Prepare data for update
             update_data = {}
@@ -132,10 +159,53 @@ class UserPreferencesService:
             # Add updated_at timestamp
             update_data["updated_at"] = "now()"
 
-            # Update the profile directly
-            response = supabase.table("profiles").update(
-                update_data
-            ).eq("id", user_id).execute()
+            # First check if profile exists
+            profile_check = supabase.table("profiles").select("id").eq("id", user_id).execute()
+
+            if profile_check.error:
+                logger.error(f"Error checking if profile exists: {profile_check.error.message}")
+                return {
+                    "success": False,
+                    "message": f"Failed to check if profile exists: {profile_check.error.message}"
+                }
+
+            if not profile_check.data:
+                logger.info(f"Profile not found for user {user_id}, creating a new profile with preferences")
+                # Create new profile with preferences
+                profile_data = {
+                    "id": user_id,
+                    "language_preference": preferences.get("language", UserPreferencesService.DEFAULT_LANGUAGE),
+                    "currency_preference": preferences.get("currency", UserPreferencesService.DEFAULT_CURRENCY),
+                    "country_preference": preferences.get("country", UserPreferencesService.DEFAULT_COUNTRY),
+                    "theme_preference": preferences.get("theme", UserPreferencesService.DEFAULT_THEME),
+                    "created_at": "now()",
+                    "updated_at": "now()"
+                }
+
+                insert_response = supabase.table("profiles").insert(profile_data).execute()
+
+                if insert_response.error:
+                    logger.error(f"Error creating profile: {insert_response.error.message}")
+                    return {
+                        "success": False,
+                        "message": f"Failed to create profile: {insert_response.error.message}"
+                    }
+
+                logger.info(f"Created new profile for user {user_id}")
+                return {
+                    "success": True,
+                    "message": "Profile created with preferences",
+                    "preferences": {
+                        "language": profile_data.get("language_preference"),
+                        "currency": profile_data.get("currency_preference"),
+                        "country": profile_data.get("country_preference"),
+                        "theme": profile_data.get("theme_preference")
+                    }
+                }
+
+            # Update existing profile
+            logger.info(f"Updating existing profile for user {user_id} with data: {update_data}")
+            response = supabase.table("profiles").update(update_data).eq("id", user_id).execute()
 
             if response.error:
                 logger.error(f"Error updating user preferences: {response.error.message}")
@@ -146,6 +216,7 @@ class UserPreferencesService:
 
             # Get the updated preferences
             updated_preferences = await UserPreferencesService.get_user_preferences(user_id)
+            logger.info(f"Preferences updated successfully for user {user_id}")
 
             return {
                 "success": True,
@@ -154,7 +225,7 @@ class UserPreferencesService:
             }
 
         except Exception as e:
-            logger.error(f"Error in update_user_preferences: {str(e)}")
+            logger.exception(f"Error in update_user_preferences: {str(e)}")
             return {
                 "success": False,
                 "message": f"Failed to update preferences: {str(e)}"

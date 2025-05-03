@@ -47,6 +47,8 @@ const pendingRequests: CancelFunctions = {}
 
 // Token request tracking to prevent multiple simultaneous token fetches
 let tokenRequestInProgress: Promise<string | null> | null = null
+const tokenExpiryTime = 60 * 60 * 1000 // 1 hour in milliseconds
+let tokenCache: { token: string | null; expiry: number } | null = null
 
 /**
  * Enhanced API client with caching, error handling, request cancellation, and improved token handling
@@ -56,7 +58,13 @@ export class ApiClient {
    * Get an auth token from Supabase with better error handling and caching
    */
   private static async getAuthToken(): Promise<string | null> {
-    // If a token request is already in progress, return that promise to avoid duplicate calls
+    // Check cache first
+    const now = Date.now()
+    if (tokenCache && tokenCache.expiry > now && tokenCache.token) {
+      return tokenCache.token
+    }
+
+    // If a token request is already in progress, return that promise
     if (tokenRequestInProgress) {
       return tokenRequestInProgress
     }
@@ -64,6 +72,7 @@ export class ApiClient {
     // Create a new promise for the token fetch
     tokenRequestInProgress = (async () => {
       try {
+        console.log('Fetching new auth token from Supabase')
         const supabase = createClient()
         const { data, error } = await supabase.auth.getSession()
 
@@ -77,13 +86,20 @@ export class ApiClient {
           return null
         }
 
-        return data.session.access_token || null
+        const token = data.session.access_token
+
+        // Cache the token with expiry
+        tokenCache = {
+          token,
+          expiry: now + tokenExpiryTime,
+        }
+
+        return token
       } catch (error) {
         console.error('Error getting auth token:', error)
         return null
       } finally {
         // Clear the in-progress request after a short delay
-        // This prevents immediate duplicate requests while allowing future refreshes
         setTimeout(() => {
           tokenRequestInProgress = null
         }, 100)
@@ -91,6 +107,15 @@ export class ApiClient {
     })()
 
     return tokenRequestInProgress
+  }
+
+  /**
+   * Clear the token cache
+   */
+  public static clearTokenCache() {
+    tokenCache = null
+    tokenRequestInProgress = null
+    console.log('Token cache cleared')
   }
 
   /**
@@ -107,6 +132,9 @@ export class ApiClient {
       const token = await this.getAuthToken()
       if (token) {
         headers['Authorization'] = `Bearer ${token}`
+      } else {
+        // Log the issue for debugging
+        console.warn('Authentication token required but not available')
       }
     }
 

@@ -64,34 +64,35 @@ export const UserPreferencesProvider = ({
   const [loading, setLoading] = useState(true)
   const [initialized, setInitialized] = useState(false)
   const apiCallInProgress = useRef<boolean>(false)
-  const preferencesUpdated = useRef<boolean>(false)
 
   // Load preferences from local storage first, then check profile if authenticated
   useEffect(() => {
     const loadPreferences = async () => {
       // Don't try to load if we're already loading or if auth is still loading
-      if (apiCallInProgress.current || authLoading) {
+      if (apiCallInProgress.current) {
         return
       }
 
       setLoading(true)
       apiCallInProgress.current = true
+      console.log('Loading preferences...')
 
       try {
         // Try to load from local storage first
+        let prefsLoaded = false
         const storedPrefs = localStorage.getItem(STORAGE_KEY)
         if (storedPrefs) {
-          console.log('Loading preferences from local storage')
+          console.log('Found preferences in local storage')
           try {
             const localPrefs = JSON.parse(storedPrefs)
             setPreferences(localPrefs)
-            setInitialized(true)
+            prefsLoaded = true
+            console.log('Successfully loaded preferences from local storage')
           } catch (parseError) {
             console.error(
               'Error parsing preferences from local storage:',
               parseError
             )
-            // Continue to try profile preferences even if local storage fails
           }
         }
 
@@ -99,7 +100,7 @@ export const UserPreferencesProvider = ({
         if (isAuthenticated && user && profile) {
           console.log('Using preferences from user profile')
 
-          // Extract preferences from profile
+          // Extract preferences from profile with proper fallbacks
           const profilePrefs: UserPreferences = {
             language: (profile.language_preference as Locale) || defaultLocale,
             currency:
@@ -108,26 +109,26 @@ export const UserPreferencesProvider = ({
             theme: profile.theme_preference || 'light',
           }
 
-          // Update state and local storage
+          // Update state with profile preferences
           setPreferences(profilePrefs)
+
+          // Save to local storage for next time
           try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(profilePrefs))
+            console.log('Saved profile preferences to local storage')
           } catch (storageError) {
             console.error(
               'Error saving preferences to local storage:',
               storageError
             )
-            // Continue anyway, as state is still updated
           }
 
-          setInitialized(true)
-          preferencesUpdated.current = true
+          prefsLoaded = true
         }
-      } catch (error) {
-        console.error('Error loading preferences:', error)
-        // If we couldn't load preferences and don't have local storage,
-        // initialize with defaults
-        if (!initialized) {
+
+        // If we couldn't load preferences from anywhere, set defaults
+        if (!prefsLoaded) {
+          console.log('No preferences found, using defaults')
           setPreferences(defaultPreferences)
           try {
             localStorage.setItem(
@@ -140,65 +141,80 @@ export const UserPreferencesProvider = ({
               storageError
             )
           }
-          setInitialized(true)
         }
+
+        setInitialized(true)
+      } catch (error) {
+        console.error('Error loading preferences:', error)
+        // If all else fails, ensure we have defaults
+        setPreferences(defaultPreferences)
+        setInitialized(true)
       } finally {
         setLoading(false)
         apiCallInProgress.current = false
+        console.log('Finished loading preferences')
       }
     }
 
-    loadPreferences()
+    // Only load preferences after auth is settled
+    if (!authLoading) {
+      loadPreferences()
+    }
   }, [user, isAuthenticated, authLoading, profile])
 
-  // Update profile in Supabase
-  const updateProfilePreferences = async (
-    updatedPrefs: Partial<UserPreferences>
-  ) => {
-    if (!isAuthenticated || !user || apiCallInProgress.current) return false
-
-    apiCallInProgress.current = true
-
+  // Helper function to get auth token
+  const getAuthToken = async (): Promise<string | null> => {
     try {
       const supabase = createClient()
+      const { data } = await supabase.auth.getSession()
+      return data.session?.access_token || null
+    } catch (error) {
+      console.error('Error getting auth token:', error)
+      return null
+    }
+  }
 
-      // Map to profile table field names
-      const updateData: any = {}
+  // Make direct API call to update preferences
+  const updatePreferencesViaApi = async (
+    updatedPrefs: Record<string, any>
+  ): Promise<boolean> => {
+    if (!isAuthenticated || !user) {
+      console.log('Not authenticated, skipping API call')
+      return false
+    }
 
-      if (updatedPrefs.language) {
-        updateData.language_preference = updatedPrefs.language
-      }
-
-      if (updatedPrefs.currency) {
-        updateData.currency_preference = updatedPrefs.currency
-      }
-
-      if (updatedPrefs.country) {
-        updateData.country_preference = updatedPrefs.country
-      }
-
-      if (updatedPrefs.theme) {
-        updateData.theme_preference = updatedPrefs.theme
-      }
-
-      updateData.updated_at = new Date().toISOString()
-
-      const { error } = await supabase
-        .from('profiles')
-        .update(updateData)
-        .eq('id', user.id)
-
-      if (error) {
-        console.error('Error updating profile preferences:', error)
+    console.log('Updating preferences via API:', updatedPrefs)
+    try {
+      const token = await getAuthToken()
+      if (!token) {
+        console.error('No auth token available')
         return false
       }
 
-      return true
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/api/user/${user.id}/preferences`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(updatedPrefs),
+        }
+      )
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('Error response from API:', errorText)
+        return false
+      }
+
+      const result = await response.json()
+      console.log('API response:', result)
+      return result.status === 'success'
     } catch (error) {
-      console.error('Error updating profile preferences:', error)
+      console.error('Error updating preferences via API:', error)
       return false
-    } finally {
-      apiCallInProgress.current = false
     }
   }
 
@@ -206,16 +222,28 @@ export const UserPreferencesProvider = ({
   const setLanguage = async (language: Locale) => {
     if (preferences.language === language) return
 
+    // Update local state for immediate UI response
     const newPrefs = { ...preferences, language }
     setPreferences(newPrefs)
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(newPrefs))
 
+    // Save to localStorage
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(newPrefs))
+    } catch (storageError) {
+      console.error('Error saving to localStorage:', storageError)
+    }
+
+    // Update backend if authenticated
     if (isAuthenticated) {
-      const success = await updateProfilePreferences({ language })
+      setLoading(true)
+      const success = await updatePreferencesViaApi({ language })
+      setLoading(false)
+
       if (success) {
         toast.success(`Language changed to ${language}`)
       } else {
         toast.error('Failed to update language preference')
+        // Don't revert the UI state since the local storage was updated
       }
     }
   }
@@ -223,12 +251,23 @@ export const UserPreferencesProvider = ({
   const setCurrency = async (currency: Currency) => {
     if (preferences.currency === currency) return
 
+    // Update local state for immediate UI response
     const newPrefs = { ...preferences, currency }
     setPreferences(newPrefs)
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(newPrefs))
 
+    // Save to localStorage
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(newPrefs))
+    } catch (storageError) {
+      console.error('Error saving to localStorage:', storageError)
+    }
+
+    // Update backend if authenticated
     if (isAuthenticated) {
-      const success = await updateProfilePreferences({ currency })
+      setLoading(true)
+      const success = await updatePreferencesViaApi({ currency })
+      setLoading(false)
+
       if (success) {
         toast.success(`Currency changed to ${currency}`)
       } else {
@@ -240,12 +279,23 @@ export const UserPreferencesProvider = ({
   const setCountry = async (country: Country) => {
     if (preferences.country === country) return
 
+    // Update local state for immediate UI response
     const newPrefs = { ...preferences, country }
     setPreferences(newPrefs)
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(newPrefs))
 
+    // Save to localStorage
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(newPrefs))
+    } catch (storageError) {
+      console.error('Error saving to localStorage:', storageError)
+    }
+
+    // Update backend if authenticated
     if (isAuthenticated) {
-      const success = await updateProfilePreferences({ country })
+      setLoading(true)
+      const success = await updatePreferencesViaApi({ country })
+      setLoading(false)
+
       if (success) {
         toast.success(`Country changed to ${country}`)
       } else {
@@ -257,12 +307,23 @@ export const UserPreferencesProvider = ({
   const setTheme = async (theme: string) => {
     if (preferences.theme === theme) return
 
+    // Update local state for immediate UI response
     const newPrefs = { ...preferences, theme }
     setPreferences(newPrefs)
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(newPrefs))
 
+    // Save to localStorage
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(newPrefs))
+    } catch (storageError) {
+      console.error('Error saving to localStorage:', storageError)
+    }
+
+    // Update backend if authenticated
     if (isAuthenticated) {
-      const success = await updateProfilePreferences({ theme })
+      setLoading(true)
+      const success = await updatePreferencesViaApi({ theme })
+      setLoading(false)
+
       if (!success) {
         toast.error('Failed to update theme preference')
       }
