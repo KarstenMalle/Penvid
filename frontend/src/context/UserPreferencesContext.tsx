@@ -6,6 +6,7 @@ import React, {
   useContext,
   useState,
   useEffect,
+  useRef,
   ReactNode,
 } from 'react'
 import { useAuth } from './AuthContext'
@@ -37,9 +38,8 @@ interface UserPreferencesContextType {
   initialized: boolean
 }
 
-const UserPreferencesContext = createContext<
-  UserPreferencesContextType | undefined
->(undefined)
+const UserPreferencesContext = createContext
+UserPreferencesContextType | (undefined > undefined)
 
 // Default preferences for new users
 const defaultPreferences: UserPreferences = {
@@ -57,48 +57,53 @@ export const UserPreferencesProvider = ({
 }: {
   children: ReactNode
 }) => {
-  const { user, isAuthenticated } = useAuth()
+  const { user, isAuthenticated, loading: authLoading, profile } = useAuth()
   const [preferences, setPreferences] =
     useState<UserPreferences>(defaultPreferences)
   const [loading, setLoading] = useState(true)
   const [initialized, setInitialized] = useState(false)
+  const apiCallInProgress = useRef<boolean>(false)
+  const preferencesUpdated = useRef<boolean>(false)
 
-  // Load preferences from local storage first, then check database if authenticated
+  // Load preferences from local storage first, then check profile if authenticated
   useEffect(() => {
     const loadPreferences = async () => {
+      // Don't try to load if we're already loading or if auth is still loading
+      if (apiCallInProgress.current || authLoading) {
+        return
+      }
+
       setLoading(true)
+      apiCallInProgress.current = true
 
       try {
         // Try to load from local storage first
         const storedPrefs = localStorage.getItem(STORAGE_KEY)
         if (storedPrefs) {
           console.log('Loading preferences from local storage')
-          setPreferences(JSON.parse(storedPrefs))
+          const localPrefs = JSON.parse(storedPrefs)
+          setPreferences(localPrefs)
           setInitialized(true)
         }
 
-        // If authenticated, fetch from API and update
-        if (isAuthenticated && user) {
-          console.log('Fetching preferences from server')
-          const response = await ApiClient.get(
-            `/api/user/${user.id}/preferences`
-          )
+        // If authenticated and we have a profile, use profile preferences
+        if (isAuthenticated && user && profile) {
+          console.log('Using preferences from user profile')
 
-          if (response.success && response.data) {
-            const apiPrefs = response.data
-
-            // Check if API preferences differ from stored preferences
-            const newPrefs = {
-              language: (apiPrefs.language as Locale) || preferences.language,
-              currency: (apiPrefs.currency as Currency) || preferences.currency,
-              country: (apiPrefs.country as Country) || preferences.country,
-              theme: apiPrefs.theme || preferences.theme,
-            }
-
-            setPreferences(newPrefs)
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(newPrefs))
-            setInitialized(true)
+          // Extract preferences from profile
+          const profilePrefs: UserPreferences = {
+            language: (profile.language_preference as Locale) || defaultLocale,
+            currency:
+              (profile.currency_preference as Currency) || defaultCurrency,
+            country: (profile.country_preference as Country) || defaultCountry,
+            theme: profile.theme_preference || 'light',
           }
+
+          // Update state and local storage
+          setPreferences(profilePrefs)
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(profilePrefs))
+          setInitialized(true)
+          preferencesUpdated.current = true
         }
       } catch (error) {
         console.error('Error loading preferences:', error)
@@ -111,64 +116,128 @@ export const UserPreferencesProvider = ({
         }
       } finally {
         setLoading(false)
+        apiCallInProgress.current = false
       }
     }
 
     loadPreferences()
-  }, [user, isAuthenticated])
+  }, [user, isAuthenticated, authLoading, profile])
 
-  // Save preferences to database
-  const savePreferencesToDB = async (
+  // Update profile in Supabase
+  const updateProfilePreferences = async (
     updatedPrefs: Partial<UserPreferences>
   ) => {
-    if (!isAuthenticated || !user) return
+    if (!isAuthenticated || !user || apiCallInProgress.current) return false
+
+    apiCallInProgress.current = true
 
     try {
-      await ApiClient.put(`/api/user/${user.id}/preferences`, updatedPrefs)
+      const supabase = createClient()
+
+      // Map to profile table field names
+      const updateData: any = {}
+
+      if (updatedPrefs.language) {
+        updateData.language_preference = updatedPrefs.language
+      }
+
+      if (updatedPrefs.currency) {
+        updateData.currency_preference = updatedPrefs.currency
+      }
+
+      if (updatedPrefs.country) {
+        updateData.country_preference = updatedPrefs.country
+      }
+
+      if (updatedPrefs.theme) {
+        updateData.theme_preference = updatedPrefs.theme
+      }
+
+      updateData.updated_at = new Date().toISOString()
+
+      const { error } = await supabase
+        .from('profiles')
+        .update(updateData)
+        .eq('id', user.id)
+
+      if (error) {
+        console.error('Error updating profile preferences:', error)
+        return false
+      }
+
+      return true
     } catch (error) {
-      console.error('Error saving preferences to database:', error)
-      toast.error('Failed to save preferences to server')
+      console.error('Error updating profile preferences:', error)
+      return false
+    } finally {
+      apiCallInProgress.current = false
     }
   }
 
   // Update functions for individual preferences
   const setLanguage = async (language: Locale) => {
+    if (preferences.language === language) return
+
     const newPrefs = { ...preferences, language }
     setPreferences(newPrefs)
     localStorage.setItem(STORAGE_KEY, JSON.stringify(newPrefs))
 
     if (isAuthenticated) {
-      await savePreferencesToDB({ language })
+      const success = await updateProfilePreferences({ language })
+      if (success) {
+        toast.success(`Language changed to ${language}`)
+      } else {
+        toast.error('Failed to update language preference')
+      }
     }
   }
 
   const setCurrency = async (currency: Currency) => {
+    if (preferences.currency === currency) return
+
     const newPrefs = { ...preferences, currency }
     setPreferences(newPrefs)
     localStorage.setItem(STORAGE_KEY, JSON.stringify(newPrefs))
 
     if (isAuthenticated) {
-      await savePreferencesToDB({ currency })
+      const success = await updateProfilePreferences({ currency })
+      if (success) {
+        toast.success(`Currency changed to ${currency}`)
+      } else {
+        toast.error('Failed to update currency preference')
+      }
     }
   }
 
   const setCountry = async (country: Country) => {
+    if (preferences.country === country) return
+
     const newPrefs = { ...preferences, country }
     setPreferences(newPrefs)
     localStorage.setItem(STORAGE_KEY, JSON.stringify(newPrefs))
 
     if (isAuthenticated) {
-      await savePreferencesToDB({ country })
+      const success = await updateProfilePreferences({ country })
+      if (success) {
+        toast.success(`Country changed to ${country}`)
+      } else {
+        toast.error('Failed to update country preference')
+      }
     }
   }
 
   const setTheme = async (theme: string) => {
+    if (preferences.theme === theme) return
+
     const newPrefs = { ...preferences, theme }
     setPreferences(newPrefs)
     localStorage.setItem(STORAGE_KEY, JSON.stringify(newPrefs))
 
     if (isAuthenticated) {
-      await savePreferencesToDB({ theme })
+      const success = await updateProfilePreferences({ theme })
+      if (!success) {
+        toast.error('Failed to update theme preference')
+      }
     }
   }
 
@@ -180,7 +249,7 @@ export const UserPreferencesProvider = ({
         setCurrency,
         setCountry,
         setTheme,
-        loading,
+        loading: loading || authLoading,
         initialized,
       }}
     >

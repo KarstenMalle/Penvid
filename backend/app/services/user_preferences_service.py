@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 class UserPreferencesService:
     """
-    Service for managing user preferences including language, currency, country and theme
+    Service for managing user preferences directly from the profiles table
     """
 
     DEFAULT_LANGUAGE = "en"
@@ -19,7 +19,7 @@ class UserPreferencesService:
     @staticmethod
     async def get_user_preferences(user_id: str) -> Dict[str, Any]:
         """
-        Get a user's preferences
+        Get a user's preferences from profiles table
 
         Args:
             user_id: The user's ID
@@ -30,7 +30,7 @@ class UserPreferencesService:
         try:
             supabase = get_supabase_client()
 
-            # Query the profiles table
+            # Query directly from the profiles table
             response = supabase.table("profiles").select(
                 "language_preference, currency_preference, country_preference, theme_preference"
             ).eq("id", user_id).execute()
@@ -78,7 +78,7 @@ class UserPreferencesService:
             preferences: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Update a user's preferences
+        Update a user's preferences in the profiles table
 
         Args:
             user_id: The user's ID
@@ -108,7 +108,7 @@ class UserPreferencesService:
             # Add updated_at timestamp
             update_data["updated_at"] = "now()"
 
-            # Update the profile
+            # Update the profile directly
             response = supabase.table("profiles").update(
                 update_data
             ).eq("id", user_id).execute()

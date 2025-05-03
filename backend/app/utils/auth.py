@@ -1,6 +1,9 @@
+# backend/app/utils/auth.py
+
 from fastapi import Depends, HTTPException, status, Header
 from typing import Optional
 from ..database import get_supabase_client
+import time
 
 async def verify_token(authorization: Optional[str] = Header(None)):
     """
@@ -24,27 +27,65 @@ async def verify_token(authorization: Optional[str] = Header(None)):
 
     try:
         # Extract token from Authorization header
-        scheme, token = authorization.split()
-        if scheme.lower() != "bearer":
+        parts = authorization.split()
+        if len(parts) != 2 or parts[0].lower() != "bearer":
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication scheme",
+                detail="Invalid authorization format, expected 'Bearer [token]'",
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        # Verify token with Supabase
-        supabase = get_supabase_client()
-        user = supabase.auth.get_user(token)
+        token = parts[1]
 
-        if not user or not user.user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired token",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+        # Verify token with Supabase (with retry logic for potential intermittent issues)
+        max_retries = 3
+        retry_delay = 0.5  # seconds
 
-        return user.user.id
+        for attempt in range(max_retries):
+            try:
+                # Get Supabase client
+                supabase = get_supabase_client()
 
+                # Verify token
+                user_data = supabase.auth.get_user(token)
+
+                if user_data.error:
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                        continue
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail=f"Invalid token: {user_data.error.message}",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
+
+                if not user_data.user:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Invalid token: No user found",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
+
+                return user_data.user.id
+
+            except HTTPException:
+                # Re-raise HTTP exceptions
+                raise
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                    continue
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=f"Authentication error: {str(e)}",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

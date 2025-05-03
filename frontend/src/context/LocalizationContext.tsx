@@ -9,8 +9,9 @@ import React, {
   ReactNode,
   useCallback,
   useMemo,
+  useRef,
 } from 'react'
-import { useUserPreferences } from './UserPreferencesContext'
+import { useAuth } from './AuthContext'
 import {
   languages,
   Locale,
@@ -26,6 +27,7 @@ import {
 import toast from 'react-hot-toast'
 import { CurrencyService } from '@/services/CurrencyService'
 import { TranslationService } from '@/services/TranslationService'
+import { createClient } from '@/lib/supabase-browser'
 
 interface FormatCurrencyOptions extends Intl.NumberFormatOptions {
   originalCurrency?: Currency
@@ -64,12 +66,7 @@ const initialTranslations = {
 const conversionCache: Record<string, number> = {}
 
 export function LocalizationProvider({ children }: { children: ReactNode }) {
-  const {
-    preferences,
-    setLanguage: updateLanguage,
-    setCurrency: updateCurrency,
-    setCountry: updateCountry,
-  } = useUserPreferences()
+  const { isAuthenticated, user, loading: authLoading, profile } = useAuth()
   const [translations, setTranslations] =
     useState<Record<string, any>>(initialTranslations)
   const [isLoadingTranslations, setIsLoadingTranslations] = useState(true)
@@ -77,11 +74,73 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     Record<string, number>
   >({})
   const [isLoadingRates, setIsLoadingRates] = useState(false)
+  const profileLoaded = useRef<boolean>(false)
+  const supabase = createClient()
 
-  // Use values from UserPreferencesContext
-  const locale = preferences.language
-  const currency = preferences.currency
-  const country = preferences.country
+  // State for locale, currency, and country with defaults from local storage
+  const [locale, setLocaleState] = useState<Locale>(() => {
+    if (typeof window !== 'undefined') {
+      const storedLocale = localStorage.getItem('locale') as Locale | null
+      return storedLocale || defaultLocale
+    }
+    return defaultLocale
+  })
+
+  const [currency, setCurrencyState] = useState<Currency>(() => {
+    if (typeof window !== 'undefined') {
+      const storedCurrency = localStorage.getItem('currency') as Currency | null
+      return storedCurrency || defaultCurrency
+    }
+    return defaultCurrency
+  })
+
+  const [country, setCountryState] = useState<Country>(() => {
+    if (typeof window !== 'undefined') {
+      const storedCountry = localStorage.getItem('country') as Country | null
+      return storedCountry || defaultCountry
+    }
+    return defaultCountry
+  })
+
+  // Use profile preferences when available
+  useEffect(() => {
+    const loadPreferencesFromProfile = () => {
+      // Only load from profile once per session and when profile is available
+      if (
+        !authLoading &&
+        isAuthenticated &&
+        profile &&
+        !profileLoaded.current
+      ) {
+        console.log('Loading preferences from profile:', profile)
+
+        // Get language preference from profile
+        if (profile.language_preference) {
+          const profileLocale = profile.language_preference as Locale
+          setLocaleState(profileLocale)
+          localStorage.setItem('locale', profileLocale)
+        }
+
+        // Get currency preference from profile
+        if (profile.currency_preference) {
+          const profileCurrency = profile.currency_preference as Currency
+          setCurrencyState(profileCurrency)
+          localStorage.setItem('currency', profileCurrency)
+        }
+
+        // Get country preference from profile
+        if (profile.country_preference) {
+          const profileCountry = profile.country_preference as Country
+          setCountryState(profileCountry)
+          localStorage.setItem('country', profileCountry)
+        }
+
+        profileLoaded.current = true
+      }
+    }
+
+    loadPreferencesFromProfile()
+  }, [isAuthenticated, authLoading, profile])
 
   // Load translations when locale changes
   const loadTranslations = useCallback(async (currentLocale: Locale) => {
@@ -161,31 +220,115 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     await loadTranslations(locale)
   }
 
-  // Function to change language - now uses UserPreferencesContext
+  // Update profile in Supabase directly
+  const updateProfilePreferences = async (
+    updates: Partial<{
+      language: Locale
+      currency: Currency
+      country: Country
+      theme?: string
+    }>
+  ) => {
+    if (!isAuthenticated || !user) return false
+
+    try {
+      // Create the update object with the correct column names
+      const updateData: any = {}
+
+      if (updates.language) {
+        updateData.language_preference = updates.language
+      }
+
+      if (updates.currency) {
+        updateData.currency_preference = updates.currency
+      }
+
+      if (updates.country) {
+        updateData.country_preference = updates.country
+      }
+
+      if (updates.theme) {
+        updateData.theme_preference = updates.theme
+      }
+
+      // Always include updated timestamp
+      updateData.updated_at = new Date().toISOString()
+
+      // Update profile in Supabase
+      const { error } = await supabase
+        .from('profiles')
+        .update(updateData)
+        .eq('id', user.id)
+
+      if (error) {
+        console.error('Error updating profile preferences:', error)
+        return false
+      }
+
+      return true
+    } catch (error) {
+      console.error('Error updating profile preferences:', error)
+      return false
+    }
+  }
+
+  // Function to change language - update profile and local state
   const setLocale = async (newLocale: Locale) => {
-    // Update through UserPreferencesContext
-    await updateLanguage(newLocale)
+    if (newLocale === locale) return
+
+    // Update local state first for immediate UI response
+    setLocaleState(newLocale)
+    localStorage.setItem('locale', newLocale)
+
+    // Update profile if authenticated
+    if (isAuthenticated && user) {
+      const success = await updateProfilePreferences({ language: newLocale })
+      if (!success) {
+        toast.error('Failed to update language preference on server')
+      }
+    }
 
     toast.success(`Language changed to ${languages[newLocale].name}`)
 
     // Load translations for new locale
-    // Clear the cache to ensure we get fresh translations
     TranslationService.clearCache()
     await loadTranslations(newLocale)
   }
 
-  // Function to change currency - now uses UserPreferencesContext
+  // Function to change currency - update profile and local state
   const setCurrency = async (newCurrency: Currency) => {
-    // Update through UserPreferencesContext
-    await updateCurrency(newCurrency)
+    if (newCurrency === currency) return
+
+    // Update local state first for immediate UI response
+    setCurrencyState(newCurrency)
+    localStorage.setItem('currency', newCurrency)
+
+    // Update profile if authenticated
+    if (isAuthenticated && user) {
+      const success = await updateProfilePreferences({ currency: newCurrency })
+      if (!success) {
+        toast.error('Failed to update currency preference on server')
+      }
+    }
 
     toast.success(`Currency changed to ${currencyConfig[newCurrency].name}`)
   }
 
-  // Function to change country - now uses UserPreferencesContext
+  // Function to change country - update profile and local state
   const setCountry = async (newCountry: Country) => {
-    // Update through UserPreferencesContext
-    await updateCountry(newCountry)
+    if (newCountry === country) return
+
+    // Update local state first for immediate UI response
+    setCountryState(newCountry)
+    localStorage.setItem('country', newCountry)
+
+    // Update profile if authenticated
+    if (isAuthenticated && user) {
+      const success = await updateProfilePreferences({ country: newCountry })
+      if (!success) {
+        toast.error('Failed to update country preference on server')
+      }
+    }
 
     // Optionally update currency and language based on country default settings
     const countrySettings = countryConfig[newCountry]

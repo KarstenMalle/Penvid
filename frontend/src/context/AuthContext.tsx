@@ -58,6 +58,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
         if (error) {
           console.error('Error getting session:', error.message)
+          setLoading(false) // Mark loading as complete even on error
           return false
         }
 
@@ -67,35 +68,60 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setUser(data.session.user)
           setIsAuthenticated(true)
 
-          // Simple profile based on user data
-          const tempProfile = {
-            id: data.session.user.id,
-            name:
-              data.session.user.user_metadata?.name ||
-              data.session.user.email?.split('@')[0] ||
-              'User',
-            created_at: new Date().toISOString(),
+          try {
+            // Fetch profile directly from Supabase
+            const { data: profileData, error: profileError } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', data.session.user.id)
+              .single()
+
+            if (profileError) {
+              console.error('Error fetching profile:', profileError)
+
+              // Create a basic profile if none exists
+              const tempProfile = {
+                id: data.session.user.id,
+                name:
+                  data.session.user.user_metadata?.name ||
+                  data.session.user.email?.split('@')[0] ||
+                  'User',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                language_preference: null,
+                currency_preference: null,
+                country_preference: null,
+                theme_preference: null,
+              }
+
+              setProfile(tempProfile)
+
+              // Create profile in database
+              const { error: insertError } = await supabase
+                .from('profiles')
+                .upsert(tempProfile)
+
+              if (insertError) {
+                console.error('Error creating profile:', insertError)
+              }
+            } else if (profileData) {
+              setProfile(profileData)
+            }
+          } catch (profileErr) {
+            console.error('Error in profile handling:', profileErr)
           }
 
-          setProfile(tempProfile)
-
-          // Initialize user preferences in local storage (moved from LocalizationContext)
-          const userPrefs = await UserPreferencesService.getUserPreferences(
-            data.session.user.id
-          )
-          localStorage.setItem('user_preferences', JSON.stringify(userPrefs))
-
+          setLoading(false)
           return true
         } else {
           console.log('No session found')
+          setLoading(false)
           return false
         }
       } catch (err) {
         console.error('Error in setupAuth:', err)
-        return false
-      } finally {
-        // Always mark loading as complete
         setLoading(false)
+        return false
       }
     }
 
@@ -112,17 +138,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setUser(session.user)
           setIsAuthenticated(true)
 
-          // Set a basic profile using user metadata
-          const tempProfile = {
-            id: session.user.id,
-            name:
-              session.user.user_metadata?.name ||
-              session.user.email?.split('@')[0] ||
-              'User',
-            created_at: new Date().toISOString(),
-          }
+          try {
+            // Always fetch the latest profile data when auth state changes
+            const { data: profileData, error: profileError } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', session.user.id)
+              .single()
 
-          setProfile(tempProfile)
+            if (profileError) {
+              console.error(
+                'Error fetching profile on auth change:',
+                profileError
+              )
+            } else if (profileData) {
+              setProfile(profileData)
+            }
+          } catch (error) {
+            console.error('Error fetching profile on auth change:', error)
+          }
         } else {
           // User is not authenticated
           setUser(null)
@@ -137,57 +171,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       authListener.subscription.unsubscribe()
     }
   }, [])
-
-  useEffect(() => {
-    const fetchProfile = async () => {
-      if (!user) {
-        setProfile(null)
-        return
-      }
-
-      try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single()
-
-        if (error) {
-          console.error('Error fetching profile:', error)
-          return
-        }
-
-        if (data) {
-          setProfile(data)
-        } else {
-          // Create a basic profile if none exists
-          const tempProfile = {
-            id: user.id,
-            name:
-              user.user_metadata?.name || user.email?.split('@')[0] || 'User',
-            created_at: new Date().toISOString(),
-          }
-
-          setProfile(tempProfile)
-
-          // Optionally create profile in database
-          const { error: insertError } = await supabase
-            .from('profiles')
-            .upsert(tempProfile)
-
-          if (insertError) {
-            console.error('Error creating profile:', insertError)
-          }
-        }
-      } catch (error) {
-        console.error('Error in profile fetch:', error)
-      }
-    }
-
-    if (isAuthenticated) {
-      fetchProfile()
-    }
-  }, [user, isAuthenticated, supabase])
 
   useEffect(() => {
     const fetchUserPreferences = async () => {
