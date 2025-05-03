@@ -276,6 +276,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setIsAuthenticated(false)
       setProfile(null)
 
+      // Clear local storage items
+      localStorage.removeItem('user_preferences')
+      localStorage.removeItem('locale')
+      localStorage.removeItem('currency')
+      localStorage.removeItem('country')
+
+      // Clear any API client cache or tokens
+      if (typeof window !== 'undefined' && window.ApiClient) {
+        window.ApiClient.clearAllCache?.()
+      }
+
       toast.success('Logged out successfully')
 
       // Force a page reload to clear any state

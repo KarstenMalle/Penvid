@@ -18,7 +18,7 @@ import {
   defaultCurrency,
   defaultCountry,
 } from '@/i18n/config'
-import { ApiClient } from '@/services/ApiClient'
+import { createClient } from '@/lib/supabase-browser'
 import toast from 'react-hot-toast'
 
 interface UserPreferences {
@@ -38,8 +38,9 @@ interface UserPreferencesContextType {
   initialized: boolean
 }
 
-const UserPreferencesContext = createContext
-UserPreferencesContextType | (undefined > undefined)
+const UserPreferencesContext = createContext<
+  UserPreferencesContextType | undefined
+>(undefined)
 
 // Default preferences for new users
 const defaultPreferences: UserPreferences = {
