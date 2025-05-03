@@ -3,7 +3,6 @@ from fastapi import Depends, HTTPException, status, Header, Request
 from typing import Optional, Dict, Any
 import logging
 from ..database import get_supabase_client
-import time
 
 # Setup logging
 logger = logging.getLogger(__name__)

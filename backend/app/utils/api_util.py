@@ -2,7 +2,6 @@
 from functools import wraps
 
 from fastapi import HTTPException, Request
-from supabase import Client
 from typing import Dict, Any, Optional, Callable, TypeVar
 import traceback
 import logging

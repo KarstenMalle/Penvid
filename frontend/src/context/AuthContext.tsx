@@ -1,3 +1,4 @@
+// frontend/src/context/AuthContext.tsx
 'use client'
 
 import React, {
@@ -108,6 +109,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 console.error('Error creating profile:', insertError)
               }
             } else if (profileData) {
+              console.log('Profile data fetched:', profileData)
               setProfile(profileData)
             }
           } catch (profileErr) {
@@ -155,6 +157,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 profileError
               )
             } else if (profileData) {
+              console.log('Setting profile on auth change:', profileData)
               setProfile(profileData)
             }
           } catch (error) {
@@ -192,6 +195,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (error) {
         console.error('Login error:', error.message)
         toast.error(error.message || 'Login failed')
+        setLoading(false)
         return { error }
       }
 
@@ -199,15 +203,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       console.log('Login successful')
       toast.success('Login successful!')
 
-      // Update auth state (this will now be handled by the onAuthStateChange listener)
+      // The rest will be handled by the auth state change listener
 
       return { error: null }
     } catch (error: any) {
       console.error('Unexpected login error:', error)
       toast.error('An unexpected error occurred')
-      return { error }
-    } finally {
       setLoading(false)
+      return { error }
     }
   }
 
@@ -215,6 +218,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const logout = async () => {
     try {
       console.log('Logging out...')
+      setLoading(true)
 
       // Sign out from Supabase
       const { error } = await supabase.auth.signOut()
@@ -222,6 +226,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (error) {
         console.error('Error during logout:', error)
         toast.error('Error logging out')
+        setLoading(false)
         return
       }
 
@@ -237,15 +242,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       localStorage.removeItem('country')
 
       // Clear any API client cache
-      ApiClient.clearAllCache?.()
+      if (typeof ApiClient.clearAllCache === 'function') {
+        ApiClient.clearAllCache()
+      }
 
       toast.success('Logged out successfully')
+      setLoading(false)
 
       // Force a page reload to clear any state
       window.location.href = '/'
     } catch (error) {
       console.error('Error during logout:', error)
       toast.error('Error logging out')
+      setLoading(false)
     }
   }
 
@@ -257,6 +266,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   ) => {
     try {
       console.log('Signing up with email:', email)
+      setLoading(true)
 
       // Try to sign up
       const { data, error } = await supabase.auth.signUp({
@@ -271,6 +281,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (error) {
         console.error('Signup error:', error.message)
         toast.error(error.message || 'Registration failed')
+        setLoading(false)
         return { error }
       }
 
@@ -278,10 +289,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       toast.success(
         'Registration successful! Please check your email to confirm your account.'
       )
+      setLoading(false)
       return { error: null }
     } catch (error: any) {
       console.error('Unexpected signup error:', error)
       toast.error('An unexpected error occurred')
+      setLoading(false)
       return { error }
     }
   }
@@ -290,6 +303,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const resetPassword = async (email: string) => {
     try {
       console.log('Sending password reset for:', email)
+      setLoading(true)
 
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/auth/callback?action=password_reset`,
@@ -298,15 +312,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (error) {
         console.error('Password reset error:', error.message)
         toast.error(error.message || 'Failed to send reset email')
+        setLoading(false)
         return { error }
       }
 
       console.log('Password reset email sent')
       toast.success('Password reset email sent!')
+      setLoading(false)
       return { error: null }
     } catch (error: any) {
       console.error('Unexpected password reset error:', error)
       toast.error('An unexpected error occurred')
+      setLoading(false)
       return { error }
     }
   }

@@ -9,7 +9,6 @@ import React, {
   ReactNode,
   useCallback,
   useMemo,
-  useRef,
 } from 'react'
 import { useAuth } from './AuthContext'
 import {
@@ -24,10 +23,9 @@ import {
   defaultCountry,
   countryConfig,
 } from '@/i18n/config'
-import toast from 'react-hot-toast'
-import { CurrencyService } from '@/services/CurrencyService'
 import { TranslationService } from '@/services/TranslationService'
-import { createClient } from '@/lib/supabase-browser'
+import { ApiClient } from '@/services/ApiClient'
+import toast from 'react-hot-toast'
 
 interface FormatCurrencyOptions extends Intl.NumberFormatOptions {
   originalCurrency?: Currency
@@ -66,17 +64,14 @@ const initialTranslations = {
 
 // Cache for currency conversions to avoid duplicate API calls
 const conversionCache: Record<string, number> = {}
+const conversionRateCache: Record<string, Record<string, number>> = {
+  USD: { USD: 1.0, DKK: 6.9 },
+}
 
-// Helper function to get auth token
-const getAuthToken = async (): Promise<string | null> => {
-  try {
-    const supabase = createClient()
-    const { data } = await supabase.auth.getSession()
-    return data.session?.access_token || null
-  } catch (error) {
-    console.error('Error getting auth token:', error)
-    return null
-  }
+// Default exchange rates when nothing else is available
+const fallbackRates = {
+  USD: 1.0,
+  DKK: 6.9,
 }
 
 export function LocalizationProvider({ children }: { children: ReactNode }) {
@@ -84,13 +79,7 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
   const [translations, setTranslations] =
     useState<Record<string, any>>(initialTranslations)
   const [isLoadingTranslations, setIsLoadingTranslations] = useState(true)
-  const [conversionRates, setConversionRates] = useState<
-    Record<string, number>
-  >({})
-  const [isLoadingRates, setIsLoadingRates] = useState(false)
   const [isUpdatingPreferences, setIsUpdatingPreferences] = useState(false)
-  const profileLoaded = useRef<boolean>(false)
-  const supabase = createClient()
 
   // State for locale, currency, and country with defaults from local storage
   const [locale, setLocaleState] = useState<Locale>(() => {
@@ -155,14 +144,9 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
 
   // Use profile preferences when available
   useEffect(() => {
-    const loadPreferencesFromProfile = () => {
-      // Only load from profile once per session and when profile is available
-      if (
-        !authLoading &&
-        isAuthenticated &&
-        profile &&
-        !profileLoaded.current
-      ) {
+    const loadPreferencesFromProfile = async () => {
+      // Only try to load from profile when auth is settled and we're authenticated
+      if (!authLoading && isAuthenticated && profile) {
         console.log('Loading preferences from profile:', profile)
         let prefsChanged = false
 
@@ -225,8 +209,6 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
               )
             }
           }
-
-          profileLoaded.current = true
         } catch (error) {
           console.error('Error loading preferences from profile:', error)
         }
@@ -234,14 +216,7 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     }
 
     loadPreferencesFromProfile()
-  }, [
-    isAuthenticated,
-    authLoading,
-    profile,
-    languages,
-    currencyConfig,
-    countryConfig,
-  ])
+  }, [isAuthenticated, authLoading, profile])
 
   // Load translations when locale changes
   const loadTranslations = useCallback(async (currentLocale: Locale) => {
@@ -255,13 +230,9 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
         true
       )
 
-      // Log what we received to help debug
       console.log(`Received translations for ${currentLocale}:`, {
         hasLoans: !!translationsData.loans,
         namespaces: Object.keys(translationsData),
-        loanKeys: translationsData.loans
-          ? Object.keys(translationsData.loans).slice(0, 5)
-          : [],
       })
 
       setTranslations(translationsData)
@@ -284,85 +255,55 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // Load currency conversion rates when currency changes
-  const loadConversionRates = useCallback(async () => {
-    if (isLoadingRates) return
+  // Load currency conversion rates
+  const fetchExchangeRates = useCallback(async () => {
+    console.log('Fetching exchange rates')
 
-    setIsLoadingRates(true)
     try {
-      // Get exchange rates for current currency
-      const rates = await CurrencyService.getExchangeRates()
-      setConversionRates(rates || {})
+      // Only call API if we're authenticated
+      if (isAuthenticated && user) {
+        const response = await ApiClient.get('/api/currency/rates', {
+          requiresAuth: true,
+          cache: {
+            enabled: true,
+            ttl: 24 * 60 * 60 * 1000, // 24 hours
+          },
+          requestId: 'get-exchange-rates',
+        })
 
-      // Reset the conversion cache when rates change
-      Object.keys(conversionCache).forEach((key) => {
-        delete conversionCache[key]
-      })
+        if (response.success && response.data?.rates) {
+          console.log('Received exchange rates:', response.data.rates)
+          conversionRateCache['USD'] = response.data.rates
+
+          // Reset conversion cache when rates change
+          Object.keys(conversionCache).forEach((key) => {
+            delete conversionCache[key]
+          })
+        } else {
+          console.warn('Failed to fetch exchange rates, using fallback')
+        }
+      }
     } catch (error) {
-      console.error('Error loading conversion rates:', error)
-    } finally {
-      setIsLoadingRates(false)
+      console.error('Error fetching exchange rates:', error)
     }
-  }, [isLoadingRates])
+  }, [isAuthenticated, user])
 
   // Reload translations when locale changes
   useEffect(() => {
     loadTranslations(locale)
   }, [locale, loadTranslations])
 
-  // Load conversion rates when currency changes
+  // Load conversion rates when currency changes or auth status changes
   useEffect(() => {
-    loadConversionRates()
-  }, [currency, loadConversionRates])
+    if (isAuthenticated && !authLoading) {
+      fetchExchangeRates()
+    }
+  }, [currency, isAuthenticated, authLoading, fetchExchangeRates])
 
   // Function to refresh translations manually
   const refreshTranslations = async () => {
     TranslationService.clearCache() // Clear the cache to force a fresh load
     await loadTranslations(locale)
-  }
-
-  // Make direct API call to update preferences
-  const updatePreferencesViaApi = async (
-    updatedPrefs: Record<string, any>
-  ): Promise<boolean> => {
-    if (!isAuthenticated || !user) {
-      console.log('Not authenticated, skipping API call')
-      return false
-    }
-
-    console.log('Updating preferences via API:', updatedPrefs)
-    try {
-      const token = await getAuthToken()
-      if (!token) {
-        console.error('No auth token available')
-        return false
-      }
-
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/api/user/${user.id}/preferences`,
-        {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(updatedPrefs),
-        }
-      )
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error('Error response from API:', errorText)
-        return false
-      }
-
-      const result = await response.json()
-      console.log('API response:', result)
-      return result.status === 'success'
-    } catch (error) {
-      console.error('Error updating preferences via API:', error)
-      return false
-    }
   }
 
   // Function to change language - update profile and local state
@@ -387,9 +328,17 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     if (isAuthenticated && user) {
       setIsUpdatingPreferences(true)
       try {
-        const success = await updatePreferencesViaApi({ language: newLocale })
-        if (!success) {
+        const response = await ApiClient.put(
+          `/api/user/${user.id}/preferences`,
+          { language: newLocale },
+          { requestId: 'update-language' }
+        )
+
+        if (!response.success) {
+          console.error('Error updating language preference:', response.error)
           toast.error('Failed to update language preference on server')
+        } else {
+          toast.success(`Language changed to ${languages[newLocale].name}`)
         }
       } catch (error) {
         console.error('Error updating language:', error)
@@ -397,9 +346,9 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
       } finally {
         setIsUpdatingPreferences(false)
       }
+    } else {
+      toast.success(`Language changed to ${languages[newLocale].name}`)
     }
-
-    toast.success(`Language changed to ${languages[newLocale].name}`)
 
     // Load translations for new locale
     TranslationService.clearCache()
@@ -428,48 +377,19 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     if (isAuthenticated && user) {
       setIsUpdatingPreferences(true)
       try {
-        const token = await getAuthToken()
-
-        if (!token) {
-          console.warn(
-            'No auth token available for updating currency preference'
-          )
-          setIsUpdatingPreferences(false)
-          toast.error('Authentication error - please try again later')
-          return
-        }
-
-        console.log('Making API call to update currency preference')
-        const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/api/user/${user.id}/preferences`,
-          {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({ currency: newCurrency }),
-          }
+        const response = await ApiClient.put(
+          `/api/user/${user.id}/preferences`,
+          { currency: newCurrency },
+          { requestId: 'update-currency' }
         )
 
-        if (!response.ok) {
-          const text = await response.text()
-          console.error('Error updating currency preference:', text)
-          toast.error('Failed to update currency preference')
-          setIsUpdatingPreferences(false)
-          return
-        }
-
-        const result = await response.json()
-        console.log('Currency update API response:', result)
-
-        if (result.status === 'success') {
+        if (!response.success) {
+          console.error('Error updating currency preference:', response.error)
+          toast.error('Failed to update currency preference on server')
+        } else {
           toast.success(
             `Currency changed to ${currencyConfig[newCurrency].name}`
           )
-        } else {
-          console.error('API returned error:', result.error)
-          toast.error(result.error || 'Failed to update currency preference')
         }
       } catch (error) {
         console.error('Error updating currency preference:', error)
@@ -505,9 +425,33 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     if (isAuthenticated && user) {
       setIsUpdatingPreferences(true)
       try {
-        const success = await updatePreferencesViaApi({ country: newCountry })
-        if (!success) {
+        const response = await ApiClient.put(
+          `/api/user/${user.id}/preferences`,
+          { country: newCountry },
+          { requestId: 'update-country' }
+        )
+
+        if (!response.success) {
+          console.error('Error updating country preference:', response.error)
           toast.error('Failed to update country preference on server')
+        } else {
+          // Optionally update currency and language based on country default settings
+          const countrySettings = countryConfig[newCountry]
+
+          // Ask user if they want to update currency to country's default
+          if (currency !== countrySettings.defaultCurrency) {
+            const shouldUpdateCurrency = window.confirm(
+              t('settings.updateCurrencyToCountryDefault', {
+                currency: currencyConfig[countrySettings.defaultCurrency].name,
+              })
+            )
+
+            if (shouldUpdateCurrency) {
+              await setCurrency(countrySettings.defaultCurrency)
+            }
+          }
+
+          toast.success(`Country changed to ${countryConfig[newCountry].name}`)
         }
       } catch (error) {
         console.error('Error updating country:', error)
@@ -515,28 +459,12 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
       } finally {
         setIsUpdatingPreferences(false)
       }
+    } else {
+      toast.success(`Country changed to ${countryConfig[newCountry].name}`)
     }
-
-    // Optionally update currency and language based on country default settings
-    const countrySettings = countryConfig[newCountry]
-
-    // Ask user if they want to update currency to country's default
-    if (currency !== countrySettings.defaultCurrency) {
-      const shouldUpdateCurrency = confirm(
-        t('settings.updateCurrencyToCountryDefault', {
-          currency: currencyConfig[countrySettings.defaultCurrency].name,
-        })
-      )
-
-      if (shouldUpdateCurrency) {
-        await setCurrency(countrySettings.defaultCurrency)
-      }
-    }
-
-    toast.success(`Country changed to ${countryConfig[newCountry].name}`)
   }
 
-  // Translation function - improved to better handle missing translations
+  // Translation function - improved to handle missing translations
   const t = (key: string, params?: Record<string, any>) => {
     // Short circuit for empty key
     if (!key) return ''
@@ -589,7 +517,7 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
     return value
   }
 
-  // Convert amount between currencies - non-async version that uses the cached rates
+  // Convert amount between currencies using the cached rates
   const convertAmount = (
     amount: number,
     from: Currency = 'USD',
@@ -604,50 +532,26 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
       return conversionCache[cacheKey]
     }
 
-    // Perform conversion using rates if available
-    if (Object.keys(conversionRates).length > 0) {
-      let result = amount
-
-      // Convert to USD first if not already USD
-      if (from !== 'USD') {
-        result = amount / (conversionRates[from] || 1.0)
-      }
-
-      // Convert from USD to target currency
-      if (to !== 'USD') {
-        result = result * (conversionRates[to] || 1.0)
-      }
-
-      // Cache the result
-      conversionCache[cacheKey] = result
-      return result
-    }
-
-    // Fallback conversion rates if API rates are not available
-    const fallbackRates = {
-      USD: 1.0,
-      DKK: 6.9,
-    }
-
+    // Use rates if available
     let result = amount
+    const usdRates = conversionRateCache['USD'] || fallbackRates
 
-    // Convert to USD first if not already USD
+    // Convert to USD first
     if (from !== 'USD') {
-      result =
-        amount / (fallbackRates[from as keyof typeof fallbackRates] || 1.0)
+      result = amount / (usdRates[from] || 1.0)
     }
 
-    // Convert from USD to target currency
+    // Convert from USD to target
     if (to !== 'USD') {
-      result = result * (fallbackRates[to as keyof typeof fallbackRates] || 1.0)
+      result = result * (usdRates[to] || 1.0)
     }
 
-    // Cache the result
+    // Cache result
     conversionCache[cacheKey] = result
     return result
   }
 
-  // Format currency function
+  // Format currency with appropriate options
   const formatCurrency = (
     amount: number,
     options?: FormatCurrencyOptions
@@ -734,14 +638,7 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
       isLoadingTranslations,
       refreshTranslations,
     }),
-    [
-      locale,
-      currency,
-      country,
-      translations,
-      isLoadingTranslations,
-      conversionRates,
-    ]
+    [locale, currency, country, translations, isLoadingTranslations]
   )
 
   return (

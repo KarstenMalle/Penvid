@@ -1,6 +1,5 @@
 // frontend/src/services/ApiClient.ts
 
-import axios, { AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios'
 import { createClient } from '@/lib/supabase-browser'
 import toast from 'react-hot-toast'
 
@@ -12,14 +11,13 @@ const DEFAULT_TIMEOUT = 30000 // 30 seconds
  * Standardized API response
  */
 export interface ApiResponse<T = any> {
-  success?: boolean
+  success: boolean
   data?: T
   error?: {
-    status: number
     message: string
+    status?: number
     details?: any
   }
-  status: 'success' | 'error'
 }
 
 // Cache configuration
@@ -42,212 +40,146 @@ interface CacheItem<T> {
 const cache: Record<string, CacheItem<any>> = {}
 
 // Request cancellation store
-type CancelFunctions = Record<string, AbortController>
-const pendingRequests: CancelFunctions = {}
-
-// Token request tracking to prevent multiple simultaneous token fetches
-let tokenRequestInProgress: Promise<string | null> | null = null
-const tokenExpiryTime = 60 * 60 * 1000 // 1 hour in milliseconds
-let tokenCache: { token: string | null; expiry: number } | null = null
+const pendingRequests: Record<string, AbortController> = {}
 
 /**
- * Enhanced API client with caching, error handling, request cancellation, and improved token handling
+ * Get authentication token from Supabase
  */
-export class ApiClient {
-  /**
-   * Get an auth token from Supabase with better error handling and caching
-   */
-  private static async getAuthToken(): Promise<string | null> {
-    // Check cache first
-    const now = Date.now()
-    if (tokenCache && tokenCache.expiry > now && tokenCache.token) {
-      return tokenCache.token
-    }
-
-    // If a token request is already in progress, return that promise
-    if (tokenRequestInProgress) {
-      return tokenRequestInProgress
-    }
-
-    // Create a new promise for the token fetch
-    tokenRequestInProgress = (async () => {
-      try {
-        console.log('Fetching new auth token from Supabase')
-        const supabase = createClient()
-        const { data, error } = await supabase.auth.getSession()
-
-        if (error) {
-          console.error('Error getting auth token:', error)
-          return null
-        }
-
-        if (!data.session) {
-          console.log('No active session found')
-          return null
-        }
-
-        const token = data.session.access_token
-
-        // Cache the token with expiry
-        tokenCache = {
-          token,
-          expiry: now + tokenExpiryTime,
-        }
-
-        return token
-      } catch (error) {
-        console.error('Error getting auth token:', error)
-        return null
-      } finally {
-        // Clear the in-progress request after a short delay
-        setTimeout(() => {
-          tokenRequestInProgress = null
-        }, 100)
-      }
-    })()
-
-    return tokenRequestInProgress
+export async function getAuthToken(): Promise<string | null> {
+  try {
+    const supabase = createClient()
+    const { data } = await supabase.auth.getSession()
+    return data.session?.access_token || null
+  } catch (error) {
+    console.error('Error getting auth token:', error)
+    return null
   }
+}
 
+/**
+ * Enhanced API client with caching, error handling and request cancellation
+ */
+export const ApiClient = {
   /**
-   * Clear the token cache
+   * Get a cached value by key, or null if not found/expired
    */
-  public static clearTokenCache() {
-    tokenCache = null
-    tokenRequestInProgress = null
-    console.log('Token cache cleared')
-  }
+  getCachedValue<T>(key: string): T | null {
+    const cachedItem = cache[key]
+    if (!cachedItem) return null
 
-  /**
-   * Get standard headers including authentication if required
-   */
-  private static async getHeaders(
-    requiresAuth: boolean = false
-  ): Promise<HeadersInit> {
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-    }
-
-    if (requiresAuth) {
-      const token = await this.getAuthToken()
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`
-      } else {
-        // Log the issue for debugging
-        console.warn('Authentication token required but not available')
-      }
-    }
-
-    return headers
-  }
-
-  /**
-   * Generate a cache key for a given endpoint and params
-   */
-  private static getCacheKey(endpoint: string, params?: any): string {
-    const queryString = params ? JSON.stringify(params) : ''
-    return `${endpoint}:${queryString}`
-  }
-
-  /**
-   * Retrieve data from cache if valid
-   */
-  private static getFromCache<T>(cacheKey: string): T | null {
-    const item = cache[cacheKey]
-    if (!item) return null
-
-    // Check if cache has expired
-    if (item.expiry < Date.now()) {
-      delete cache[cacheKey]
+    // Check if expired
+    if (cachedItem.expiry < Date.now()) {
+      delete cache[key]
       return null
     }
 
-    return item.data
-  }
+    return cachedItem.data
+  },
 
   /**
-   * Store data in cache
+   * Set a value in the cache
    */
-  private static setCache<T>(cacheKey: string, data: T, ttl: number): void {
-    cache[cacheKey] = {
-      data,
+  setCacheValue<T>(key: string, value: T, ttl: number): void {
+    cache[key] = {
+      data: value,
       expiry: Date.now() + ttl,
     }
-  }
+  },
 
   /**
-   * Clear cache items matching a pattern or all cache if no pattern provided
+   * Generate a cache key from a request
    */
-  private static clearCache(pattern?: string): void {
+  getCacheKey(endpoint: string, params?: any): string {
+    return `${endpoint}:${params ? JSON.stringify(params) : ''}`
+  },
+
+  /**
+   * Clear all cache or cache matching a pattern
+   */
+  clearCache(pattern?: string): void {
     if (!pattern) {
       // Clear all cache
       Object.keys(cache).forEach((key) => delete cache[key])
     } else {
-      // Clear cache matching pattern
+      // Clear matching cache
       Object.keys(cache).forEach((key) => {
         if (key.includes(pattern)) {
           delete cache[key]
         }
       })
     }
-  }
+  },
 
   /**
-   * Perform a GET request
+   * Clear all cached data
    */
-  static async get<T>(
+  clearAllCache(): void {
+    this.clearCache()
+  },
+
+  /**
+   * Make a GET request to the API
+   */
+  async get<T = any>(
     endpoint: string,
     options: {
+      params?: Record<string, any>
       requiresAuth?: boolean
       cache?: CacheConfig | false
-      params?: Record<string, any>
-      signal?: AbortSignal
       requestId?: string
-      retries?: number
     } = {}
   ): Promise<ApiResponse<T>> {
     const {
+      params,
       requiresAuth = true,
       cache: cacheConfig = defaultCacheConfig,
-      params,
-      signal,
       requestId,
-      retries = 1,
     } = options
 
     try {
-      // Check if auth is required but no token available
-      if (requiresAuth) {
-        const token = await this.getAuthToken()
-        if (!token) {
-          return {
-            error: {
-              status: 401,
-              message: 'Authentication required',
-              details: { reason: 'No authentication token available' },
-            },
-            status: 'error',
-          }
+      // Cancel previous request with same ID if it exists
+      if (requestId && pendingRequests[requestId]) {
+        pendingRequests[requestId].abort()
+        delete pendingRequests[requestId]
+      }
+
+      // Create abort controller for this request
+      const controller = new AbortController()
+      if (requestId) {
+        pendingRequests[requestId] = controller
+      }
+
+      // Check cache first if enabled
+      if (cacheConfig && cacheConfig.enabled) {
+        const cacheKey = this.getCacheKey(endpoint, params)
+        const cachedData = this.getCachedValue<T>(cacheKey)
+        if (cachedData) {
+          return { success: true, data: cachedData }
         }
       }
 
-      // Handle cancellation
-      let localController: AbortController | undefined
-      let requestSignal = signal
-
-      if (requestId) {
-        // Cancel previous request with same ID if exists
-        this.cancelRequest(requestId)
-
-        // Create new abort controller
-        localController = new AbortController()
-        pendingRequests[requestId] = localController
-
-        // Use the new abort signal or the one passed in
-        requestSignal = signal || localController.signal
+      // Prepare headers
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
       }
 
-      // Build URL with query parameters
+      // Add authorization if required
+      if (requiresAuth) {
+        const token = await getAuthToken()
+        if (!token) {
+          console.warn('Auth token required but not available for', endpoint)
+          return {
+            success: false,
+            error: {
+              message: 'Authentication required',
+              status: 401,
+            },
+          }
+        }
+        headers['Authorization'] = `Bearer ${token}`
+      }
+
+      // Build URL with query params
       let url = `${API_BASE_URL}${endpoint}`
       if (params) {
         const queryParams = new URLSearchParams()
@@ -256,468 +188,485 @@ export class ApiClient {
             queryParams.append(key, String(value))
           }
         })
-        if (queryParams.toString()) {
-          url += `?${queryParams.toString()}`
+        const queryString = queryParams.toString()
+        if (queryString) {
+          url += `?${queryString}`
         }
       }
 
-      // Check cache if enabled
-      if (cacheConfig && cacheConfig.enabled) {
-        const cacheKey = this.getCacheKey(endpoint, params)
-        const cachedData = this.getFromCache<T>(cacheKey)
-        if (cachedData) {
-          return { data: cachedData, status: 'success' }
-        }
-      }
-
-      const headers = await this.getHeaders(requiresAuth)
+      // Make the request
+      console.log(`Making GET request to ${url}`)
       const response = await fetch(url, {
+        method: 'GET',
         headers,
-        signal: requestSignal,
+        signal: controller.signal,
       })
 
-      // Clean up request from pending list
+      // Clean up request from pending
       if (requestId) {
         delete pendingRequests[requestId]
       }
 
+      // Handle non-ok response
       if (!response.ok) {
-        // If unauthorized and retries left, wait and retry
-        if (response.status === 401 && retries > 0) {
-          await new Promise((resolve) => setTimeout(resolve, 500))
-          return this.get<T>(endpoint, { ...options, retries: retries - 1 })
+        const errorText = await response.text()
+        let errorData
+        try {
+          errorData = JSON.parse(errorText)
+        } catch (e) {
+          errorData = { message: errorText }
         }
 
-        const errorData = await response.json().catch(() => ({}))
-        throw {
-          status: response.status,
-          message: errorData.message || errorData.detail || response.statusText,
-          details: errorData,
+        return {
+          success: false,
+          error: {
+            message:
+              errorData.message || errorData.error || response.statusText,
+            status: response.status,
+            details: errorData,
+          },
         }
       }
 
+      // Parse response
       const data = await response.json()
-      // Handle standardized API responses with status/data/message pattern
-      const responseData = data.data !== undefined ? data.data : data
 
-      // Cache the result if enabled
+      // Handle standardized API responses with status/data/message pattern
+      let resultData: T
+      if (data && typeof data === 'object' && 'data' in data) {
+        resultData = data.data
+      } else {
+        resultData = data as T
+      }
+
+      // Cache the response if enabled
       if (cacheConfig && cacheConfig.enabled) {
         const cacheKey = this.getCacheKey(endpoint, params)
-        this.setCache(cacheKey, responseData, cacheConfig.ttl)
+        this.setCacheValue(cacheKey, resultData, cacheConfig.ttl)
       }
 
-      return {
-        data: responseData,
-        status: 'success',
-      }
+      return { success: true, data: resultData }
     } catch (error: any) {
-      // Handle AbortError separately
+      // Handle abort errors differently
       if (error.name === 'AbortError') {
         return {
+          success: false,
           error: {
-            status: 499, // Client Closed Request
-            message: 'Request cancelled',
+            message: 'Request was cancelled',
+            status: 499,
           },
-          status: 'error',
         }
       }
 
-      // Handle other errors
-      console.error(`GET request failed for ${endpoint}:`, error)
+      console.error(`Error in GET ${endpoint}:`, error)
       return {
+        success: false,
         error: {
-          status: error.status || 500,
           message: error.message || 'Unknown error occurred',
-          details: error.details,
+          details: error,
         },
-        status: 'error',
       }
     }
-  }
+  },
 
   /**
-   * Perform a POST request
+   * Make a POST request to the API
    */
-  static async post<T = any, U = any>(
+  async post<T = any, U = any>(
     endpoint: string,
     data: T,
     options: {
       requiresAuth?: boolean
       invalidateCache?: string
-      signal?: AbortSignal
       requestId?: string
-      retries?: number
     } = {}
   ): Promise<ApiResponse<U>> {
-    const {
-      requiresAuth = true,
-      invalidateCache,
-      signal,
-      requestId,
-      retries = 1,
-    } = options
+    const { requiresAuth = true, invalidateCache, requestId } = options
 
     try {
-      // Check if auth is required but no token available
+      // Cancel previous request with same ID if it exists
+      if (requestId && pendingRequests[requestId]) {
+        pendingRequests[requestId].abort()
+        delete pendingRequests[requestId]
+      }
+
+      // Create abort controller for this request
+      const controller = new AbortController()
+      if (requestId) {
+        pendingRequests[requestId] = controller
+      }
+
+      // Prepare headers
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      }
+
+      // Add authorization if required
       if (requiresAuth) {
-        const token = await this.getAuthToken()
+        const token = await getAuthToken()
         if (!token) {
+          console.warn('Auth token required but not available for', endpoint)
           return {
+            success: false,
             error: {
-              status: 401,
               message: 'Authentication required',
-              details: { reason: 'No authentication token available' },
+              status: 401,
             },
-            status: 'error',
           }
         }
+        headers['Authorization'] = `Bearer ${token}`
       }
 
-      // Handle cancellation
-      let localController: AbortController | undefined
-      let requestSignal = signal
-
-      if (requestId) {
-        // Cancel previous request with same ID if exists
-        this.cancelRequest(requestId)
-
-        // Create new abort controller
-        localController = new AbortController()
-        pendingRequests[requestId] = localController
-
-        // Use the new abort signal or the one passed in
-        requestSignal = signal || localController.signal
-      }
-
-      const headers = await this.getHeaders(requiresAuth)
+      // Make the request
+      console.log(`Making POST request to ${API_BASE_URL}${endpoint}`)
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: 'POST',
         headers,
         body: JSON.stringify(data),
-        signal: requestSignal,
+        signal: controller.signal,
       })
 
-      // Clean up request from pending list
+      // Clean up request from pending
       if (requestId) {
         delete pendingRequests[requestId]
       }
 
+      // Handle non-ok response
       if (!response.ok) {
-        // If unauthorized and retries left, wait and retry
-        if (response.status === 401 && retries > 0) {
-          await new Promise((resolve) => setTimeout(resolve, 500))
-          return this.post<T, U>(endpoint, data, {
-            ...options,
-            retries: retries - 1,
-          })
+        const errorText = await response.text()
+        let errorData
+        try {
+          errorData = JSON.parse(errorText)
+        } catch (e) {
+          errorData = { message: errorText }
         }
 
-        const errorData = await response.json().catch(() => ({}))
-        throw {
-          status: response.status,
-          message: errorData.message || errorData.detail || response.statusText,
-          details: errorData,
+        return {
+          success: false,
+          error: {
+            message:
+              errorData.message || errorData.error || response.statusText,
+            status: response.status,
+            details: errorData,
+          },
         }
       }
 
+      // Parse response
       const responseData = await response.json()
+
       // Handle standardized API responses with status/data/message pattern
-      const result =
-        responseData.data !== undefined ? responseData.data : responseData
+      let resultData: U
+      if (
+        responseData &&
+        typeof responseData === 'object' &&
+        'data' in responseData
+      ) {
+        resultData = responseData.data
+      } else {
+        resultData = responseData as U
+      }
 
       // Invalidate cache if specified
       if (invalidateCache) {
         this.clearCache(invalidateCache)
       }
 
-      return {
-        data: result,
-        status: 'success',
-      }
+      return { success: true, data: resultData }
     } catch (error: any) {
-      // Handle AbortError separately
+      // Handle abort errors differently
       if (error.name === 'AbortError') {
         return {
+          success: false,
           error: {
-            status: 499, // Client Closed Request
-            message: 'Request cancelled',
+            message: 'Request was cancelled',
+            status: 499,
           },
-          status: 'error',
         }
       }
 
-      // Handle other errors
-      console.error(`POST request failed for ${endpoint}:`, error)
+      console.error(`Error in POST ${endpoint}:`, error)
       return {
+        success: false,
         error: {
-          status: error.status || 500,
           message: error.message || 'Unknown error occurred',
-          details: error.details,
+          details: error,
         },
-        status: 'error',
       }
     }
-  }
+  },
 
   /**
-   * Perform a PUT request
+   * Make a PUT request to the API
    */
-  static async put<T = any, U = any>(
+  async put<T = any, U = any>(
     endpoint: string,
     data: T,
     options: {
       requiresAuth?: boolean
       invalidateCache?: string
-      signal?: AbortSignal
       requestId?: string
-      retries?: number
     } = {}
   ): Promise<ApiResponse<U>> {
-    const {
-      requiresAuth = true,
-      invalidateCache,
-      signal,
-      requestId,
-      retries = 1,
-    } = options
+    const { requiresAuth = true, invalidateCache, requestId } = options
 
     try {
-      // Check if auth is required but no token available
+      // Cancel previous request with same ID if it exists
+      if (requestId && pendingRequests[requestId]) {
+        pendingRequests[requestId].abort()
+        delete pendingRequests[requestId]
+      }
+
+      // Create abort controller for this request
+      const controller = new AbortController()
+      if (requestId) {
+        pendingRequests[requestId] = controller
+      }
+
+      // Prepare headers
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      }
+
+      // Add authorization if required
       if (requiresAuth) {
-        const token = await this.getAuthToken()
+        const token = await getAuthToken()
         if (!token) {
+          console.warn('Auth token required but not available for', endpoint)
           return {
+            success: false,
             error: {
-              status: 401,
               message: 'Authentication required',
-              details: { reason: 'No authentication token available' },
+              status: 401,
             },
-            status: 'error',
           }
         }
+        headers['Authorization'] = `Bearer ${token}`
       }
 
-      // Handle cancellation
-      let localController: AbortController | undefined
-      let requestSignal = signal
-
-      if (requestId) {
-        this.cancelRequest(requestId)
-        localController = new AbortController()
-        pendingRequests[requestId] = localController
-        requestSignal = signal || localController.signal
-      }
-
-      const headers = await this.getHeaders(requiresAuth)
+      // Make the request
+      console.log(`Making PUT request to ${API_BASE_URL}${endpoint}`)
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: 'PUT',
         headers,
         body: JSON.stringify(data),
-        signal: requestSignal,
+        signal: controller.signal,
       })
 
+      // Clean up request from pending
       if (requestId) {
         delete pendingRequests[requestId]
       }
 
+      // Handle non-ok response
       if (!response.ok) {
-        // If unauthorized and retries left, wait and retry
-        if (response.status === 401 && retries > 0) {
-          await new Promise((resolve) => setTimeout(resolve, 500))
-          return this.put<T, U>(endpoint, data, {
-            ...options,
-            retries: retries - 1,
-          })
+        const errorText = await response.text()
+        let errorData
+        try {
+          errorData = JSON.parse(errorText)
+        } catch (e) {
+          errorData = { message: errorText }
         }
 
-        const errorData = await response.json().catch(() => ({}))
-        throw {
-          status: response.status,
-          message: errorData.message || errorData.detail || response.statusText,
-          details: errorData,
+        return {
+          success: false,
+          error: {
+            message:
+              errorData.message || errorData.error || response.statusText,
+            status: response.status,
+            details: errorData,
+          },
         }
       }
 
+      // Parse response
       const responseData = await response.json()
-      // Handle standardized API responses with status/data/message pattern
-      const result =
-        responseData.data !== undefined ? responseData.data : responseData
 
+      // Handle standardized API responses with status/data/message pattern
+      let resultData: U
+      if (
+        responseData &&
+        typeof responseData === 'object' &&
+        'data' in responseData
+      ) {
+        resultData = responseData.data
+      } else {
+        resultData = responseData as U
+      }
+
+      // Invalidate cache if specified
       if (invalidateCache) {
         this.clearCache(invalidateCache)
       }
 
-      return {
-        data: result,
-        status: 'success',
-      }
+      return { success: true, data: resultData }
     } catch (error: any) {
+      // Handle abort errors differently
       if (error.name === 'AbortError') {
         return {
+          success: false,
           error: {
+            message: 'Request was cancelled',
             status: 499,
-            message: 'Request cancelled',
           },
-          status: 'error',
         }
       }
 
-      console.error(`PUT request failed for ${endpoint}:`, error)
+      console.error(`Error in PUT ${endpoint}:`, error)
       return {
+        success: false,
         error: {
-          status: error.status || 500,
           message: error.message || 'Unknown error occurred',
-          details: error.details,
+          details: error,
         },
-        status: 'error',
       }
     }
-  }
+  },
 
   /**
-   * Perform a DELETE request
+   * Make a DELETE request to the API
    */
-  static async delete<T>(
+  async delete<T = any>(
     endpoint: string,
     options: {
       requiresAuth?: boolean
       invalidateCache?: string
-      signal?: AbortSignal
       requestId?: string
-      retries?: number
     } = {}
   ): Promise<ApiResponse<T>> {
-    const {
-      requiresAuth = true,
-      invalidateCache,
-      signal,
-      requestId,
-      retries = 1,
-    } = options
+    const { requiresAuth = true, invalidateCache, requestId } = options
 
     try {
-      // Check if auth is required but no token available
+      // Cancel previous request with same ID if it exists
+      if (requestId && pendingRequests[requestId]) {
+        pendingRequests[requestId].abort()
+        delete pendingRequests[requestId]
+      }
+
+      // Create abort controller for this request
+      const controller = new AbortController()
+      if (requestId) {
+        pendingRequests[requestId] = controller
+      }
+
+      // Prepare headers
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      }
+
+      // Add authorization if required
       if (requiresAuth) {
-        const token = await this.getAuthToken()
+        const token = await getAuthToken()
         if (!token) {
+          console.warn('Auth token required but not available for', endpoint)
           return {
+            success: false,
             error: {
-              status: 401,
               message: 'Authentication required',
-              details: { reason: 'No authentication token available' },
+              status: 401,
             },
-            status: 'error',
           }
         }
+        headers['Authorization'] = `Bearer ${token}`
       }
 
-      // Handle cancellation
-      let localController: AbortController | undefined
-      let requestSignal = signal
-
-      if (requestId) {
-        this.cancelRequest(requestId)
-        localController = new AbortController()
-        pendingRequests[requestId] = localController
-        requestSignal = signal || localController.signal
-      }
-
-      const headers = await this.getHeaders(requiresAuth)
+      // Make the request
+      console.log(`Making DELETE request to ${API_BASE_URL}${endpoint}`)
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: 'DELETE',
         headers,
-        signal: requestSignal,
+        signal: controller.signal,
       })
 
+      // Clean up request from pending
       if (requestId) {
         delete pendingRequests[requestId]
       }
 
+      // Handle non-ok response
       if (!response.ok) {
-        // If unauthorized and retries left, wait and retry
-        if (response.status === 401 && retries > 0) {
-          await new Promise((resolve) => setTimeout(resolve, 500))
-          return this.delete<T>(endpoint, { ...options, retries: retries - 1 })
+        const errorText = await response.text()
+        let errorData
+        try {
+          errorData = JSON.parse(errorText)
+        } catch (e) {
+          errorData = { message: errorText }
         }
 
-        const errorData = await response.json().catch(() => ({}))
-        throw {
-          status: response.status,
-          message: errorData.message || errorData.detail || response.statusText,
-          details: errorData,
+        return {
+          success: false,
+          error: {
+            message:
+              errorData.message || errorData.error || response.statusText,
+            status: response.status,
+            details: errorData,
+          },
         }
       }
 
+      // Parse response
       const responseData = await response.json()
-      // Handle standardized API responses with status/data/message pattern
-      const result =
-        responseData.data !== undefined ? responseData.data : responseData
 
+      // Handle standardized API responses with status/data/message pattern
+      let resultData: T
+      if (
+        responseData &&
+        typeof responseData === 'object' &&
+        'data' in responseData
+      ) {
+        resultData = responseData.data
+      } else {
+        resultData = responseData as T
+      }
+
+      // Invalidate cache if specified
       if (invalidateCache) {
         this.clearCache(invalidateCache)
       }
 
-      return {
-        data: result,
-        status: 'success',
-      }
+      return { success: true, data: resultData }
     } catch (error: any) {
+      // Handle abort errors differently
       if (error.name === 'AbortError') {
         return {
+          success: false,
           error: {
+            message: 'Request was cancelled',
             status: 499,
-            message: 'Request cancelled',
           },
-          status: 'error',
         }
       }
 
-      console.error(`DELETE request failed for ${endpoint}:`, error)
+      console.error(`Error in DELETE ${endpoint}:`, error)
       return {
+        success: false,
         error: {
-          status: error.status || 500,
           message: error.message || 'Unknown error occurred',
-          details: error.details,
+          details: error,
         },
-        status: 'error',
       }
     }
-  }
+  },
 
   /**
-   * Cancel a pending request by ID
+   * Cancel a request by ID
    */
-  static cancelRequest(requestId: string): void {
-    const controller = pendingRequests[requestId]
-    if (controller) {
-      controller.abort()
+  cancelRequest(requestId: string): void {
+    if (pendingRequests[requestId]) {
+      pendingRequests[requestId].abort()
       delete pendingRequests[requestId]
     }
-  }
+  },
 
   /**
    * Cancel all pending requests
    */
-  static cancelAllRequests(): void {
+  cancelAllRequests(): void {
     Object.values(pendingRequests).forEach((controller) => {
       controller.abort()
     })
     Object.keys(pendingRequests).forEach((key) => {
       delete pendingRequests[key]
     })
-  }
-
-  /**
-   * Invalidate specific cache entries
-   */
-  static invalidateCache(pattern: string): void {
-    this.clearCache(pattern)
-  }
-
-  /**
-   * Clear all API cache
-   */
-  static clearAllCache(): void {
-    this.clearCache()
-  }
+  },
 }

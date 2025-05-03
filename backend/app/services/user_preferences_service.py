@@ -45,7 +45,7 @@ class UserPreferencesService:
                 "language_preference, currency_preference, country_preference, theme_preference"
             ).eq("id", user_id).execute()
 
-            if response.error:
+            if hasattr(response, 'error') and response.error:
                 logger.error(f"Error fetching user preferences: {response.error.message}")
                 return {
                     "language": UserPreferencesService.DEFAULT_LANGUAGE,
@@ -70,7 +70,7 @@ class UserPreferencesService:
 
                 create_response = supabase.table("profiles").insert(default_profile).execute()
 
-                if create_response.error:
+                if hasattr(create_response, 'error') and create_response.error:
                     logger.error(f"Error creating default profile: {create_response.error.message}")
                     return {
                         "language": UserPreferencesService.DEFAULT_LANGUAGE,
@@ -162,7 +162,7 @@ class UserPreferencesService:
             # First check if profile exists
             profile_check = supabase.table("profiles").select("id").eq("id", user_id).execute()
 
-            if profile_check.error:
+            if hasattr(profile_check, 'error') and profile_check.error:
                 logger.error(f"Error checking if profile exists: {profile_check.error.message}")
                 return {
                     "success": False,
@@ -184,7 +184,7 @@ class UserPreferencesService:
 
                 insert_response = supabase.table("profiles").insert(profile_data).execute()
 
-                if insert_response.error:
+                if hasattr(insert_response, 'error') and insert_response.error:
                     logger.error(f"Error creating profile: {insert_response.error.message}")
                     return {
                         "success": False,
@@ -207,7 +207,7 @@ class UserPreferencesService:
             logger.info(f"Updating existing profile for user {user_id} with data: {update_data}")
             response = supabase.table("profiles").update(update_data).eq("id", user_id).execute()
 
-            if response.error:
+            if hasattr(response, 'error') and response.error:
                 logger.error(f"Error updating user preferences: {response.error.message}")
                 return {
                     "success": False,

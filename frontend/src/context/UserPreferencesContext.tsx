@@ -18,7 +18,7 @@ import {
   defaultCurrency,
   defaultCountry,
 } from '@/i18n/config'
-import { createClient } from '@/lib/supabase-browser'
+import { ApiClient } from '@/services/ApiClient'
 import toast from 'react-hot-toast'
 
 interface UserPreferences {
@@ -75,7 +75,7 @@ export const UserPreferencesProvider = ({
 
       setLoading(true)
       apiCallInProgress.current = true
-      console.log('Loading preferences...')
+      console.log('Loading user preferences...')
 
       try {
         // Try to load from local storage first
@@ -124,6 +124,51 @@ export const UserPreferencesProvider = ({
           }
 
           prefsLoaded = true
+        } else if (isAuthenticated && user && !profile) {
+          // If authenticated but no profile in context, try to fetch from the server
+          console.log('No profile in context, fetching from server...')
+          try {
+            const response = await ApiClient.get(
+              `/api/user/${user.id}/preferences`,
+              {
+                requestId: 'fetch-preferences',
+              }
+            )
+
+            if (response.success && response.data) {
+              console.log(
+                'Successfully fetched preferences from server:',
+                response.data
+              )
+              const serverPrefs: UserPreferences = {
+                language: (response.data.language as Locale) || defaultLocale,
+                currency:
+                  (response.data.currency as Currency) || defaultCurrency,
+                country: (response.data.country as Country) || defaultCountry,
+                theme: response.data.theme || 'light',
+              }
+
+              setPreferences(serverPrefs)
+
+              try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(serverPrefs))
+              } catch (storageError) {
+                console.error(
+                  'Error saving server preferences to localStorage:',
+                  storageError
+                )
+              }
+
+              prefsLoaded = true
+            } else {
+              console.log(
+                'Failed to fetch preferences from server:',
+                response.error
+              )
+            }
+          } catch (error) {
+            console.error('Error fetching preferences from server:', error)
+          }
         }
 
         // If we couldn't load preferences from anywhere, set defaults
@@ -162,62 +207,6 @@ export const UserPreferencesProvider = ({
     }
   }, [user, isAuthenticated, authLoading, profile])
 
-  // Helper function to get auth token
-  const getAuthToken = async (): Promise<string | null> => {
-    try {
-      const supabase = createClient()
-      const { data } = await supabase.auth.getSession()
-      return data.session?.access_token || null
-    } catch (error) {
-      console.error('Error getting auth token:', error)
-      return null
-    }
-  }
-
-  // Make direct API call to update preferences
-  const updatePreferencesViaApi = async (
-    updatedPrefs: Record<string, any>
-  ): Promise<boolean> => {
-    if (!isAuthenticated || !user) {
-      console.log('Not authenticated, skipping API call')
-      return false
-    }
-
-    console.log('Updating preferences via API:', updatedPrefs)
-    try {
-      const token = await getAuthToken()
-      if (!token) {
-        console.error('No auth token available')
-        return false
-      }
-
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/api/user/${user.id}/preferences`,
-        {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(updatedPrefs),
-        }
-      )
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error('Error response from API:', errorText)
-        return false
-      }
-
-      const result = await response.json()
-      console.log('API response:', result)
-      return result.status === 'success'
-    } catch (error) {
-      console.error('Error updating preferences via API:', error)
-      return false
-    }
-  }
-
   // Update functions for individual preferences
   const setLanguage = async (language: Locale) => {
     if (preferences.language === language) return
@@ -234,17 +223,29 @@ export const UserPreferencesProvider = ({
     }
 
     // Update backend if authenticated
-    if (isAuthenticated) {
+    if (isAuthenticated && user) {
       setLoading(true)
-      const success = await updatePreferencesViaApi({ language })
-      setLoading(false)
+      try {
+        const response = await ApiClient.put(
+          `/api/user/${user.id}/preferences`,
+          { language },
+          { requestId: 'update-language' }
+        )
 
-      if (success) {
-        toast.success(`Language changed to ${language}`)
-      } else {
+        if (!response.success) {
+          console.error('Error updating language preference:', response.error)
+          toast.error('Failed to update language preference')
+        } else {
+          toast.success(`Language changed to ${language}`)
+        }
+      } catch (error) {
+        console.error('Error updating language preference:', error)
         toast.error('Failed to update language preference')
-        // Don't revert the UI state since the local storage was updated
+      } finally {
+        setLoading(false)
       }
+    } else {
+      toast.success(`Language changed to ${language}`)
     }
   }
 
@@ -263,16 +264,29 @@ export const UserPreferencesProvider = ({
     }
 
     // Update backend if authenticated
-    if (isAuthenticated) {
+    if (isAuthenticated && user) {
       setLoading(true)
-      const success = await updatePreferencesViaApi({ currency })
-      setLoading(false)
+      try {
+        const response = await ApiClient.put(
+          `/api/user/${user.id}/preferences`,
+          { currency },
+          { requestId: 'update-currency' }
+        )
 
-      if (success) {
-        toast.success(`Currency changed to ${currency}`)
-      } else {
+        if (!response.success) {
+          console.error('Error updating currency preference:', response.error)
+          toast.error('Failed to update currency preference')
+        } else {
+          toast.success(`Currency changed to ${currency}`)
+        }
+      } catch (error) {
+        console.error('Error updating currency preference:', error)
         toast.error('Failed to update currency preference')
+      } finally {
+        setLoading(false)
       }
+    } else {
+      toast.success(`Currency changed to ${currency}`)
     }
   }
 
@@ -291,16 +305,29 @@ export const UserPreferencesProvider = ({
     }
 
     // Update backend if authenticated
-    if (isAuthenticated) {
+    if (isAuthenticated && user) {
       setLoading(true)
-      const success = await updatePreferencesViaApi({ country })
-      setLoading(false)
+      try {
+        const response = await ApiClient.put(
+          `/api/user/${user.id}/preferences`,
+          { country },
+          { requestId: 'update-country' }
+        )
 
-      if (success) {
-        toast.success(`Country changed to ${country}`)
-      } else {
+        if (!response.success) {
+          console.error('Error updating country preference:', response.error)
+          toast.error('Failed to update country preference')
+        } else {
+          toast.success(`Country changed to ${country}`)
+        }
+      } catch (error) {
+        console.error('Error updating country preference:', error)
         toast.error('Failed to update country preference')
+      } finally {
+        setLoading(false)
       }
+    } else {
+      toast.success(`Country changed to ${country}`)
     }
   }
 
@@ -319,13 +346,24 @@ export const UserPreferencesProvider = ({
     }
 
     // Update backend if authenticated
-    if (isAuthenticated) {
+    if (isAuthenticated && user) {
       setLoading(true)
-      const success = await updatePreferencesViaApi({ theme })
-      setLoading(false)
+      try {
+        const response = await ApiClient.put(
+          `/api/user/${user.id}/preferences`,
+          { theme },
+          { requestId: 'update-theme' }
+        )
 
-      if (!success) {
+        if (!response.success) {
+          console.error('Error updating theme preference:', response.error)
+          toast.error('Failed to update theme preference')
+        }
+      } catch (error) {
+        console.error('Error updating theme preference:', error)
         toast.error('Failed to update theme preference')
+      } finally {
+        setLoading(false)
       }
     }
   }
