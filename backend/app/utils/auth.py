@@ -40,6 +40,7 @@ async def verify_token(authorization: Optional[str] = Header(None)):
         # Verify token with Supabase (with retry logic for potential intermittent issues)
         max_retries = 3
         retry_delay = 0.5  # seconds
+        last_error = None
 
         for attempt in range(max_retries):
             try:
@@ -50,6 +51,7 @@ async def verify_token(authorization: Optional[str] = Header(None)):
                 user_data = supabase.auth.get_user(token)
 
                 if user_data.error:
+                    last_error = user_data.error
                     if attempt < max_retries - 1:
                         time.sleep(retry_delay)
                         retry_delay *= 2  # Exponential backoff
@@ -73,6 +75,7 @@ async def verify_token(authorization: Optional[str] = Header(None)):
                 # Re-raise HTTP exceptions
                 raise
             except Exception as e:
+                last_error = e
                 if attempt < max_retries - 1:
                     time.sleep(retry_delay)
                     retry_delay *= 2  # Exponential backoff
@@ -82,6 +85,13 @@ async def verify_token(authorization: Optional[str] = Header(None)):
                     detail=f"Authentication error: {str(e)}",
                     headers={"WWW-Authenticate": "Bearer"},
                 )
+
+        # If we reach here, all retries failed
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Authentication failed after {max_retries} attempts: {str(last_error)}",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     except HTTPException:
         # Re-raise HTTP exceptions

@@ -10,8 +10,7 @@ import React, {
 import { createClient } from '@/lib/supabase-browser'
 import { User } from '@supabase/supabase-js'
 import toast from 'react-hot-toast'
-import { apiClient } from '@/services/api'
-import { UserPreferencesService } from '@/services/UserPreferencesService'
+import { ApiClient } from '@/services/ApiClient'
 
 // Define types for the context and state
 interface AuthContextType {
@@ -34,6 +33,10 @@ interface UserProfile {
   name?: string
   avatar_url?: string
   created_at?: string
+  language_preference?: string
+  currency_preference?: string
+  country_preference?: string
+  theme_preference?: string
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -172,55 +175,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [])
 
-  useEffect(() => {
-    const fetchUserPreferences = async () => {
-      if (!user) {
-        return
-      }
-
-      try {
-        const response = await apiClient.get(`/api/user/${user.id}/preferences`)
-
-        if (response.success && response.data) {
-          const preferences = response.data.data || {}
-
-          // Update locale state if language preference exists
-          if (
-            preferences.language &&
-            Object.keys(languages).includes(preferences.language)
-          ) {
-            setLocaleState(preferences.language as Locale)
-            localStorage.setItem('locale', preferences.language)
-          }
-
-          // Update currency state if currency preference exists
-          if (
-            preferences.currency &&
-            Object.keys(currencyConfig).includes(preferences.currency)
-          ) {
-            setCurrencyState(preferences.currency as Currency)
-            localStorage.setItem('currency', preferences.currency)
-          }
-
-          // Update country state if country preference exists
-          if (
-            preferences.country &&
-            Object.keys(countryConfig).includes(preferences.country)
-          ) {
-            setCountryState(preferences.country as Country)
-            localStorage.setItem('country', preferences.country)
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching user preferences:', error)
-      }
-    }
-
-    if (isAuthenticated) {
-      fetchUserPreferences()
-    }
-  }, [user, isAuthenticated])
-
   // Login function
   const login = async (email: string, password: string) => {
     try {
@@ -282,10 +236,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       localStorage.removeItem('currency')
       localStorage.removeItem('country')
 
-      // Clear any API client cache or tokens
-      if (typeof window !== 'undefined' && window.ApiClient) {
-        window.ApiClient.clearAllCache?.()
-      }
+      // Clear any API client cache
+      ApiClient.clearAllCache?.()
 
       toast.success('Logged out successfully')
 

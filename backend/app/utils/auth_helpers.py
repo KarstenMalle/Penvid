@@ -20,7 +20,7 @@ async def verify_supabase_token(token: str) -> Dict[str, Any]:
         HTTPException: If token is invalid
     """
     if not token:
-        logger.error("No token provided")
+        logger.error("No token provided to verify_supabase_token")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication token required",
@@ -30,6 +30,7 @@ async def verify_supabase_token(token: str) -> Dict[str, Any]:
     try:
         # Get Supabase client
         supabase = get_supabase_client()
+        logger.debug(f"Verifying token: {token[:10]}...")
 
         # Verify token
         response = supabase.auth.get_user(token)
@@ -50,10 +51,14 @@ async def verify_supabase_token(token: str) -> Dict[str, Any]:
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
+        logger.debug(f"Token successfully verified for user {response.user.id}")
         return response.user
 
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
-        logger.error(f"Error verifying token: {str(e)}")
+        logger.exception(f"Error verifying token: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Error verifying token: {str(e)}",

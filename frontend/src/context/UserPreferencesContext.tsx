@@ -82,9 +82,17 @@ export const UserPreferencesProvider = ({
         const storedPrefs = localStorage.getItem(STORAGE_KEY)
         if (storedPrefs) {
           console.log('Loading preferences from local storage')
-          const localPrefs = JSON.parse(storedPrefs)
-          setPreferences(localPrefs)
-          setInitialized(true)
+          try {
+            const localPrefs = JSON.parse(storedPrefs)
+            setPreferences(localPrefs)
+            setInitialized(true)
+          } catch (parseError) {
+            console.error(
+              'Error parsing preferences from local storage:',
+              parseError
+            )
+            // Continue to try profile preferences even if local storage fails
+          }
         }
 
         // If authenticated and we have a profile, use profile preferences
@@ -102,7 +110,16 @@ export const UserPreferencesProvider = ({
 
           // Update state and local storage
           setPreferences(profilePrefs)
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(profilePrefs))
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(profilePrefs))
+          } catch (storageError) {
+            console.error(
+              'Error saving preferences to local storage:',
+              storageError
+            )
+            // Continue anyway, as state is still updated
+          }
+
           setInitialized(true)
           preferencesUpdated.current = true
         }
@@ -112,7 +129,17 @@ export const UserPreferencesProvider = ({
         // initialize with defaults
         if (!initialized) {
           setPreferences(defaultPreferences)
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(defaultPreferences))
+          try {
+            localStorage.setItem(
+              STORAGE_KEY,
+              JSON.stringify(defaultPreferences)
+            )
+          } catch (storageError) {
+            console.error(
+              'Error saving default preferences to local storage:',
+              storageError
+            )
+          }
           setInitialized(true)
         }
       } finally {

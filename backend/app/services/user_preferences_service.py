@@ -27,6 +27,15 @@ class UserPreferencesService:
         Returns:
             Dictionary with language, currency, country and theme preferences
         """
+        if not user_id:
+            logger.error("No user_id provided to get_user_preferences")
+            return {
+                "language": UserPreferencesService.DEFAULT_LANGUAGE,
+                "currency": UserPreferencesService.DEFAULT_CURRENCY,
+                "country": UserPreferencesService.DEFAULT_COUNTRY,
+                "theme": UserPreferencesService.DEFAULT_THEME
+            }
+
         try:
             supabase = get_supabase_client()
 
@@ -87,23 +96,38 @@ class UserPreferencesService:
         Returns:
             Dictionary with success status and updated preferences
         """
+        if not user_id:
+            logger.error("No user_id provided to update_user_preferences")
+            return {
+                "success": False,
+                "message": "User ID is required to update preferences"
+            }
+
         try:
             supabase = get_supabase_client()
 
             # Prepare data for update
             update_data = {}
 
-            if "language" in preferences:
+            if "language" in preferences and preferences["language"]:
                 update_data["language_preference"] = preferences["language"]
 
-            if "currency" in preferences:
+            if "currency" in preferences and preferences["currency"]:
                 update_data["currency_preference"] = preferences["currency"]
 
-            if "country" in preferences:
+            if "country" in preferences and preferences["country"]:
                 update_data["country_preference"] = preferences["country"]
 
-            if "theme" in preferences:
+            if "theme" in preferences and preferences["theme"]:
                 update_data["theme_preference"] = preferences["theme"]
+
+            # If no valid fields to update, return early
+            if not update_data:
+                logger.warning(f"No valid preferences to update for user {user_id}")
+                return {
+                    "success": False,
+                    "message": "No valid preferences provided for update"
+                }
 
             # Add updated_at timestamp
             update_data["updated_at"] = "now()"

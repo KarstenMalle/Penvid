@@ -113,34 +113,68 @@ export function LocalizationProvider({ children }: { children: ReactNode }) {
         !profileLoaded.current
       ) {
         console.log('Loading preferences from profile:', profile)
+        let prefsChanged = false
 
-        // Get language preference from profile
-        if (profile.language_preference) {
-          const profileLocale = profile.language_preference as Locale
-          setLocaleState(profileLocale)
-          localStorage.setItem('locale', profileLocale)
+        try {
+          // Get language preference from profile
+          if (profile.language_preference) {
+            const profileLocale = profile.language_preference as Locale
+            if (
+              profileLocale &&
+              Object.keys(languages).includes(profileLocale)
+            ) {
+              setLocaleState(profileLocale)
+              localStorage.setItem('locale', profileLocale)
+              prefsChanged = true
+            }
+          }
+
+          // Get currency preference from profile
+          if (profile.currency_preference) {
+            const profileCurrency = profile.currency_preference as Currency
+            if (
+              profileCurrency &&
+              Object.keys(currencyConfig).includes(profileCurrency)
+            ) {
+              setCurrencyState(profileCurrency)
+              localStorage.setItem('currency', profileCurrency)
+              prefsChanged = true
+            }
+          }
+
+          // Get country preference from profile
+          if (profile.country_preference) {
+            const profileCountry = profile.country_preference as Country
+            if (
+              profileCountry &&
+              Object.keys(countryConfig).includes(profileCountry)
+            ) {
+              setCountryState(profileCountry)
+              localStorage.setItem('country', profileCountry)
+              prefsChanged = true
+            }
+          }
+
+          if (prefsChanged) {
+            console.log('Preferences updated from profile')
+          }
+
+          profileLoaded.current = true
+        } catch (error) {
+          console.error('Error loading preferences from profile:', error)
         }
-
-        // Get currency preference from profile
-        if (profile.currency_preference) {
-          const profileCurrency = profile.currency_preference as Currency
-          setCurrencyState(profileCurrency)
-          localStorage.setItem('currency', profileCurrency)
-        }
-
-        // Get country preference from profile
-        if (profile.country_preference) {
-          const profileCountry = profile.country_preference as Country
-          setCountryState(profileCountry)
-          localStorage.setItem('country', profileCountry)
-        }
-
-        profileLoaded.current = true
       }
     }
 
     loadPreferencesFromProfile()
-  }, [isAuthenticated, authLoading, profile])
+  }, [
+    isAuthenticated,
+    authLoading,
+    profile,
+    languages,
+    currencyConfig,
+    countryConfig,
+  ])
 
   // Load translations when locale changes
   const loadTranslations = useCallback(async (currentLocale: Locale) => {
