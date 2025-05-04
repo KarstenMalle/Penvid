@@ -11,6 +11,7 @@ import React, {
   ReactNode,
 } from 'react'
 import { useAuth } from '@/context/AuthContext'
+import { createClient } from '@/lib/supabase-browser'
 
 // Types
 export type Locale = 'en' | 'da'
@@ -21,6 +22,7 @@ interface LanguageInfo {
   name: string
   native_name: string
   flag: string
+  displayName: string
 }
 
 interface CurrencyInfo {
@@ -69,7 +71,23 @@ interface LocalizationContextType {
   error: string | null
 }
 
-// Define available currencies and countries
+// Initial language data structure (used only until API data is available)
+const INITIAL_LANGUAGES: Record<Locale, LanguageInfo> = {
+  en: {
+    name: 'English',
+    native_name: 'English',
+    flag: '🇺🇸',
+    displayName: 'English',
+  },
+  da: {
+    name: 'Danish',
+    native_name: 'Dansk',
+    flag: '🇩🇰',
+    displayName: 'Dansk',
+  },
+}
+
+// Initial currency data structure
 const CURRENCIES: Record<Currency, CurrencyInfo> = {
   USD: { name: 'US Dollar', displayName: 'USD', flag: '🇺🇸', symbol: '$' },
   DKK: { name: 'Danish Krone', displayName: 'DKK', flag: '🇩🇰', symbol: 'kr' },
@@ -123,19 +141,10 @@ const CACHE_DURATION = {
 }
 
 // API request timeout (in milliseconds)
-const API_TIMEOUT = 5000
+const API_TIMEOUT = 8000 // Increased timeout for slower connections
 
 // API base URL
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
-
-// Default translations
-const DEFAULT_TRANSLATIONS: Record<string, any> = {
-  common: {
-    loading: 'Loading...',
-    error: 'Error occurred',
-    retry: 'Retry',
-  },
-}
 
 // Create provider component
 export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
@@ -144,16 +153,15 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
   const [currency, setCurrencyState] = useState<Currency>('DKK')
   const [country, setCountryState] = useState<Country>('DK')
   const [theme, setThemeState] = useState('system')
-  const [translations, setTranslations] =
-    useState<Record<string, any>>(DEFAULT_TRANSLATIONS)
-  const [languages, setLanguages] = useState<Record<Locale, LanguageInfo>>(
-    {} as any
-  )
+  const [translations, setTranslations] = useState<Record<string, any>>({})
+  const [languages, setLanguages] =
+    useState<Record<Locale, LanguageInfo>>(INITIAL_LANGUAGES)
   const [exchangeRates, setExchangeRates] = useState<
     Record<Currency, Record<Currency, number>>
-  >({} as any)
+  >({} as Record<Currency, Record<Currency, number>>)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const supabase = createClient()
 
   // Function to load cached data from localStorage
   const loadFromCache = useCallback(
@@ -233,6 +241,7 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
               name: locale.name,
               native_name: locale.native_name,
               flag: locale.flag,
+              displayName: locale.name,
             }
           }
         })
@@ -248,25 +257,10 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
         return languagesMap
       }
 
-      // Use default languages if API fails
-      const defaultLanguages: Record<Locale, LanguageInfo> = {
-        en: { name: 'English', native_name: 'English', flag: '🇺🇸' },
-        da: { name: 'Danish', native_name: 'Dansk', flag: '🇩🇰' },
-      }
-
-      setLanguages(defaultLanguages)
-      return defaultLanguages
+      throw new Error('Locales data not found in response')
     } catch (error: any) {
       console.error(`Error fetching languages:`, error)
-
-      // Use default languages if API fails
-      const defaultLanguages: Record<Locale, LanguageInfo> = {
-        en: { name: 'English', native_name: 'English', flag: '🇺🇸' },
-        da: { name: 'Danish', native_name: 'Dansk', flag: '🇩🇰' },
-      }
-
-      setLanguages(defaultLanguages)
-      return defaultLanguages
+      throw error
     }
   }, [loadFromCache, saveToCache])
 
@@ -282,7 +276,7 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
 
       if (cachedTranslations) {
         setTranslations(cachedTranslations)
-        return
+        return cachedTranslations
       }
 
       // If not in cache, fetch from API with timeout
@@ -315,17 +309,16 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
             `${STORAGE_KEYS.TRANSLATIONS_TIMESTAMP}_${selectedLocale}`,
             data.data.translations
           )
-        } else {
-          // Use default translations if API fails
-          setTranslations(DEFAULT_TRANSLATIONS)
+          return data.data.translations
         }
+
+        throw new Error('Translations data not found in response')
       } catch (error: any) {
         console.error(
           `Error fetching translations for ${selectedLocale}:`,
           error
         )
-        // Use default translations if API fails
-        setTranslations(DEFAULT_TRANSLATIONS)
+        throw error
       }
     },
     [loadFromCache, saveToCache]
@@ -342,7 +335,7 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
 
     if (cachedRates) {
       setExchangeRates(cachedRates)
-      return
+      return cachedRates
     }
 
     // If not in cache, fetch from API with timeout
@@ -372,26 +365,24 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
           STORAGE_KEYS.EXCHANGE_RATES_TIMESTAMP,
           data.data.rates
         )
-      } else {
-        // Use fallback rates if API fails
-        const fallbackRates = {
-          USD: { DKK: 6.9, EUR: 0.92 },
-          DKK: { USD: 0.145, EUR: 0.134 },
-          EUR: { USD: 1.09, DKK: 7.45 },
-        }
-        setExchangeRates(fallbackRates as any)
+        return data.data.rates
       }
+
+      throw new Error('Exchange rates data not found in response')
     } catch (error: any) {
       console.error('Error fetching exchange rates:', error)
-      // Use fallback rates if API fails
-      const fallbackRates = {
-        USD: { DKK: 6.9, EUR: 0.92 },
-        DKK: { USD: 0.145, EUR: 0.134 },
-        EUR: { USD: 1.09, DKK: 7.45 },
-      }
-      setExchangeRates(fallbackRates as any)
+      throw error
     }
   }, [loadFromCache, saveToCache])
+
+  // Get auth token (helper function)
+  const getAuthToken = async () => {
+    const { data } = await supabase.auth.getSession()
+    if (!data.session) {
+      throw new Error('No authentication session available')
+    }
+    return data.session.access_token
+  }
 
   // Fetch initial data - languages and exchange rates
   useEffect(() => {
@@ -400,11 +391,28 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
       setError(null)
 
       try {
-        // Fetch languages first
-        await fetchLanguages()
+        // First attempt to fetch languages
+        try {
+          await fetchLanguages()
+        } catch (error) {
+          console.error('Error fetching languages:', error)
+        }
 
-        // Fetch exchange rates
-        await fetchExchangeRates()
+        // Then attempt to fetch exchange rates
+        try {
+          await fetchExchangeRates()
+        } catch (error) {
+          console.error('Error fetching exchange rates:', error)
+        }
+
+        // Load a default language if nothing else is available
+        if (Object.keys(translations).length === 0) {
+          try {
+            await fetchTranslations('en')
+          } catch (error) {
+            console.error('Error fetching default translations:', error)
+          }
+        }
       } catch (error) {
         console.error('Error initializing data:', error)
         setError('Failed to initialize data')
@@ -414,15 +422,19 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
     }
 
     initializeData()
-  }, [fetchLanguages, fetchExchangeRates])
+  }, [fetchLanguages, fetchExchangeRates, fetchTranslations, translations])
 
   // Fetch user preferences - only done once at login
   useEffect(() => {
     const fetchUserPreferences = async () => {
       // Only fetch if user is authenticated
       if (!isAuthenticated || !user) {
-        // Load default translations for non-authenticated users
-        await fetchTranslations('en')
+        // Just fetch the English translations if the user isn't authenticated
+        try {
+          await fetchTranslations('en')
+        } catch (error) {
+          console.error('Error fetching default translations:', error)
+        }
         setLoading(false)
         return
       }
@@ -431,13 +443,16 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
         setLoading(true)
         setError(null)
 
-        // Setup API timeout
+        // Get the access token
+        const token = await getAuthToken()
+
+        // Set up API timeout
         const controller = new AbortController()
         const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT)
 
         const response = await fetch(`${API_URL}/preferences`, {
           headers: {
-            Authorization: `Bearer ${await user.getIdToken()}`,
+            Authorization: `Bearer ${token}`,
           },
           signal: controller.signal,
         })
@@ -488,8 +503,15 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
         console.error('Error fetching user preferences:', error)
         setError('Failed to load user preferences')
 
-        // Use defaults
-        await fetchTranslations('en')
+        // Try to fetch the default translations
+        try {
+          await fetchTranslations('en')
+        } catch (translationError) {
+          console.error(
+            'Error fetching default translations:',
+            translationError
+          )
+        }
       } finally {
         setLoading(false)
       }
@@ -512,6 +534,9 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
     }
 
     try {
+      // Get the access token
+      const token = await getAuthToken()
+
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT)
 
@@ -519,7 +544,7 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${await user.getIdToken()}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(updates),
         signal: controller.signal,
@@ -548,7 +573,11 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
     setLocaleState(newLocale)
 
     // Load translations first for responsiveness
-    await fetchTranslations(newLocale)
+    try {
+      await fetchTranslations(newLocale)
+    } catch (error) {
+      console.error(`Error fetching translations for ${newLocale}:`, error)
+    }
 
     // Then update in API (non-blocking)
     if (isAuthenticated && user) {
@@ -613,6 +642,10 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
 
   // Translation function
   const t = (key: string, params?: Record<string, string>): string => {
+    if (!translations || Object.keys(translations).length === 0) {
+      return key // Return the key if no translations are available yet
+    }
+
     // Split key by dots for nested access
     const parts = key.split('.')
     let result: any = translations
@@ -692,20 +725,7 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
       }
     }
 
-    // Fallback to hardcoded rates if all else fails
-    const fallbackRates = {
-      USD: { DKK: 6.9, EUR: 0.92 },
-      DKK: { USD: 0.145, EUR: 0.134 },
-      EUR: { USD: 1.09, DKK: 7.45 },
-    }
-
-    if (fallbackRates[fromCurrency]?.[toCurrency]) {
-      return amount * fallbackRates[fromCurrency][toCurrency]
-    } else if (fallbackRates[toCurrency]?.[fromCurrency]) {
-      return amount / fallbackRates[toCurrency][fromCurrency]
-    }
-
-    // Last resort fallback
+    // If we don't have exchange rates yet, return the original amount
     console.error(
       `No conversion rate found for ${fromCurrency} to ${toCurrency}`
     )
