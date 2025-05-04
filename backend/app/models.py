@@ -1,7 +1,98 @@
+# File: backend/app/models.py
+
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from enum import Enum
+from datetime import datetime
 
+class Locale(str, Enum):
+    EN = "en"
+    DA = "da"
+
+
+class Currency(str, Enum):
+    USD = "USD"
+    DKK = "DKK"
+    EUR = "EUR"
+
+
+class Country(str, Enum):
+    US = "US"
+    DK = "DK"
+
+
+class UserProfile(BaseModel):
+    id: str
+    email: str
+    name: Optional[str] = None
+    phone_number: Optional[str] = None
+    avatar_url: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class UserPreferences(BaseModel):
+    user_id: str
+    locale: Locale = Locale.EN
+    currency: Currency = Currency.DKK  # Default to DKK for Danish users
+    country: Country = Country.DK      # Default to Denmark
+    theme: str = "system"
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class CurrencyRate(BaseModel):
+    base_currency: Currency
+    target_currency: Currency
+    rate: float
+    last_updated: datetime
+
+
+class LocaleInfo(BaseModel):
+    code: str
+    name: str
+    native_name: str
+    flag: str
+    is_active: bool = True
+
+
+class Translation(BaseModel):
+    locale: str
+    key: str
+    value: str
+
+
+class TranslationRequest(BaseModel):
+    locale: Locale
+    key: str
+    default: Optional[str] = None
+
+
+class TranslationResponse(BaseModel):
+    locale: str
+    key: str
+    translation: str
+
+
+class CurrencyConversionRequest(BaseModel):
+    amount: float
+    from_currency: Currency
+    to_currency: Currency
+
+
+class CurrencyConversionResponse(BaseModel):
+    original_amount: float
+    original_currency: str
+    converted_amount: float
+    converted_currency: str
+    rate: float
+
+
+class APIResponse(BaseModel):
+    status: str = "success"
+    data: Optional[Any] = None
+    error: Optional[str] = None
+    message: Optional[str] = None
 
 class LoanType(str, Enum):
     MORTGAGE = "MORTGAGE"
@@ -12,13 +103,6 @@ class LoanType(str, Enum):
     CREDIT_CARD = "CREDIT_CARD"
     PERSONAL = "PERSONAL"
     OTHER = "OTHER"
-
-
-class Currency(str, Enum):
-    USD = "USD"
-    DKK = "DKK"
-    # Add more currencies as needed
-
 
 class Loan(BaseModel):
     loan_id: int
@@ -58,89 +142,3 @@ class AmortizationResponse(BaseModel):
     schedule: List[AmortizationEntry]
     total_interest_paid: float
     months_to_payoff: int
-
-
-class InvestmentEntry(BaseModel):
-    month: int
-    date: str
-    balance: float
-    inflation_adjusted_balance: float
-    risk_adjusted_balance: float
-
-
-class InvestmentRequest(BaseModel):
-    monthly_amount: float
-    annual_return: float
-    months: int
-    inflation_rate: float = 0.025
-    risk_factor: float = 0.2
-    currency: Currency = Currency.USD
-
-
-class InvestmentResponse(BaseModel):
-    projection: List[InvestmentEntry]
-    final_balance: float
-    inflation_adjusted_final_balance: float
-    risk_adjusted_balance: float
-
-
-class FinancialStrategyRequest(BaseModel):
-    loans: List[Loan]
-    monthly_surplus: float
-    annual_investment_return: float = 0.07
-    inflation_rate: float = 0.025
-    risk_factor: float = 0.2
-    currency: Currency = Currency.USD
-
-
-class RecommendationDetail(BaseModel):
-    best_strategy: str
-    reason: str
-    interest_savings: float
-    months_saved: int
-    investment_value_after_loan_payoff: float
-    investment_value_immediate_invest: float
-    total_savings_advantage: float
-
-
-class LoanDetails(BaseModel):
-    name: str
-    interest_rate: float
-    payoff_months_with_extra: int
-    payoff_months_minimum: int
-
-
-class AmortizationComparison(BaseModel):
-    baseline: Dict[str, Any]
-    with_extra_payments: Dict[str, Any]
-
-
-class InvestmentComparison(BaseModel):
-    immediate_investment: Dict[str, Any]
-    investment_after_payoff: Dict[str, Any]
-
-
-class FinancialStrategyResponse(BaseModel):
-    recommendation: RecommendationDetail
-    loan_details: Optional[LoanDetails]
-    amortization_comparison: Optional[AmortizationComparison]
-    investment_comparison: Optional[InvestmentComparison]
-
-
-class CurrencyConversionRequest(BaseModel):
-    amount: float
-    from_currency: Currency = Currency.USD
-    to_currency: Currency = Currency.USD
-
-
-class CurrencyConversionResponse(BaseModel):
-    original_amount: float
-    original_currency: str
-    converted_amount: float
-    converted_currency: str
-
-
-class UserSettings(BaseModel):
-    expected_inflation: float = 0.025
-    expected_investment_return: float = 0.07
-    risk_tolerance: float = 0.2

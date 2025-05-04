@@ -1,7 +1,9 @@
-// src/app/settings/currency/page.tsx
+// File: frontend/src/app/settings/currency/page.tsx
 
 'use client'
 
+import { useState } from 'react'
+import { useLocalization } from '@/context/LocalizationContext'
 import {
   Card,
   CardContent,
@@ -9,25 +11,39 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { useLocalization } from '@/context/LocalizationContext'
-import { Currency } from '@/i18n/config'
-import { useState } from 'react'
 import { Icons } from '@/components/ui/icons'
+import toast from 'react-hot-toast'
 
 export default function CurrencySettingsPage() {
-  const { currency, setCurrency, t, currencies, formatCurrency } =
+  const { currency, setCurrency, currencies, t, formatCurrency, loading } =
     useLocalization()
+
   const [isChanging, setIsChanging] = useState(false)
 
-  const handleCurrencyChange = async (newCurrency: Currency) => {
-    if (newCurrency === currency) return
+  const handleCurrencyChange = async (newCurrency: string) => {
+    if (newCurrency === currency || isChanging) return
 
     setIsChanging(true)
     try {
-      await setCurrency(newCurrency)
+      await setCurrency(newCurrency as any)
+      toast.success(t('settings.currencyChanged'))
+    } catch (error) {
+      console.error('Failed to change currency:', error)
+      toast.error(t('settings.failedToChangeCurrency'))
     } finally {
       setIsChanging(false)
     }
+  }
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-center items-center py-16">
+          <Icons.spinner className="h-10 w-10 animate-spin text-blue-600" />
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -47,7 +63,7 @@ export default function CurrencySettingsPage() {
                     ? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
                     : 'border-gray-200 dark:border-gray-700'
                 } cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-800`}
-                onClick={() => handleCurrencyChange(code as Currency)}
+                onClick={() => handleCurrencyChange(code)}
               >
                 <div className="flex items-center">
                   <span className="text-2xl mr-3">{currencyInfo.flag}</span>

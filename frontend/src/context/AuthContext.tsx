@@ -1,3 +1,5 @@
+// File: frontend/src/context/AuthContext.tsx
+
 'use client'
 
 import React, {
@@ -15,7 +17,6 @@ import toast from 'react-hot-toast'
 interface AuthContextType {
   isAuthenticated: boolean
   user: User | null
-  profile: UserProfile | null
   login: (email: string, password: string) => Promise<{ error: Error | null }>
   logout: () => Promise<void>
   loading: boolean
@@ -27,19 +28,14 @@ interface AuthContextType {
   resetPassword: (email: string) => Promise<{ error: Error | null }>
 }
 
-interface UserProfile {
-  id: string
-  name?: string
-  avatar_url?: string
-  created_at?: string
-}
-
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
+
+// API request timeout (in milliseconds)
+const API_TIMEOUT = 5000
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [user, setUser] = useState<User | null>(null)
-  const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
 
@@ -64,18 +60,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           console.log('Session found, setting authenticated user')
           setUser(data.session.user)
           setIsAuthenticated(true)
-
-          // Simple profile based on user data
-          const tempProfile = {
-            id: data.session.user.id,
-            name:
-              data.session.user.user_metadata?.name ||
-              data.session.user.email?.split('@')[0] ||
-              'User',
-            created_at: new Date().toISOString(),
-          }
-
-          setProfile(tempProfile)
           return true
         } else {
           console.log('No session found')
@@ -102,23 +86,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           // User is authenticated
           setUser(session.user)
           setIsAuthenticated(true)
-
-          // Set a basic profile using user metadata
-          const tempProfile = {
-            id: session.user.id,
-            name:
-              session.user.user_metadata?.name ||
-              session.user.email?.split('@')[0] ||
-              'User',
-            created_at: new Date().toISOString(),
-          }
-
-          setProfile(tempProfile)
         } else {
           // User is not authenticated
           setUser(null)
           setIsAuthenticated(false)
-          setProfile(null)
         }
       }
     )
@@ -128,57 +99,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       authListener.subscription.unsubscribe()
     }
   }, [])
-
-  useEffect(() => {
-    const fetchProfile = async () => {
-      if (!user) {
-        setProfile(null)
-        return
-      }
-
-      try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single()
-
-        if (error) {
-          console.error('Error fetching profile:', error)
-          return
-        }
-
-        if (data) {
-          setProfile(data)
-        } else {
-          // Create a basic profile if none exists
-          const tempProfile = {
-            id: user.id,
-            name:
-              user.user_metadata?.name || user.email?.split('@')[0] || 'User',
-            created_at: new Date().toISOString(),
-          }
-
-          setProfile(tempProfile)
-
-          // Optionally create profile in database
-          const { error: insertError } = await supabase
-            .from('profiles')
-            .upsert(tempProfile)
-
-          if (insertError) {
-            console.error('Error creating profile:', insertError)
-          }
-        }
-      } catch (error) {
-        console.error('Error in profile fetch:', error)
-      }
-    }
-
-    if (isAuthenticated) {
-      fetchProfile()
-    }
-  }, [user, isAuthenticated, supabase])
 
   // Login function
   const login = async (email: string, password: string) => {
@@ -204,8 +124,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       console.log('Login successful')
       toast.success('Login successful!')
 
-      // Update auth state (this will now be handled by the onAuthStateChange listener)
-
       return { error: null }
     } catch (error: any) {
       console.error('Unexpected login error:', error)
@@ -230,10 +148,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         return
       }
 
-      // Reset state (this will be handled by onAuthStateChange, but we'll do it here too for immediacy)
+      // Reset state
       setUser(null)
       setIsAuthenticated(false)
-      setProfile(null)
 
       toast.success('Logged out successfully')
 
@@ -245,7 +162,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   }
 
-  // Signup function
+  // Signup function with profile creation
   const signUp = async (
     email: string,
     password: string,
@@ -268,6 +185,30 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         console.error('Signup error:', error.message)
         toast.error(error.message || 'Registration failed')
         return { error }
+      }
+
+      // Create initial profile when signing up
+      if (data.user) {
+        try {
+          // Don't wait for this to complete
+          const controller = new AbortController()
+          setTimeout(() => controller.abort(), API_TIMEOUT)
+
+          await fetch('/api/profile', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${data.session?.access_token || ''}`,
+            },
+            body: JSON.stringify({
+              name: metaData?.name || email.split('@')[0],
+            }),
+            signal: controller.signal,
+          })
+        } catch (profileError) {
+          console.error('Error creating initial profile:', profileError)
+          // Continue anyway - profile will be created on first login
+        }
       }
 
       console.log('Signup successful')
@@ -312,7 +253,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       value={{
         isAuthenticated,
         user,
-        profile,
         login,
         logout,
         loading,

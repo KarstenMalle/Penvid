@@ -1,13 +1,19 @@
+# File: backend/app/main.py
+
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from app.api import (
-    loans,
-    currency,
-    user_settings,
-    loan_calculations,
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
 )
+
+# Import API modules
+from app.api import profiles, preferences, currency
 
 # Load environment variables
 load_dotenv()
@@ -32,10 +38,9 @@ app.add_middleware(
 )
 
 # Include all API routers
-app.include_router(loans)
+app.include_router(profiles.router)
+app.include_router(preferences.router)
 app.include_router(currency)
-app.include_router(user_settings)
-app.include_router(loan_calculations)
 
 @app.get("/api/health")
 async def health_check():
@@ -43,17 +48,6 @@ async def health_check():
     Health check endpoint to verify API is running
     """
     return {"status": "ok", "message": "Penvid Financial API is running"}
-
-@app.get("/")
-async def root():
-    """
-    Root endpoint with API information
-    """
-    return {
-        "name": "Penvid Financial API",
-        "version": "1.0.0",
-        "description": "Backend API for financial calculations and wealth optimization"
-    }
 
 # Run the app if executed directly
 if __name__ == "__main__":
