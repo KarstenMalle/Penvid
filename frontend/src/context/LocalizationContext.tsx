@@ -126,7 +126,7 @@ const CACHE_DURATION = {
 const API_TIMEOUT = 5000
 
 // API base URL
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
 
 // Default translations
 const DEFAULT_TRANSLATIONS: Record<string, any> = {

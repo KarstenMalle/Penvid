@@ -211,7 +211,8 @@ export default function Navbar() {
                       >
                         <Globe className="mr-2 h-4 w-4" />
                         <span>
-                          {t('settings.language')}: {languages[locale].flag}
+                          {t('settings.language')}:{' '}
+                          {languages[locale]?.flag || '🌐'}
                         </span>
                       </Link>
                     </DropdownMenuItem>

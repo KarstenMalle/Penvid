@@ -13,7 +13,7 @@ logging.basicConfig(
 )
 
 # Import API modules
-from app.api import profiles, preferences, currency
+from app.api import profiles, preferences, currency, loans, loan_calculations, translations
 
 # Load environment variables
 load_dotenv()
@@ -38,9 +38,12 @@ app.add_middleware(
 )
 
 # Include all API routers
-app.include_router(profiles.router)
-app.include_router(preferences.router)
+app.include_router(profiles)
+app.include_router(preferences)
 app.include_router(currency)
+app.include_router(loans)
+app.include_router(loan_calculations)
+app.include_router(translations)
 
 @app.get("/api/health")
 async def health_check():
