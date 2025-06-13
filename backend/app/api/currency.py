@@ -24,67 +24,66 @@ async def get_exchange_rates(background_tasks: BackgroundTasks):
     """
     supabase = get_supabase_client()
 
-    # Check when rates were last updated
-    rates_check = supabase.table("currency_rates").select("last_updated").order("last_updated", options={'ascending': False}).limit(1).execute()
+    # Check when rates were last updated - fix order parameter
+    try:
+        rates_check = supabase.table("currency_rates").select("last_updated").order("last_updated", desc=True).limit(1).execute()
 
-    # Initialize update flag
-    should_update = False
+        # Initialize update flag
+        should_update = False
 
-    if rates_check.error:
-        logger.warning(f"Error checking rate timestamps: {rates_check.error.message}")
-        should_update = True
-    elif not rates_check.data:
-        # No rates in database, definitely update
-        should_update = True
-    else:
-        try:
-            # Check if rates need updating (older than 1 day)
-            last_update = datetime.fromisoformat(rates_check.data[0]["last_updated"].replace("Z", "+00:00"))
-            if datetime.now() - last_update > timedelta(days=1):
-                should_update = True
-        except Exception as e:
-            logger.error(f"Error parsing timestamp: {str(e)}")
+        # Check if cache is still valid - without using error attribute
+        if not rates_check.data or len(rates_check.data) == 0:
+            # No rates in database, definitely update
             should_update = True
+        else:
+            try:
+                # Check if rates need updating (older than 1 day)
+                last_update = datetime.fromisoformat(rates_check.data[0]["last_updated"].replace("Z", "+00:00"))
+                if datetime.now() - last_update > timedelta(days=1):
+                    should_update = True
+            except Exception as e:
+                logger.error(f"Error parsing timestamp: {str(e)}")
+                should_update = True
 
-    # Trigger background update if needed
-    if should_update:
-        background_tasks.add_task(update_exchange_rates)
+        # Trigger background update if needed
+        if should_update:
+            background_tasks.add_task(update_exchange_rates)
 
-    # Get rates from database
-    rates_query = supabase.table("currency_rates").select("*").execute()
+        # Get rates from database
+        rates_query = supabase.table("currency_rates").select("*").execute()
 
-    if rates_query.error:
-        raise HTTPException(status_code=500, detail=f"Error fetching rates: {rates_query.error.message}")
+        # Format rates as dictionary
+        rates = {}
+        for rate in rates_query.data:
+            if rate["base_currency"] not in rates:
+                rates[rate["base_currency"]] = {}
 
-    # Format rates as dictionary
-    rates = {}
-    for rate in rates_query.data:
-        if rate["base_currency"] not in rates:
-            rates[rate["base_currency"]] = {}
+            rates[rate["base_currency"]][rate["target_currency"]] = float(rate["rate"])
 
-        rates[rate["base_currency"]][rate["target_currency"]] = float(rate["rate"])
+        # If rates are empty or incomplete, use fallback values
+        if not rates or "USD" not in rates or len(rates.get("USD", {})) < len(SUPPORTED_CURRENCIES) - 1:
+            fallback_rates = {
+                "USD": {"DKK": 6.9, "EUR": 0.92},
+                "DKK": {"USD": 0.145, "EUR": 0.134},
+                "EUR": {"USD": 1.09, "DKK": 7.45}
+            }
 
-    # If rates are empty or incomplete, use fallback values
-    if not rates or "USD" not in rates or len(rates["USD"]) < len(SUPPORTED_CURRENCIES) - 1:
-        fallback_rates = {
-            "USD": {"DKK": 6.9, "EUR": 0.92},
-            "DKK": {"USD": 0.145, "EUR": 0.134},
-            "EUR": {"USD": 1.09, "DKK": 7.45}
-        }
+            # Merge with any existing rates
+            for base, targets in fallback_rates.items():
+                if base not in rates:
+                    rates[base] = {}
 
-        # Merge with any existing rates
-        for base, targets in fallback_rates.items():
-            if base not in rates:
-                rates[base] = {}
+                for target, rate_value in targets.items():
+                    if target not in rates[base]:
+                        rates[base][target] = rate_value
 
-            for target, rate_value in targets.items():
-                if target not in rates[base]:
-                    rates[base][target] = rate_value
-
-    return standardize_response(
-        data={"rates": rates},
-        message="Exchange rates retrieved successfully"
-    )
+        return standardize_response(
+            data={"rates": rates},
+            message="Exchange rates retrieved successfully"
+        )
+    except Exception as e:
+        logger.error(f"Error getting exchange rates: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting exchange rates: {str(e)}")
 
 
 async def update_exchange_rates():

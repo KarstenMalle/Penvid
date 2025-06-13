@@ -1,16 +1,18 @@
-# File: backend/app/main.py
-
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 import logging
+from typing import Dict, Any
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
 )
+
+logger = logging.getLogger(__name__)
 
 # Import API modules
 from app.api import profiles, preferences, currency, loans, loan_calculations, translations
@@ -35,7 +37,21 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
+
+# Global exception handler
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": false,
+            "error": "Internal server error",
+            "message": "An unexpected error occurred"
+        }
+    )
 
 # Include all API routers
 app.include_router(profiles)
@@ -46,11 +62,19 @@ app.include_router(loan_calculations)
 app.include_router(translations)
 
 @app.get("/api/health")
-async def health_check():
+async def health_check() -> Dict[str, Any]:
     """
     Health check endpoint to verify API is running
     """
-    return {"status": "ok", "message": "Penvid Financial API is running"}
+    return {
+        "success": True,
+        "data": {
+            "status": "healthy",
+            "service": "Penvid Financial API",
+            "version": "1.0.0"
+        },
+        "message": "API is running"
+    }
 
 # Run the app if executed directly
 if __name__ == "__main__":

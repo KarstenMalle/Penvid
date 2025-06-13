@@ -1,5 +1,3 @@
-# File: backend/app/api/translations.py
-
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional, Dict, List
 from ..database import get_supabase_client
@@ -9,6 +7,124 @@ import logging
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["translations"])
+
+# Default translations if database is empty
+DEFAULT_TRANSLATIONS = {
+    "en": {
+        "common": {
+            "loading": "Loading...",
+            "error": "Error",
+            "save": "Save",
+            "cancel": "Cancel",
+            "delete": "Delete",
+            "edit": "Edit",
+            "add": "Add",
+            "search": "Search",
+            "filter": "Filter",
+            "export": "Export",
+            "import": "Import",
+        },
+        "auth": {
+            "login": "Login",
+            "logout": "Logout",
+            "register": "Register",
+            "email": "Email",
+            "password": "Password",
+        },
+        "loans": {
+            "title": "Loans",
+            "addLoan": "Add Loan",
+            "noLoans": "No loans found",
+            "loanName": "Loan Name",
+            "balance": "Balance",
+            "interestRate": "Interest Rate",
+            "minimumPayment": "Minimum Payment",
+            "loanType": "Loan Type",
+            "termYears": "Term (Years)",
+            "failedToLoadLoan": "Failed to load loan",
+            "failedToUpdateLoan": "Failed to update loan",
+            "failedToDeleteLoan": "Failed to delete loan",
+            "loanUpdatedSuccessfully": "Loan updated successfully",
+            "loanDeletedSuccessfully": "Loan deleted successfully",
+        },
+        "profile": {
+            "title": "Profile",
+            "name": "Name",
+            "email": "Email",
+            "phone": "Phone",
+            "failedToLoadProfile": "Failed to load profile",
+            "failedToUpdate": "Failed to update profile",
+            "updatedSuccessfully": "Profile updated successfully",
+            "mustBeLoggedIn": "You must be logged in",
+        }
+    },
+    "da": {
+        "common": {
+            "loading": "Indlæser...",
+            "error": "Fejl",
+            "save": "Gem",
+            "cancel": "Annuller",
+            "delete": "Slet",
+            "edit": "Rediger",
+            "add": "Tilføj",
+            "search": "Søg",
+            "filter": "Filtrer",
+            "export": "Eksporter",
+            "import": "Importer",
+        },
+        "auth": {
+            "login": "Log ind",
+            "logout": "Log ud",
+            "register": "Registrer",
+            "email": "Email",
+            "password": "Adgangskode",
+        },
+        "loans": {
+            "title": "Lån",
+            "addLoan": "Tilføj lån",
+            "noLoans": "Ingen lån fundet",
+            "loanName": "Lånenavn",
+            "balance": "Saldo",
+            "interestRate": "Rentesats",
+            "minimumPayment": "Minimumsbetaling",
+            "loanType": "Lånetype",
+            "termYears": "Løbetid (år)",
+            "failedToLoadLoan": "Kunne ikke indlæse lån",
+            "failedToUpdateLoan": "Kunne ikke opdatere lån",
+            "failedToDeleteLoan": "Kunne ikke slette lån",
+            "loanUpdatedSuccessfully": "Lån opdateret succesfuldt",
+            "loanDeletedSuccessfully": "Lån slettet succesfuldt",
+        },
+        "profile": {
+            "title": "Profil",
+            "name": "Navn",
+            "email": "Email",
+            "phone": "Telefon",
+            "failedToLoadProfile": "Kunne ikke indlæse profil",
+            "failedToUpdate": "Kunne ikke opdatere profil",
+            "updatedSuccessfully": "Profil opdateret succesfuldt",
+            "mustBeLoggedIn": "Du skal være logget ind",
+        }
+    }
+}
+
+# Default locales if database is empty
+DEFAULT_LOCALES = [
+    {
+        "code": "en",
+        "name": "English",
+        "native_name": "English",
+        "flag": "🇺🇸",
+        "is_active": True
+    },
+    {
+        "code": "da",
+        "name": "Danish",
+        "native_name": "Dansk",
+        "flag": "🇩🇰",
+        "is_active": True
+    }
+]
 
 @router.get("/translations/{locale}")
 @handle_exceptions
@@ -23,7 +139,11 @@ async def get_translations(locale: Locale):
 
     if locale_check.error:
         logger.error(f"Error checking locale: {locale_check.error.message}")
-        raise HTTPException(status_code=500, detail="Database error")
+        # Return default translations instead of failing
+        return standardize_response(
+            data={"locale": locale, "translations": DEFAULT_TRANSLATIONS.get(locale, DEFAULT_TRANSLATIONS["en"])},
+            message="Using default translations due to database error"
+        )
 
     if not locale_check.data:
         # Fallback to English if locale doesn't exist
@@ -35,7 +155,18 @@ async def get_translations(locale: Locale):
 
     if translations.error:
         logger.error(f"Error getting translations: {translations.error.message}")
-        raise HTTPException(status_code=500, detail="Database error")
+        # Return default translations instead of failing
+        return standardize_response(
+            data={"locale": locale, "translations": DEFAULT_TRANSLATIONS.get(locale, DEFAULT_TRANSLATIONS["en"])},
+            message="Using default translations due to database error"
+        )
+
+    # If no translations found, return defaults
+    if not translations.data:
+        return standardize_response(
+            data={"locale": locale, "translations": DEFAULT_TRANSLATIONS.get(locale, DEFAULT_TRANSLATIONS["en"])},
+            message="Using default translations"
+        )
 
     # Convert flat list to nested dictionary
     nested_translations = {}
@@ -70,49 +201,20 @@ async def get_available_locales():
 
     if locales.error:
         logger.error(f"Error getting locales: {locales.error.message}")
-        raise HTTPException(status_code=500, detail="Database error")
+        # Return default locales instead of failing
+        return standardize_response(
+            data={"locales": DEFAULT_LOCALES},
+            message="Using default locales due to database error"
+        )
+
+    # If no locales found, return defaults
+    if not locales.data:
+        return standardize_response(
+            data={"locales": DEFAULT_LOCALES},
+            message="Using default locales"
+        )
 
     return standardize_response(
         data={"locales": locales.data},
         message="Available locales retrieved successfully"
-    )
-
-@router.get("/translations/{locale}/{key}")
-@handle_exceptions
-async def get_translation(locale: Locale, key: str, default: Optional[str] = None):
-    """
-    Get a specific translation by key from the database
-    """
-    supabase = get_supabase_client()
-
-    # Check if the locale exists
-    locale_check = supabase.table("locales").select("*").eq("code", locale).execute()
-
-    if locale_check.error:
-        logger.error(f"Error checking locale: {locale_check.error.message}")
-        raise HTTPException(status_code=500, detail="Database error")
-
-    if not locale_check.data:
-        # Fallback to English if locale doesn't exist
-        locale = "en"
-
-    # Get the specific translation
-    translation = supabase.table("translations").select("value").eq("locale", locale).eq("key", key).single().execute()
-
-    if translation.error or not translation.data:
-        # Try the English version if not found
-        if locale != "en":
-            en_translation = supabase.table("translations").select("value").eq("locale", "en").eq("key", key).single().execute()
-            if not en_translation.error and en_translation.data:
-                value = en_translation.data["value"]
-            else:
-                value = default or key
-        else:
-            value = default or key
-    else:
-        value = translation.data["value"]
-
-    return standardize_response(
-        data={"locale": locale, "key": key, "translation": value},
-        message="Translation retrieved successfully"
     )

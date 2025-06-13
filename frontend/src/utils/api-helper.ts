@@ -1,24 +1,34 @@
-// frontend/src/utils/api-helper.ts
+// File: frontend/src/utils/api-helper.ts
 
-import { createClient } from '@/lib/supabase-browser'
+// API request timeout (in milliseconds)
+const API_TIMEOUT = 10000 // Increase from 5000 to 10000
 
-export async function getAuthToken(): Promise<string> {
-  try {
-    const supabase = createClient()
-    const { data } = await supabase.auth.getSession()
-    return data.session?.access_token || ''
-  } catch (error) {
-    console.error('Error getting auth token:', error)
-    return ''
+// API base URL
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+
+/**
+ * Helper function to make GET requests to the API
+ */
+export async function get<T>(
+  endpoint: string,
+  options?: {
+    requiresAuth?: boolean
+    timeout?: number
   }
-}
+): Promise<T> {
+  const { requiresAuth = false, timeout = API_TIMEOUT } = options || {}
 
-export async function get(url: string, requiresAuth = false): Promise<any> {
+  // Setup timeout
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeout)
+
   try {
+    // Prepare headers
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
     }
 
+    // Add authorization if needed
     if (requiresAuth) {
       const token = await getAuthToken()
       if (token) {
@@ -26,29 +36,55 @@ export async function get(url: string, requiresAuth = false): Promise<any> {
       }
     }
 
-    const response = await fetch(url, { headers })
+    // Make request
+    const response = await fetch(`${API_URL}${endpoint}`, {
+      method: 'GET',
+      headers,
+      signal: controller.signal,
+    })
 
+    // Clear timeout
+    clearTimeout(timeoutId)
+
+    // Handle response
     if (!response.ok) {
-      throw new Error(`HTTP error ${response.status}: ${response.statusText}`)
+      throw new Error(`API error: ${response.status} ${response.statusText}`)
     }
 
     return await response.json()
   } catch (error) {
-    console.error('API GET error:', error)
+    // Clear timeout to prevent memory leaks
+    clearTimeout(timeoutId)
+
+    // Re-throw error
     throw error
   }
 }
 
-export async function post(
-  url: string,
+/**
+ * Helper function to make POST requests to the API
+ */
+export async function post<T>(
+  endpoint: string,
   data: any,
-  requiresAuth = false
-): Promise<any> {
+  options?: {
+    requiresAuth?: boolean
+    timeout?: number
+  }
+): Promise<T> {
+  const { requiresAuth = false, timeout = API_TIMEOUT } = options || {}
+
+  // Setup timeout
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeout)
+
   try {
+    // Prepare headers
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
     }
 
+    // Add authorization if needed
     if (requiresAuth) {
       const token = await getAuthToken()
       if (token) {
@@ -56,82 +92,46 @@ export async function post(
       }
     }
 
-    const response = await fetch(url, {
+    // Make request
+    const response = await fetch(`${API_URL}${endpoint}`, {
       method: 'POST',
       headers,
       body: JSON.stringify(data),
+      signal: controller.signal,
     })
 
+    // Clear timeout
+    clearTimeout(timeoutId)
+
+    // Handle response
     if (!response.ok) {
-      throw new Error(`HTTP error ${response.status}: ${response.statusText}`)
+      throw new Error(`API error: ${response.status} ${response.statusText}`)
     }
 
     return await response.json()
   } catch (error) {
-    console.error('API POST error:', error)
+    // Clear timeout to prevent memory leaks
+    clearTimeout(timeoutId)
+
+    // Re-throw error
     throw error
   }
 }
 
-export async function put(
-  url: string,
-  data: any,
-  requiresAuth = false
-): Promise<any> {
+/**
+ * Helper function to get authentication token
+ */
+async function getAuthToken(): Promise<string | null> {
   try {
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-    }
+    // Import createClient from supabase-browser
+    const { createClient } = await import('@/lib/supabase-browser')
+    const supabase = createClient()
 
-    if (requiresAuth) {
-      const token = await getAuthToken()
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`
-      }
-    }
-
-    const response = await fetch(url, {
-      method: 'PUT',
-      headers,
-      body: JSON.stringify(data),
-    })
-
-    if (!response.ok) {
-      throw new Error(`HTTP error ${response.status}: ${response.statusText}`)
-    }
-
-    return await response.json()
+    // Get session
+    const { data } = await supabase.auth.getSession()
+    return data.session?.access_token || null
   } catch (error) {
-    console.error('API PUT error:', error)
-    throw error
-  }
-}
-
-export async function del(url: string, requiresAuth = false): Promise<any> {
-  try {
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-    }
-
-    if (requiresAuth) {
-      const token = await getAuthToken()
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`
-      }
-    }
-
-    const response = await fetch(url, {
-      method: 'DELETE',
-      headers,
-    })
-
-    if (!response.ok) {
-      throw new Error(`HTTP error ${response.status}: ${response.statusText}`)
-    }
-
-    return await response.json()
-  } catch (error) {
-    console.error('API DELETE error:', error)
-    throw error
+    console.error('Error getting auth token:', error)
+    return null
   }
 }

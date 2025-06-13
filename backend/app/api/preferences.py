@@ -1,5 +1,6 @@
 # File: backend/app/api/preferences.py
 
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Body
 from typing import Optional
 from ..models import UserPreferences, Locale, Currency, Country
@@ -10,6 +11,9 @@ from datetime import datetime
 
 router = APIRouter(prefix="/api", tags=["preferences"])
 
+# Add the logger if not already defined
+logger = logging.getLogger(__name__)
+
 @router.get("/preferences")
 @handle_exceptions
 async def get_user_preferences(authenticated_user_id: str = Depends(verify_token)):
@@ -18,50 +22,49 @@ async def get_user_preferences(authenticated_user_id: str = Depends(verify_token
     """
     supabase = get_supabase_client()
 
-    # Query user preferences
-    preferences_response = supabase.table("user_preferences").select("*").eq("user_id", authenticated_user_id).single().execute()
+    try:
+        # Query user preferences - use from() instead of table()
+        preferences_response = supabase.from_('user_preferences').select('*').eq('user_id', authenticated_user_id).execute()
 
-    if preferences_response.error:
-        raise HTTPException(status_code=500, detail=f"Database error: {preferences_response.error.message}")
+        # Check if preferences exist
+        if not preferences_response.data or len(preferences_response.data) == 0:
+            # If preferences don't exist, create with defaults
+            default_preferences = {
+                "user_id": authenticated_user_id,
+                "locale": "en",
+                "currency": "DKK",
+                "country": "DK",
+                "theme": "system",
+                "created_at": datetime.now().isoformat(),
+            }
 
-    if not preferences_response.data:
-        # If preferences don't exist, create with defaults
-        default_preferences = {
-            "user_id": authenticated_user_id,
-            "locale": Locale.EN,
-            "currency": Currency.DKK,  # Default to DKK
-            "country": Country.DK,     # Default to Denmark
-            "theme": "system",
-            "created_at": datetime.now().isoformat(),
-        }
+            # Use from() for insertion
+            insert_response = supabase.from_('user_preferences').insert(default_preferences).execute()
 
-        # Insert default preferences
-        try:
-            insert_response = supabase.table("user_preferences").insert(default_preferences).execute()
-
-            if insert_response.error:
-                raise HTTPException(status_code=500, detail=f"Error creating preferences: {insert_response.error.message}")
+            if not insert_response.data:
+                logger.error("Failed to create default preferences")
+                raise HTTPException(status_code=500, detail="Failed to create default preferences")
 
             return standardize_response(
-                data={"preferences": insert_response.data[0] if insert_response.data else default_preferences},
+                data={"preferences": insert_response.data[0]},
                 message="Default preferences created"
             )
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error creating preferences: {str(e)}")
 
-    # Return user preferences
-    return standardize_response(
-        data={"preferences": preferences_response.data},
-        message="Preferences retrieved successfully"
-    )
-
+        # Return user preferences
+        return standardize_response(
+            data={"preferences": preferences_response.data[0]},
+            message="Preferences retrieved successfully"
+        )
+    except Exception as e:
+        logger.error(f"Preferences API error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error accessing preferences: {str(e)}")
 
 @router.post("/preferences")
 @handle_exceptions
 async def update_user_preferences(
-        locale: Optional[Locale] = Body(None),
-        currency: Optional[Currency] = Body(None),
-        country: Optional[Country] = Body(None),
+        locale: Optional[str] = Body(None),
+        currency: Optional[str] = Body(None),
+        country: Optional[str] = Body(None),
         theme: Optional[str] = Body(None),
         authenticated_user_id: str = Depends(verify_token)
 ):
@@ -84,46 +87,45 @@ async def update_user_preferences(
     if theme is not None:
         update_data["theme"] = theme
 
-    # Check if preferences exist
-    preferences_check = supabase.table("user_preferences").select("user_id").eq("user_id", authenticated_user_id).execute()
+    try:
+        # Check if preferences exist
+        preferences_check = supabase.from_('user_preferences').select('user_id').eq('user_id', authenticated_user_id).execute()
 
-    if preferences_check.error:
-        raise HTTPException(status_code=500, detail=f"Database error: {preferences_check.error.message}")
-
-    if not preferences_check.data:
-        # Create preferences if they don't exist
-        try:
+        # Check if preferences exist
+        if not preferences_check.data or len(preferences_check.data) == 0:
+            # Create preferences if they don't exist
             new_preferences = {
                 "user_id": authenticated_user_id,
-                "locale": locale or Locale.EN,
-                "currency": currency or Currency.DKK,
-                "country": country or Country.DK,
+                "locale": locale or "en",
+                "currency": currency or "DKK",
+                "country": country or "DK",
                 "theme": theme or "system",
                 "created_at": datetime.now().isoformat(),
             }
 
-            insert_response = supabase.table("user_preferences").insert(new_preferences).execute()
+            # Use from() for insertion
+            insert_response = supabase.from_('user_preferences').insert(new_preferences).execute()
 
-            if insert_response.error:
-                raise HTTPException(status_code=500, detail=f"Error creating preferences: {insert_response.error.message}")
+            if not insert_response.data:
+                logger.error("Failed to create preferences")
+                raise HTTPException(status_code=500, detail="Failed to create preferences")
 
             return standardize_response(
-                data={"preferences": insert_response.data[0] if insert_response.data else new_preferences},
+                data={"preferences": insert_response.data[0]},
                 message="Preferences created successfully"
             )
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error creating preferences: {str(e)}")
-    else:
-        # Update existing preferences
-        try:
-            update_response = supabase.table("user_preferences").update(update_data).eq("user_id", authenticated_user_id).execute()
+        else:
+            # Update existing preferences
+            update_response = supabase.from_('user_preferences').update(update_data).eq('user_id', authenticated_user_id).execute()
 
-            if update_response.error:
-                raise HTTPException(status_code=500, detail=f"Error updating preferences: {update_response.error.message}")
+            if not update_response.data:
+                logger.error("Failed to update preferences")
+                raise HTTPException(status_code=500, detail="Failed to update preferences")
 
             return standardize_response(
-                data={"preferences": update_response.data[0] if update_response.data else None},
+                data={"preferences": update_response.data[0]},
                 message="Preferences updated successfully"
             )
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error updating preferences: {str(e)}")
+    except Exception as e:
+        logger.error(f"Preferences API error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error updating preferences: {str(e)}")

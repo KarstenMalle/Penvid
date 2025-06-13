@@ -1,5 +1,3 @@
-// File: frontend/src/context/LocalizationContext.tsx
-
 'use client'
 
 import React, {
@@ -11,6 +9,8 @@ import React, {
   ReactNode,
 } from 'react'
 import { useAuth } from '@/context/AuthContext'
+import { apiClient } from '@/services/ApiClient'
+import { API_ENDPOINTS } from '@/config/api'
 import { createClient } from '@/lib/supabase-browser'
 
 // Types
@@ -23,26 +23,6 @@ interface LanguageInfo {
   native_name: string
   flag: string
   displayName: string
-}
-
-interface CurrencyInfo {
-  name: string
-  displayName: string
-  flag: string
-  symbol: string
-}
-
-interface CountryInfo {
-  name: string
-  displayName: string
-  flag: string
-  rules: {
-    mortgageInterestDeductible: boolean
-    mortgageInterestDeductionRate?: number
-    maxMortgageInterestDeduction?: number
-    studentLoanInterestDeductible: boolean
-    maxStudentLoanInterestDeduction?: number
-  }
 }
 
 interface LocalizationContextType {
@@ -65,13 +45,17 @@ interface LocalizationContextType {
   ) => string
   formatNumber: (value: number, options?: Intl.NumberFormatOptions) => string
   languages: Record<Locale, LanguageInfo>
-  currencies: Record<Currency, CurrencyInfo>
-  countries: Record<Country, CountryInfo>
+  currencies: Record<Currency, any>
+  countries: Record<Country, any>
   loading: boolean
   error: string | null
 }
 
-// Initial language data structure (used only until API data is available)
+const LocalizationContext = createContext<LocalizationContextType | undefined>(
+  undefined
+)
+
+// Constants
 const INITIAL_LANGUAGES: Record<Locale, LanguageInfo> = {
   en: {
     name: 'English',
@@ -83,24 +67,24 @@ const INITIAL_LANGUAGES: Record<Locale, LanguageInfo> = {
     name: 'Danish',
     native_name: 'Dansk',
     flag: '🇩🇰',
-    displayName: 'Dansk',
+    displayName: 'Danish',
   },
 }
 
-// Initial currency data structure
-const CURRENCIES: Record<Currency, CurrencyInfo> = {
+const CURRENCIES = {
   USD: { name: 'US Dollar', displayName: 'USD', flag: '🇺🇸', symbol: '$' },
   DKK: { name: 'Danish Krone', displayName: 'DKK', flag: '🇩🇰', symbol: 'kr' },
   EUR: { name: 'Euro', displayName: 'EUR', flag: '🇪🇺', symbol: '€' },
 }
 
-const COUNTRIES: Record<Country, CountryInfo> = {
+const COUNTRIES = {
   US: {
     name: 'United States',
     displayName: 'United States',
     flag: '🇺🇸',
     rules: {
       mortgageInterestDeductible: true,
+      mortgageInterestDeductionRate: 0.24,
       maxMortgageInterestDeduction: 750000,
       studentLoanInterestDeductible: true,
       maxStudentLoanInterestDeduction: 2500,
@@ -108,7 +92,7 @@ const COUNTRIES: Record<Country, CountryInfo> = {
   },
   DK: {
     name: 'Denmark',
-    displayName: 'Danmark',
+    displayName: 'Denmark',
     flag: '🇩🇰',
     rules: {
       mortgageInterestDeductible: true,
@@ -118,35 +102,27 @@ const COUNTRIES: Record<Country, CountryInfo> = {
   },
 }
 
-// Create context
-const LocalizationContext = createContext<LocalizationContextType | undefined>(
-  undefined
-)
+// Cache configuration
+const CACHE_DURATION = {
+  TRANSLATIONS: 7 * 24 * 60 * 60 * 1000, // 7 days
+  LANGUAGES: 30 * 24 * 60 * 60 * 1000, // 30 days
+  EXCHANGE_RATES: 24 * 60 * 60 * 1000, // 24 hours
+}
 
-// Storage keys for browser caching
 const STORAGE_KEYS = {
-  LANGUAGES: 'penvid_languages',
+  LOCALE: 'penvid_locale',
+  CURRENCY: 'penvid_currency',
+  COUNTRY: 'penvid_country',
+  THEME: 'penvid_theme',
   TRANSLATIONS: 'penvid_translations',
+  LANGUAGES: 'penvid_languages',
   EXCHANGE_RATES: 'penvid_exchange_rates',
-  LANGUAGES_TIMESTAMP: 'penvid_languages_timestamp',
   TRANSLATIONS_TIMESTAMP: 'penvid_translations_timestamp',
+  LANGUAGES_TIMESTAMP: 'penvid_languages_timestamp',
   EXCHANGE_RATES_TIMESTAMP: 'penvid_exchange_rates_timestamp',
 }
 
-// Cache duration (in milliseconds)
-const CACHE_DURATION = {
-  LANGUAGES: 7 * 24 * 60 * 60 * 1000, // 7 days for languages
-  TRANSLATIONS: 7 * 24 * 60 * 60 * 1000, // 7 days for translations
-  EXCHANGE_RATES: 24 * 60 * 60 * 1000, // 1 day for exchange rates
-}
-
-// API request timeout (in milliseconds)
-const API_TIMEOUT = 8000 // Increased timeout for slower connections
-
-// API base URL
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
-
-// Create provider component
+// Provider component
 export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
   const { user, isAuthenticated } = useAuth()
   const [locale, setLocaleState] = useState<Locale>('en')
@@ -161,7 +137,32 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
   >({} as Record<Currency, Record<Currency, number>>)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // Get Supabase client
   const supabase = createClient()
+
+  // Set auth token when user changes
+  useEffect(() => {
+    const updateAuthToken = async () => {
+      if (user && isAuthenticated) {
+        try {
+          // Get the session from Supabase
+          const {
+            data: { session },
+          } = await supabase.auth.getSession()
+          if (session?.access_token) {
+            apiClient.setAuthToken(session.access_token)
+          }
+        } catch (error) {
+          console.error('Error getting auth token:', error)
+        }
+      } else {
+        apiClient.setAuthToken(null)
+      }
+    }
+
+    updateAuthToken()
+  }, [user, isAuthenticated, supabase])
 
   // Function to load cached data from localStorage
   const loadFromCache = useCallback(
@@ -173,7 +174,6 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
         if (cachedData && timestamp) {
           const parsedTimestamp = parseInt(timestamp, 10)
 
-          // Check if cache is still valid
           if (Date.now() - parsedTimestamp < duration) {
             return JSON.parse(cachedData)
           }
@@ -202,7 +202,6 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
 
   // Fetch available languages
   const fetchLanguages = useCallback(async () => {
-    // Try to load from cache first
     const cachedLanguages = loadFromCache(
       STORAGE_KEYS.LANGUAGES,
       STORAGE_KEYS.LANGUAGES_TIMESTAMP,
@@ -214,28 +213,13 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
       return cachedLanguages
     }
 
-    // If not in cache, fetch from API with timeout
     try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT)
+      const response = await apiClient.get(API_ENDPOINTS.translations.available)
 
-      const response = await fetch(`${API_URL}/translations/available`, {
-        signal: controller.signal,
-      })
-
-      clearTimeout(timeoutId)
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch languages: ${response.statusText}`)
-      }
-
-      const data = await response.json()
-
-      if (data.data?.locales) {
-        // Transform the data to our format
+      if (response.success && response.data?.locales) {
         const languagesMap: Record<Locale, LanguageInfo> = {}
 
-        data.data.locales.forEach((locale: any) => {
+        response.data.locales.forEach((locale: any) => {
           if (locale.code === 'en' || locale.code === 'da') {
             languagesMap[locale.code as Locale] = {
               name: locale.name,
@@ -246,7 +230,6 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
           }
         })
 
-        // Save to state and cache
         setLanguages(languagesMap)
         saveToCache(
           STORAGE_KEYS.LANGUAGES,
@@ -257,17 +240,20 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
         return languagesMap
       }
 
-      throw new Error('Locales data not found in response')
+      // Use fallback languages
+      setLanguages(INITIAL_LANGUAGES)
+      return INITIAL_LANGUAGES
     } catch (error: any) {
-      console.error(`Error fetching languages:`, error)
-      throw error
+      console.error('Error fetching languages:', error)
+      // Use fallback languages
+      setLanguages(INITIAL_LANGUAGES)
+      return INITIAL_LANGUAGES
     }
   }, [loadFromCache, saveToCache])
 
-  // Function to fetch translations with timeout and caching
+  // Function to fetch translations
   const fetchTranslations = useCallback(
     async (selectedLocale: Locale) => {
-      // Try to load from cache first
       const cachedTranslations = loadFromCache(
         `${STORAGE_KEYS.TRANSLATIONS}_${selectedLocale}`,
         `${STORAGE_KEYS.TRANSLATIONS_TIMESTAMP}_${selectedLocale}`,
@@ -279,54 +265,37 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
         return cachedTranslations
       }
 
-      // If not in cache, fetch from API with timeout
       try {
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT)
-
-        const response = await fetch(
-          `${API_URL}/translations/${selectedLocale}`,
-          {
-            signal: controller.signal,
-          }
+        const response = await apiClient.get(
+          API_ENDPOINTS.translations.get(selectedLocale)
         )
 
-        clearTimeout(timeoutId)
-
-        if (!response.ok) {
-          throw new Error(
-            `Failed to fetch translations: ${response.statusText}`
-          )
-        }
-
-        const data = await response.json()
-
-        if (data.data?.translations) {
-          // Save to state and cache
-          setTranslations(data.data.translations)
+        if (response.success && response.data?.translations) {
+          setTranslations(response.data.translations)
           saveToCache(
             `${STORAGE_KEYS.TRANSLATIONS}_${selectedLocale}`,
             `${STORAGE_KEYS.TRANSLATIONS_TIMESTAMP}_${selectedLocale}`,
-            data.data.translations
+            response.data.translations
           )
-          return data.data.translations
+          return response.data.translations
         }
 
-        throw new Error('Translations data not found in response')
+        // Return empty translations object
+        return {}
       } catch (error: any) {
         console.error(
           `Error fetching translations for ${selectedLocale}:`,
           error
         )
-        throw error
+        // Return empty translations object
+        return {}
       }
     },
     [loadFromCache, saveToCache]
   )
 
-  // Function to fetch exchange rates with timeout and caching
+  // Function to fetch exchange rates
   const fetchExchangeRates = useCallback(async () => {
-    // Try to load from cache first
     const cachedRates = loadFromCache(
       STORAGE_KEYS.EXCHANGE_RATES,
       STORAGE_KEYS.EXCHANGE_RATES_TIMESTAMP,
@@ -338,81 +307,51 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
       return cachedRates
     }
 
-    // If not in cache, fetch from API with timeout
     try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT)
+      const response = await apiClient.get(API_ENDPOINTS.currency.rates)
 
-      const response = await fetch(`${API_URL}/currency/rates`, {
-        signal: controller.signal,
-      })
-
-      clearTimeout(timeoutId)
-
-      if (!response.ok) {
-        throw new Error(
-          `Failed to fetch exchange rates: ${response.statusText}`
-        )
-      }
-
-      const data = await response.json()
-
-      if (data.data?.rates) {
-        // Save to state and cache
-        setExchangeRates(data.data.rates)
+      if (response.success && response.data?.rates) {
+        setExchangeRates(response.data.rates)
         saveToCache(
           STORAGE_KEYS.EXCHANGE_RATES,
           STORAGE_KEYS.EXCHANGE_RATES_TIMESTAMP,
-          data.data.rates
+          response.data.rates
         )
-        return data.data.rates
+        return response.data.rates
       }
 
-      throw new Error('Exchange rates data not found in response')
+      // Return empty rates object
+      return {}
     } catch (error: any) {
       console.error('Error fetching exchange rates:', error)
-      throw error
+      // Return empty rates object
+      return {}
     }
   }, [loadFromCache, saveToCache])
 
-  // Get auth token (helper function)
-  const getAuthToken = async () => {
-    const { data } = await supabase.auth.getSession()
-    if (!data.session) {
-      throw new Error('No authentication session available')
-    }
-    return data.session.access_token
-  }
-
-  // Fetch initial data - languages and exchange rates
+  // Fetch initial data
   useEffect(() => {
     const initializeData = async () => {
       setLoading(true)
       setError(null)
 
       try {
-        // First attempt to fetch languages
-        try {
-          await fetchLanguages()
-        } catch (error) {
-          console.error('Error fetching languages:', error)
+        // Fetch all initial data in parallel
+        const [languagesResult, ratesResult] = await Promise.allSettled([
+          fetchLanguages(),
+          fetchExchangeRates(),
+        ])
+
+        // Log any errors but don't fail the whole initialization
+        if (languagesResult.status === 'rejected') {
+          console.error('Failed to fetch languages:', languagesResult.reason)
+        }
+        if (ratesResult.status === 'rejected') {
+          console.error('Failed to fetch exchange rates:', ratesResult.reason)
         }
 
-        // Then attempt to fetch exchange rates
-        try {
-          await fetchExchangeRates()
-        } catch (error) {
-          console.error('Error fetching exchange rates:', error)
-        }
-
-        // Load a default language if nothing else is available
-        if (Object.keys(translations).length === 0) {
-          try {
-            await fetchTranslations('en')
-          } catch (error) {
-            console.error('Error fetching default translations:', error)
-          }
-        }
+        // Always try to load default translations
+        await fetchTranslations('en')
       } catch (error) {
         console.error('Error initializing data:', error)
         setError('Failed to initialize data')
@@ -422,63 +361,39 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
     }
 
     initializeData()
-  }, [fetchLanguages, fetchExchangeRates, fetchTranslations, translations])
+  }, [])
 
-  // Fetch user preferences - only done once at login
+  // Fetch user preferences
   useEffect(() => {
     const fetchUserPreferences = async () => {
-      // Only fetch if user is authenticated
       if (!isAuthenticated || !user) {
-        // Just fetch the English translations if the user isn't authenticated
-        try {
-          await fetchTranslations('en')
-        } catch (error) {
-          console.error('Error fetching default translations:', error)
-        }
-        setLoading(false)
         return
       }
 
       try {
-        setLoading(true)
-        setError(null)
-
-        // Get the access token
-        const token = await getAuthToken()
-
-        // Set up API timeout
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT)
-
-        const response = await fetch(`${API_URL}/preferences`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-          signal: controller.signal,
-        })
-
-        clearTimeout(timeoutId)
-
-        if (!response.ok) {
-          throw new Error(`Failed to fetch preferences: ${response.statusText}`)
+        // Get the session to ensure we have a valid token
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+        if (!session?.access_token) {
+          console.log('No valid session for fetching preferences')
+          return
         }
 
-        const data = await response.json()
+        // Update the token before making the request
+        apiClient.setAuthToken(session.access_token)
 
-        if (data.data?.preferences) {
-          const prefs = data.data.preferences
+        const response = await apiClient.get(API_ENDPOINTS.preferences.get)
 
-          // Only set if valid values
+        if (response.success && response.data?.preferences) {
+          const prefs = response.data.preferences
+
           if (
             prefs.locale &&
             (prefs.locale === 'en' || prefs.locale === 'da')
           ) {
             setLocaleState(prefs.locale as Locale)
-            // Fetch translations for this locale
             await fetchTranslations(prefs.locale as Locale)
-          } else {
-            // Fetch default translations
-            await fetchTranslations('en')
           }
 
           if (
@@ -495,30 +410,15 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
           if (prefs.theme) {
             setThemeState(prefs.theme)
           }
-        } else {
-          // Fetch default translations
-          await fetchTranslations('en')
         }
       } catch (error: any) {
         console.error('Error fetching user preferences:', error)
-        setError('Failed to load user preferences')
-
-        // Try to fetch the default translations
-        try {
-          await fetchTranslations('en')
-        } catch (translationError) {
-          console.error(
-            'Error fetching default translations:',
-            translationError
-          )
-        }
-      } finally {
-        setLoading(false)
+        // Don't set error state here as it's not critical
       }
     }
 
     fetchUserPreferences()
-  }, [isAuthenticated, user, fetchTranslations])
+  }, [isAuthenticated, user, fetchTranslations, supabase])
 
   // Update user preferences in API
   const updateUserPreferences = async (
@@ -534,31 +434,24 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
     }
 
     try {
-      // Get the access token
-      const token = await getAuthToken()
-
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT)
-
-      const response = await fetch(`${API_URL}/preferences`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(updates),
-        signal: controller.signal,
-      })
-
-      clearTimeout(timeoutId)
-
-      if (!response.ok) {
-        throw new Error(`Failed to update preferences: ${response.statusText}`)
+      // Ensure we have a valid token
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      if (session?.access_token) {
+        apiClient.setAuthToken(session.access_token)
       }
 
-      // Return updated preferences
-      const data = await response.json()
-      return data.data?.preferences
+      const response = await apiClient.post(
+        API_ENDPOINTS.preferences.update,
+        updates
+      )
+
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to update preferences')
+      }
+
+      return response.data?.preferences
     } catch (error: any) {
       console.error('Error updating user preferences:', error)
       throw error
@@ -569,17 +462,14 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
   const setLocale = async (newLocale: Locale) => {
     if (newLocale === locale) return
 
-    // Update UI immediately for better UX
     setLocaleState(newLocale)
 
-    // Load translations first for responsiveness
     try {
       await fetchTranslations(newLocale)
     } catch (error) {
       console.error(`Error fetching translations for ${newLocale}:`, error)
     }
 
-    // Then update in API (non-blocking)
     if (isAuthenticated && user) {
       try {
         await updateUserPreferences({ locale: newLocale })
@@ -593,10 +483,8 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
   const setCurrency = async (newCurrency: Currency) => {
     if (newCurrency === currency) return
 
-    // Update UI immediately
     setCurrencyState(newCurrency)
 
-    // Update in API (non-blocking)
     if (isAuthenticated && user) {
       try {
         await updateUserPreferences({ currency: newCurrency })
@@ -610,10 +498,8 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
   const setCountry = async (newCountry: Country) => {
     if (newCountry === country) return
 
-    // Update UI immediately
     setCountryState(newCountry)
 
-    // Update in API (non-blocking)
     if (isAuthenticated && user) {
       try {
         await updateUserPreferences({ country: newCountry })
@@ -627,10 +513,8 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
   const setTheme = async (newTheme: string) => {
     if (newTheme === theme) return
 
-    // Update UI immediately
     setThemeState(newTheme)
 
-    // Update in API (non-blocking)
     if (isAuthenticated && user) {
       try {
         await updateUserPreferences({ theme: newTheme })
@@ -641,36 +525,36 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
   }
 
   // Translation function
-  const t = (key: string, params?: Record<string, string>): string => {
+  const t = (
+    key: string,
+    defaultValue?: string,
+    params?: Record<string, string>
+  ): string => {
+    // If translations are not loaded yet, return default or key
     if (!translations || Object.keys(translations).length === 0) {
-      return key // Return the key if no translations are available yet
+      return defaultValue || key
     }
 
-    // Split key by dots for nested access
     const parts = key.split('.')
-    let result: any = translations
+    let current: any = translations
 
-    // Navigate through nested structure
     for (const part of parts) {
-      if (result && typeof result === 'object' && part in result) {
-        result = result[part]
+      if (current && typeof current === 'object' && part in current) {
+        current = current[part]
       } else {
-        // Key not found in translations
-        return key
+        return defaultValue || key
       }
     }
 
-    // If result is not a string, return key
-    if (typeof result !== 'string') {
-      return key
+    if (typeof current !== 'string') {
+      return defaultValue || key
     }
 
-    // Replace parameters
+    let result = current
     if (params) {
-      return Object.entries(params).reduce(
-        (str, [param, value]) => str.replace(`{${param}}`, value),
-        result
-      )
+      Object.entries(params).forEach(([param, value]) => {
+        result = result.replace(`{${param}}`, value)
+      })
     }
 
     return result
@@ -682,50 +566,34 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
     fromCurrency: Currency,
     toCurrency: Currency
   ): number => {
-    if (fromCurrency === toCurrency) {
-      return amount
+    if (fromCurrency === toCurrency) return amount
+
+    const fromRate = exchangeRates[fromCurrency]?.[toCurrency]
+    if (fromRate) {
+      return amount * fromRate
     }
 
-    // Check if we have exchange rates
-    if (
-      exchangeRates &&
-      exchangeRates[fromCurrency] &&
-      exchangeRates[fromCurrency][toCurrency]
-    ) {
-      // Direct conversion
-      return amount * exchangeRates[fromCurrency][toCurrency]
-    } else if (
-      exchangeRates &&
-      exchangeRates[toCurrency] &&
-      exchangeRates[toCurrency][fromCurrency]
-    ) {
-      // Inverse conversion
-      return amount / exchangeRates[toCurrency][fromCurrency]
-    } else if (
-      fromCurrency !== 'USD' &&
-      toCurrency !== 'USD' &&
-      exchangeRates &&
-      exchangeRates['USD']
-    ) {
-      // Use USD as intermediary
-      const toUSD =
-        exchangeRates[fromCurrency]?.['USD'] ||
-        (exchangeRates['USD'][fromCurrency]
-          ? 1 / exchangeRates['USD'][fromCurrency]
-          : null)
+    const toRate = exchangeRates[toCurrency]?.[fromCurrency]
+    if (toRate) {
+      return amount / toRate
+    }
 
-      const fromUSD =
-        exchangeRates['USD'][toCurrency] ||
-        (exchangeRates[toCurrency]?.['USD']
+    if (exchangeRates['USD']) {
+      const fromUSD = exchangeRates['USD'][fromCurrency]
+        ? 1 / exchangeRates['USD'][fromCurrency]
+        : exchangeRates[fromCurrency]?.['USD']
+
+      const toUSD = exchangeRates['USD'][toCurrency]
+        ? exchangeRates['USD'][toCurrency]
+        : exchangeRates[toCurrency]?.['USD']
           ? 1 / exchangeRates[toCurrency]['USD']
-          : null)
+          : null
 
       if (toUSD && fromUSD) {
         return amount * toUSD * fromUSD
       }
     }
 
-    // If we don't have exchange rates yet, return the original amount
     console.error(
       `No conversion rate found for ${fromCurrency} to ${toCurrency}`
     )
@@ -737,7 +605,6 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
     value: number,
     options?: Intl.NumberFormatOptions & { originalCurrency?: Currency }
   ): string => {
-    // Default formatting options
     const defaultOptions: Intl.NumberFormatOptions = {
       style: 'currency',
       currency: currency,
@@ -745,10 +612,8 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
       maximumFractionDigits: 0,
     }
 
-    // Merge options
     const mergedOptions = { ...defaultOptions, ...options }
 
-    // Convert value if needed
     let convertedValue = value
     if (options?.originalCurrency && options.originalCurrency !== currency) {
       convertedValue = convertCurrency(
@@ -758,7 +623,6 @@ export const LocalizationProvider = ({ children }: { children: ReactNode }) => {
       )
     }
 
-    // Format based on locale
     return new Intl.NumberFormat(
       locale === 'da' ? 'da-DK' : 'en-US',
       mergedOptions
