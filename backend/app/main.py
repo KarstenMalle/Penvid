@@ -1,3 +1,5 @@
+# File: backend/app/main.py
+
 import os
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -47,13 +49,13 @@ async def global_exception_handler(request: Request, exc: Exception):
     return JSONResponse(
         status_code=500,
         content={
-            "success": false,
+            "success": False,
             "error": "Internal server error",
             "message": "An unexpected error occurred"
         }
     )
 
-# Include all API routers
+# Include all API routers - FIXED: Remove .router since they're already router objects
 app.include_router(profiles)
 app.include_router(preferences)
 app.include_router(currency)
@@ -74,6 +76,38 @@ async def health_check() -> Dict[str, Any]:
             "version": "1.0.0"
         },
         "message": "API is running"
+    }
+
+# Additional endpoints for testing
+@app.get("/")
+async def root():
+    """
+    Root endpoint
+    """
+    return {
+        "success": True,
+        "message": "Penvid Financial API is running",
+        "version": "1.0.0",
+        "docs": "/docs"
+    }
+
+@app.get("/api")
+async def api_root():
+    """
+    API root endpoint
+    """
+    return {
+        "success": True,
+        "message": "Penvid Financial API",
+        "version": "1.0.0",
+        "endpoints": {
+            "health": "/api/health",
+            "preferences": "/api/preferences",
+            "translations": "/api/translations",
+            "loans": "/api/loans",
+            "profiles": "/api/profiles",
+            "currency": "/api/currency"
+        }
     }
 
 # Run the app if executed directly

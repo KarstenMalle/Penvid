@@ -1,53 +1,56 @@
-// API configuration
+// File: frontend/src/config/api.ts
+
 export const API_CONFIG = {
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
-  timeout: 30000,
-  retries: 3,
-  retryDelay: 1000,
+  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api',
+  timeout: 30000, // 30 seconds
 }
 
-// API endpoints
 export const API_ENDPOINTS = {
-  // Authentication
+  // Health check - FIXED: Removed /api prefix since baseURL now includes /api
+  health: '/health',
+
+  // Authentication endpoints - FIXED: Removed /api prefix since baseURL now includes /api
   auth: {
-    login: '/api/auth/login',
-    logout: '/api/auth/logout',
-    refresh: '/api/auth/refresh',
-    verify: '/api/auth/verify',
+    login: '/auth/login',
+    logout: '/auth/logout',
+    register: '/auth/register',
+    refresh: '/auth/refresh',
   },
 
-  // Translations
-  translations: {
-    get: (locale: string) => `/api/translations/${locale}`,
-    available: '/api/translations/available',
-    single: (locale: string, key: string) =>
-      `/api/translations/${locale}/${key}`,
-  },
-
-  // Preferences
+  // User preferences endpoints - FIXED: Removed /api prefix since backend already includes it
   preferences: {
-    get: '/api/preferences',
-    update: '/api/preferences',
+    get: '/preferences',
+    update: '/preferences',
   },
 
-  // Currency
+  // Profile endpoints - FIXED: Corrected to /profile (singular) to match backend
+  profiles: {
+    get: '/profile',
+    update: '/profile',
+  },
+
+  // Translation endpoints - FIXED: Removed /api prefix since backend already includes it
+  translations: {
+    available: '/translations/available',
+    get: (locale: string) => `/translations/${locale}`,
+  },
+
+  // Currency endpoints - FIXED: Removed /api prefix since backend already includes it
   currency: {
-    rates: '/api/currency/rates',
+    rates: '/currency/rates',
   },
 
-  // Profile
-  profile: {
-    get: '/api/profile',
-    update: '/api/profile',
-  },
-
-  // Loans
+  // Loan endpoints - FIXED: Removed /api prefix since baseURL now includes /api
   loans: {
-    list: (userId: string) => `/api/loans/${userId}`,
-    save: (userId: string) => `/api/loans/${userId}`,
-    update: (userId: string, loanId: number) =>
-      `/api/loans/${userId}/${loanId}`,
-    delete: (userId: string, loanId: number) =>
-      `/api/loans/${userId}/${loanId}`,
+    list: (userId: string) => `/loans/${userId}`,
+    create: (userId: string) => `/loans/${userId}`,
+    update: (userId: string, loanId: string) => `/loans/${userId}/${loanId}`,
+    delete: (userId: string, loanId: string) => `/loans/${userId}/${loanId}`,
+  },
+
+  // Loan calculations - FIXED: Removed /api prefix since baseURL now includes /api
+  calculations: {
+    optimize: '/loan-calculations/optimize',
+    compare: '/loan-calculations/compare',
   },
 }
